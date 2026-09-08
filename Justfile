@@ -1,36 +1,29 @@
 # Command skeleton: checks and lifecycle operations are not configured yet.
 
-# Run both test suites, preserving failure from either suite.
+# Run all tests in the module with race detection and shuffled execution.
 test:
-    #!/bin/sh
-    status=0
-    just test-unit || status=1
-    just test-integration || status=1
-    exit "$status"
+    go test -race -shuffle=on -count=1 ./...
 
-# Run fast unit tests through gotestsum.
+# Run fast unit tests through go test.
 test-unit:
-    @echo "test-unit: not configured; Go module and unit tests are missing." >&2
-    @exit 1
+    go test -short -race -shuffle=on -count=1 ./...
 
-# Run integration tests through gotestsum with isolated external dependencies.
-test-integration:
-    @echo "test-integration: not configured; Go module and integration tests are missing." >&2
-    @exit 1
-
-# Check formatting, static analysis, module consistency and Dockerfile.
+# Run static analysis without modifying source files.
 lint:
-    @echo "lint: not configured; Go module and check configuration are missing." >&2
-    @exit 1
+    golangci-lint run
 
-# Scan Go source and the built image for vulnerabilities.
-vuln:
-    @echo "vuln: not configured; Go module and image configuration are missing." >&2
-    @exit 1
+# Format Go files in place.
+format:
+    gofmt -w .
+
+# Synchronize module dependencies and verify their cached contents.
+deps:
+    go mod tidy
+    go mod verify
 
 # Build the project Docker image from the current source.
 build:
-    @echo "build: not configured; Dockerfile is empty and application code is missing." >&2
+    @echo "build: not configured; Dockerfile is empty." >&2
     @exit 1
 
 # Stop the project and remove its containers/networks, retaining persistent state.
