@@ -1,7 +1,9 @@
 # ADR 0004: Start with round-robin behind a replaceable selection contract
 
 Status: Accepted. Recorded: 2026-09-08.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer.
+Implementation: [round-robin selector](../../internal/selection/round_robin.go) implemented;
+request execution integration is pending.
 
 ## Decision
 
