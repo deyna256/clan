@@ -24,6 +24,9 @@ and the outcome is unknown.
 **Language:** Go. Its concurrency support and standard HTTP library suit a gateway
 handling simultaneous requests, long-lived streams, and cancellation.
 
+**HTTP:** `net/http.Server` with [chi](https://github.com/go-chi/chi) for routing
+and middleware groups. Handlers use standard `net/http` types.
+
 > **Status:** early. The design is still being worked out and there is no usable build yet.
 
 See the [documentation](#documentation) for project research and accepted decisions.
@@ -133,11 +136,15 @@ and multiple active gateway instances are outside the initial scope.
 
 ## Documentation
 
+See the [development guide](docs/development.md) for agreed coding conventions
+and review questions.
+
 ### Research
 
 | I want to… | Read |
 |---|---|
 | Study the upstream features, implementation and contracts | [Bifrost](docs/research/bifrost.md), [CLIProxyAPI](docs/research/cliproxyapi.md) |
+| Discuss Go coding and testing practices | [Go engineering practices](docs/research/go-engineering-practices.md) |
 | Compare token-budget enforcement approaches | [Token-budget research](docs/research/token-budget-enforcement.md) |
 | Understand usage persistence and failure recovery | [Accounting recovery research](docs/research/usage-accounting-recovery.md) |
 | Compare timeout policies for long requests and streams | [Request-timeout research](docs/research/request-timeouts.md) |
@@ -162,6 +169,7 @@ and multiple active gateway instances are outside the initial scope.
 | [0011 — Sliding-window RPM](docs/decisions/0011-use-sliding-window-rpm.md) | Accepted | Exact sliding RPM window, counted once per client request |
 | [0012 — Retry policy](docs/decisions/0012-retry-classified-transient-failures.md) | Accepted | Retry eligibility, attempt/wait limits and Retry-After |
 | [0013 — Timeout policies](docs/decisions/0013-separate-ordinary-and-streaming-timeouts.md) | Accepted | Separate overall, startup, inactivity and write timeouts |
+| [0014 — HTTP routing](docs/decisions/0014-use-chi-for-http-routing.md) | Accepted | chi over net/http, route groups and standard handlers |
 
 ### Design sequencing
 

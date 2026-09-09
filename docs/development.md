@@ -1,0 +1,281 @@
+# Development guide
+
+These are CLAN's agreed coding rules, accepted on 2026-09-10. Product behavior is
+defined in the [ADRs](../README.md#decision-log), and commands are in the
+[Justfile](../Justfile). The [Go practices research](research/go-engineering-practices.md)
+provides sources and background. LLM instructions should link here instead of
+copying these rules.
+
+## Packages and responsibility
+
+Give each package a clear job and export only what callers need. Split files to
+make related code easier to navigate. Create a package for a separate job, not
+because a file has reached a certain length. Avoid catch-all packages such as
+`utils` or `common`.
+
+Account selection manages rotation and positions. Credential renewal, database
+access and client authorization belong elsewhere.
+
+**Review:** Can you explain the package's job in one sentence? Do its exports and
+imports fit that job? Can its internals change without changing its contract?
+
+## Interfaces follow their consumers
+
+Define small interfaces around the calling code's needs, usually in that code's
+package. Constructors should normally return concrete types. Do not add an
+interface for every struct or just to mock the code being tested. Reuse standard
+interfaces such as `io.Reader` when they fit.
+
+Implement and test `RoundRobin` directly. Add the selector interface when request
+execution needs it, following
+[ADR 0004](decisions/0004-use-replaceable-account-selection.md#selection-interface).
+Go's implicit interface implementation lets selection stay independent of its caller.
+
+**Review:** Who needs this interface? Do they need every method? Does the interface
+help separate dependencies, or just repeat an implementation?
+
+## Domain types and validation
+
+Define a type when it prevents mistakes or gives values useful behavior.
+Separate account and upstream ID types help catch accidental mixing at compile
+time. A new type for every primitive value is unnecessary.
+
+`type AccountID string` defines a distinct type; `type AccountID = string` is an
+alias and does not distinguish account IDs from strings. Defined types still
+allow explicit conversions and do not validate their contents. Validate external
+input before treating it as trusted data.
+
+**Review:** What mistake does the type prevent? Where are values validated?
+Do repeated conversions suggest that the interface needs to change?
+
+## Initialization and nil
+
+Initialize required dependencies and mutable data structures during construction.
+Use `nil` where its meaning is clear: a nil error means success, and a nil slice
+can represent an empty sequence. Do not allocate a slice just to avoid nil.
+
+Check required dependencies in the constructor. Create `RoundRobin`'s position map
+there, not on the first `Select` call. Document when a constructor is required:
+callers can still create the zero value of an exported struct. An interface is
+not needed just to force constructor use.
+
+**Review:** Which values can be absent? Is required state ready after construction?
+Do repeated nil checks point to missing initialization?
+
+## Generics
+
+Use type parameters when actual uses share an algorithm across different types.
+Prefer concrete types or small interfaces when they are simpler. Reuse suitable
+functions from `slices` and `maps` before writing helpers.
+
+Keep `RoundRobin` specific to `Scope` and `AccountID`. Supporting another selection
+strategy does not require a generic scheduling library.
+
+**Review:** Which existing uses benefit? Does the abstraction make calling code
+easier to understand? Possible future reuse alone is not enough.
+
+## Ownership of mutable data
+
+State whether a method reads, changes or keeps its arguments. Copy data when the
+caller and callee need independent copies. Synchronize shared access, and document
+any access to mutable internal state.
+
+`Select` reads the candidate slice without changing or keeping it; it remembers
+the selected ID for the scope. The caller must not modify the slice during the
+call. Selection does not need to copy it.
+
+Cloning a slice or map is shallow: nested mutable data may still be shared.
+Copying also needs safe access to the source; it does not fix concurrent writes.
+
+**Review:** Can callers change internal state through an argument or return value?
+Are copies independent enough, and is shared access safe?
+
+## Construction and dependencies
+
+Create dependencies explicitly and pass each component only what it needs.
+Keep mutable application state out of package globals. Create shared objects once
+at startup and pass them to callers; tests can create their own instances.
+
+Use ordinary constructors. Avoid passing a whole application container to a
+component that needs only a few dependencies. Keep environment reads, database
+connections and worker startup out of `init()`. Constants and predefined errors
+do not need dependency injection.
+
+**Review:** Are dependencies visible? Can tests create independent instances?
+Who starts and stops resources?
+
+## Errors and failure ownership
+
+Return errors for expected failures. Use a plain error for a description, a
+sentinel error when callers need to recognize a specific failure, and a custom
+error type when they need extra fields. Use `errors.Is` and `errors.As` instead
+of comparing error messages.
+
+Add useful context. Wrapping with `%w` makes the underlying error available to
+callers, so wrap only when that is part of the contract. Translate errors at
+module boundaries when callers should not depend on internal details. Keep
+secrets out of errors and client responses.
+
+Decide where errors are handled, returned and logged. Avoid logging the same
+failure at every layer. Provider adapters classify failures, request execution
+owns retries, and inbound adapters encode client errors; see
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
+
+**Review:** Can callers identify failures without parsing messages? Who handles,
+retries and logs them? Are internal details and secrets kept private?
+
+## Synchronization and invariants
+
+Identify what must stay true when calls overlap. Protect related changes as one
+operation: safe individual reads and writes do not make the whole sequence atomic.
+
+Use a map and a private `sync.Mutex` in `RoundRobin`. Hold the lock while reading
+the position, selecting an ID and updating the position. Use pointer receivers
+and pass the selector by pointer; never copy a mutex after first use. Keep network
+calls and long waits outside the lock.
+
+One mutex protects selection across all upstream/model pairs. Split locks only
+if measurements show a need. `sync.Map` does not protect the whole selection
+operation for us.
+
+**Review:** Does the lock cover the full read-and-update sequence? Do concurrent
+tests check the required behavior as well as data races?
+
+## Goroutine lifetime
+
+Start goroutines when work needs to run concurrently. Give each one an owner,
+exit conditions, error handling and a way to wait for completion. Bound concurrent
+work according to the task. Selection stays synchronous.
+
+Cancellation asks work to stop; it does not terminate a goroutine or wait for
+cleanup. `sync.WaitGroup` waits for completion but does not cancel work or collect
+errors. Ensure blocking I/O and channel operations can finish when work is stopped.
+
+Request work follows the request through cleanup. The application owns background
+work and must stop and wait for it during shutdown.
+
+**Review:** Why does each goroutine exist? Who owns it, observes errors and waits
+for it? Can it exit if its consumer stops reading?
+
+## Context follows the operation
+
+Pass context first to operations that need cancellation or deadlines, and carry
+the request context through to I/O. Derive child contexts from it instead of
+replacing it with `context.Background()`. Context values are for request
+information, not dependencies, configuration or model parameters.
+
+When creating a context with a cancel function, assign responsibility for calling
+it when the operation ends. A stream's operation includes reading it: do not defer
+cancellation in a function returning a stream that still needs that context.
+Follow the
+[stream contract](decisions/0003-separate-request-execution-from-protocols.md#stream-consumption-next-and-close).
+
+Do not store a request context in a shared executor or application-wide object.
+An object for one stream may hold its context, with ownership and lifetime
+documented. Selection needs no context.
+
+**Review:** Does cancellation reach the blocking work? Can it happen too early,
+or be lost? Who calls the cancel function?
+
+## Resource cleanup
+
+Assign an owner to each resource and clean it up on every exit path. Code receiving
+a resource normally owns cleanup unless it transfers that responsibility.
+Use `defer` when function exit is the right time to release the resource.
+
+A defer inside a loop runs at function exit, not after each iteration. Avoid
+keeping resources open longer than needed. A function returning a live resource
+must leave it usable and transfer cleanup to the caller.
+
+Report cleanup errors that make the result unreliable. Preserve the original
+failure if cleanup also fails. Repeated `Close` calls are not safe for every
+resource; CLAN's stream guarantees this in
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md#stream-consumption-next-and-close).
+Hold the concurrency slot through cleanup, as required by
+[ADR 0010](decisions/0010-limit-concurrent-client-requests.md).
+
+**Review:** Who cleans up, on which exit paths, and when? How do cleanup errors
+affect the result?
+
+## Names, comments and control flow
+
+Choose names that explain their purpose. Short names such as `i`, `ctx` and `err`
+work when their meaning and scope are clear. Format with `gofmt`.
+
+Handle errors and boundary cases early so the main path is easy to follow.
+Keep cleanup correct on early returns. Extract functions for useful operations,
+not to meet a line limit.
+
+Comments should explain contracts and reasons: concurrency, ownership,
+initialization requirements and choices that need explanation. Avoid repeating
+what the code already says.
+
+**Review:** Can a reader follow the inputs, decisions and exits without the author's
+explanation or knowledge of the code's history?
+
+## Tests exercise behavior
+
+Test the real module through its caller-facing contract. Set expected results
+independently; do not copy the production algorithm to calculate them. Tests
+should remain useful when internal details change.
+
+Use standard `testing`, tables for related cases and separate tests for different
+scenarios. Failure messages should show the case, actual result and expected
+result. Use simple test doubles when a dependency needs to return a controlled
+response or failure.
+
+For selection, test rotation, reordered and changing candidates, empty input,
+independent upstream/model positions and unchanged input. For concurrent calls on
+one scope with three fixed, distinct candidates, 300 successful selections should
+choose each candidate 100 times. Do not assume goroutine execution order.
+
+Keep selection tests independent of external services. Test SQL, migrations and
+transactions with real SQLite and PostgreSQL. `just test` runs all tests;
+`just test-unit` adds `-short`. Integration tests skip when `testing.Short()` is
+true; build tags do not separate the suites.
+
+**Review:** What contract violation would each test catch? Would its failure
+message explain the problem?
+
+## Race detection, properties and fuzzing
+
+Use the race detector, as configured in the Justfile. It checks executed paths
+for data races; it does not prove correct concurrent behavior. Also assert the
+operation's guarantees.
+
+Use property checks alongside specific examples. For selection, the result must
+belong to the candidates, and reordering them from the same starting position must
+preserve the choice. For one scope with a fixed set of unique candidates, selection
+counts should differ by at most one. Ordinary Go tests can check these properties.
+
+Use fuzzing where generated inputs help test complex input handling, such as
+JSON and stream parsers. Define useful properties and keep failing inputs as
+regression cases. Ordinary `go test` runs saved seed cases; finding new inputs
+needs a separate `-fuzz` run.
+
+These techniques fit within unit and integration tests. Active fuzzing is outside
+the default full run. Coverage alone does not show test quality.
+
+**Review:** What failure does each check find? Can the failure be reproduced?
+
+## Tooling and dependencies
+
+Use an explicit golangci-lint set: `govet`, `staticcheck`, `errcheck` and `unused`.
+Add checks when their purpose is clear. Keep formatting in `gofmt`. Suppress a
+finding only where needed, naming the linter and explaining the exception.
+Ignoring an error needs a reason.
+
+Pin tool versions. Use the same golangci-lint version locally and in CI, compatible
+with the project's Go version. Review upgrades separately: analyzer updates may
+report new findings even with the same checks enabled.
+
+Add dependencies with the code that uses them. First consider the standard library
+and existing dependencies. Explain what a new library solves and why it helps.
+
+Use `just deps` to keep module files consistent with the code. `go.mod` records
+version requirements; `go.sum` records checksums. `go mod tidy` updates those files.
+`go mod verify` checks cached module contents for changes; it does not scan for
+vulnerabilities.
+
+**Review:** Do new checks and dependencies have a clear purpose? Are exceptions
+explained and tool versions consistent?
