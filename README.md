@@ -74,6 +74,57 @@ See the [client discovery research](docs/research/client-model-discovery.md) and
 [accepted ADRs](#decision-log) for exact contracts and trade-offs,
 including budget overruns, incomplete history and possible loss of unsaved usage on a crash.
 
+## Request flow
+
+The planned request path runs inside one CLAN process. Solid arrows show outgoing
+requests; dashed arrows show results returning to the client. These are runtime
+flows, not Go package dependencies.
+
+```mermaid
+flowchart TB
+    accTitle: CLAN request flow
+    accDescr: A client request passes through an inbound adapter, request execution and a provider adapter within one CLAN process. Results return through the same blocks. Request execution owns access checks, account selection and retries.
+
+    client["Client application"]
+
+    subgraph clan["CLAN · one process"]
+        inbound["Inbound adapter<br/>Validate client requests<br/>Convert client protocol"]
+        execution["Request execution<br/>Check access and limits<br/>Filter and select accounts<br/>Manage retries"]
+        provider["Provider adapter<br/>Use account credentials<br/>Convert upstream protocol<br/>Classify errors"]
+    end
+
+    upstream["External LLM service"]
+
+    client -->|"Request + access key"| inbound
+    inbound -->|"Common request + identity"| execution
+    execution -->|"Attempt + account + model"| provider
+    provider -->|"Authenticated request"| upstream
+
+    upstream -.->|"Upstream result"| provider
+    provider -.->|"Common result"| execution
+    execution -.->|"Common result"| inbound
+    inbound -.->|"Client result"| client
+
+    classDef edge fill:#f1f5f9,stroke:#64748b,color:#0f172a
+    classDef adapter fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef core fill:#ecfdf5,stroke:#059669,color:#064e3b
+    class client,upstream edge
+    class inbound,provider adapter
+    class execution core
+    style clan fill:transparent,stroke:#94a3b8,stroke-dasharray:5 5
+```
+
+A result is a complete response, a stream or an error. Internally, streaming uses
+shared `Event` values through `Next`/`Close`. Validation or admission can reject a
+request before it reaches the upstream.
+
+Request execution selects eligible accounts with round-robin and owns retries,
+cancellation, timeouts, token accounting and attempt history. Each attempt keeps
+the requested model and the caller's access rules. The blocks show responsibilities
+within the process. See
+[ADR 0003](docs/decisions/0003-separate-request-execution-from-protocols.md) for the
+full contract.
+
 ## Deferred
 
 Gemini on both API sides, named account pools, model aliases or automatic model
