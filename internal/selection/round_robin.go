@@ -28,6 +28,8 @@ func NewRoundRobin() *RoundRobin {
 }
 
 // Select returns the next candidate for scope, or the zero ID and false if empty.
+// It chooses the smallest ID above the previous choice, wrapping to the smallest
+// candidate when none is greater. The first choice is the smallest candidate.
 // An empty call leaves the position unchanged. IDs use Go string ordering.
 // The candidate slice is neither changed nor retained; callers must not modify it
 // during the call. Selecting an account does not authorize or reserve its use.

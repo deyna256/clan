@@ -206,6 +206,12 @@ Handle errors and boundary cases early so the main path is easy to follow.
 Keep cleanup correct on early returns. Extract functions for useful operations,
 not to meet a line limit.
 
+Reduce the facts a reader must track at once: deep nesting, mixed boolean
+conditions and variables that change meaning. Give a function one clear job.
+Extract a helper when its name explains a useful step; avoid splitting code just
+to lower a [complexity score](https://www.sonarsource.com/resources/cognitive-complexity/).
+A score can prompt review, but cannot replace it.
+
 Comments should explain contracts and reasons: concurrency, ownership,
 initialization requirements and choices that need explanation. Avoid repeating
 what the code already says.
@@ -223,6 +229,12 @@ Use standard `testing`, tables for related cases and separate tests for differen
 scenarios. Failure messages should show the case, actual result and expected
 result. Use simple test doubles when a dependency needs to return a controlled
 response or failure.
+
+Use [Arrange, Act, Assert (AAA)](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-best-practices#arrange-your-tests):
+prepare the state, perform the behavior, then
+check the results. Separate the stages with blank lines and comments when helpful.
+A stateful scenario may need several calls in Act. Name fields in test tables,
+keep expected results visible, and avoid test helpers that hide the behavior.
 
 For selection, test rotation, reordered and changing candidates, empty input,
 independent upstream/model positions and unchanged input. For concurrent calls on
