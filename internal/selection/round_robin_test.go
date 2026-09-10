@@ -10,11 +10,6 @@ import (
 	"github.com/deyna256/clan/internal/selection"
 )
 
-type selectionResult struct {
-	id account.ID
-	ok bool
-}
-
 func TestRoundRobinRotation(t *testing.T) {
 	tests := []struct {
 		candidates []account.ID
@@ -31,22 +26,17 @@ func TestRoundRobinRotation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprint(tt.candidates), func(t *testing.T) {
-			// Arrange.
 			selector := selection.NewRoundRobin()
 			scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
-			results := make([]selectionResult, len(tt.want))
 
-			// Act: run a full cycle and wrap, changing input order between calls.
-			for i := range results {
-				results[i].id, results[i].ok = selector.Select(scope, tt.candidates)
-				slices.Reverse(tt.candidates)
-			}
+			for i, want := range tt.want {
+				got, ok := selector.Select(scope, tt.candidates)
 
-			// Assert.
-			for i, result := range results {
-				if !result.ok || result.id != tt.want[i] {
-					t.Errorf("call %d = (%q, %t), want (%q, true)", i+1, result.id, result.ok, tt.want[i])
+				if !ok || got != want {
+					t.Errorf("Select() call %d = (%q, %t), want (%q, true)", i+1, got, ok, want)
 				}
+				// Reordering candidates must not change the rotation.
+				slices.Reverse(tt.candidates)
 			}
 		})
 	}
@@ -97,10 +87,8 @@ func TestRoundRobinCandidateChanges(t *testing.T) {
 			scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
 			selector.Select(scope, tt.previous)
 
-			// Act.
 			got, ok := selector.Select(scope, tt.candidates)
 
-			// Assert.
 			if !ok || got != tt.want {
 				t.Fatalf("Select(%v) = (%q, %t), want (%q, true)", tt.candidates, got, ok, tt.want)
 			}
@@ -118,7 +106,6 @@ func TestRoundRobinReturningCandidate(t *testing.T) {
 	// Act: a returns to the candidate set.
 	got, ok := selector.Select(scope, []account.ID{"c", "a", "b"})
 
-	// Assert.
 	if !ok || got != "a" {
 		t.Fatalf("choice after account returns = (%q, %t), want (a, true)", got, ok)
 	}
@@ -138,7 +125,6 @@ func TestRoundRobinEmptyInputPreservesPosition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Arrange.
 			selector := selection.NewRoundRobin()
 			scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
 			selector.Select(scope, tt.previous)
@@ -147,7 +133,6 @@ func TestRoundRobinEmptyInputPreservesPosition(t *testing.T) {
 			got, ok := selector.Select(scope, tt.empty)
 			next, nextOK := selector.Select(scope, []account.ID{"c", "a", "b"})
 
-			// Assert.
 			if got != "" || ok {
 				t.Errorf("empty selection = (%q, %t), want (\"\", false)", got, ok)
 			}
@@ -159,7 +144,6 @@ func TestRoundRobinEmptyInputPreservesPosition(t *testing.T) {
 }
 
 func TestRoundRobinIndependentScopes(t *testing.T) {
-	// Arrange.
 	selector := selection.NewRoundRobin()
 	first := selection.Scope{UpstreamID: "first", Model: "model"}
 	otherUpstream := selection.Scope{UpstreamID: "second", Model: "model"}
@@ -177,35 +161,27 @@ func TestRoundRobinIndependentScopes(t *testing.T) {
 		{scope: otherUpstream, want: "b"},
 		{scope: otherModel, want: "b"},
 	}
-	results := make([]selectionResult, len(calls))
 
-	// Act.
 	for i, call := range calls {
-		results[i].id, results[i].ok = selector.Select(call.scope, candidates)
-	}
+		got, ok := selector.Select(call.scope, candidates)
 
-	// Assert.
-	for i, result := range results {
-		if !result.ok || result.id != calls[i].want {
-			t.Errorf("call %d for %+v = (%q, %t), want (%q, true)",
-				i+1, calls[i].scope, result.id, result.ok, calls[i].want)
+		if !ok || got != call.want {
+			t.Errorf("Select(%+v) call %d = (%q, %t), want (%q, true)",
+				call.scope, i+1, got, ok, call.want)
 		}
 	}
 }
 
 func TestRoundRobinIndependentInstances(t *testing.T) {
-	// Arrange.
 	first := selection.NewRoundRobin()
 	scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
 	candidates := []account.ID{"b", "a", "c"}
 	first.Select(scope, []account.ID{"b"})
 
-	// Act.
 	second := selection.NewRoundRobin()
 	newID, newOK := second.Select(scope, candidates)
 	existingID, existingOK := first.Select(scope, candidates)
 
-	// Assert.
 	if !newOK || newID != "a" {
 		t.Errorf("new instance choice = (%q, %t), want (a, true)", newID, newOK)
 	}
@@ -224,10 +200,8 @@ func TestRoundRobinLeavesCandidatesUnchanged(t *testing.T) {
 			candidates := []account.ID{"c", "a", "b"}
 			want := slices.Clone(candidates)
 
-			// Act.
 			selector.Select(scope, candidates)
 
-			// Assert.
 			if !slices.Equal(candidates, want) {
 				t.Fatalf("candidates changed: got %v, want %v", candidates, want)
 			}
@@ -236,7 +210,6 @@ func TestRoundRobinLeavesCandidatesUnchanged(t *testing.T) {
 }
 
 func TestRoundRobinCallerCanReuseCandidates(t *testing.T) {
-	// Arrange.
 	selector := selection.NewRoundRobin()
 	scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
 	candidates := []account.ID{"c", "a", "b"}
@@ -245,22 +218,22 @@ func TestRoundRobinCallerCanReuseCandidates(t *testing.T) {
 		candidates[i] = "z"
 	}
 
-	// Act.
 	got, ok := selector.Select(scope, []account.ID{"c", "a", "b"})
 
-	// Assert.
 	if !ok || got != "b" {
 		t.Fatalf("choice after reusing input = (%q, %t), want (b, true)", got, ok)
 	}
 }
 
 func TestRoundRobinConcurrentSelection(t *testing.T) {
-	// Arrange.
 	selector := selection.NewRoundRobin()
 	scope := selection.Scope{UpstreamID: "upstream", Model: "model"}
 	candidates := []account.ID{"c", "a", "b"}
 	const calls = 300
-	results := make([]selectionResult, calls)
+	results := make([]struct {
+		id account.ID
+		ok bool
+	}, calls)
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 
@@ -275,7 +248,6 @@ func TestRoundRobinConcurrentSelection(t *testing.T) {
 	workers.Wait()
 	next, nextOK := selector.Select(scope, candidates)
 
-	// Assert.
 	counts := make(map[account.ID]int)
 	for i, result := range results {
 		if !result.ok || !slices.Contains(candidates, result.id) {

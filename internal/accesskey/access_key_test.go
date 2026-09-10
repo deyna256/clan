@@ -24,7 +24,7 @@ func TestNewRejectsInvalidIdentity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			permissions := accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true}
+			permissions := unrestrictedPermissions()
 
 			key, err := accesskey.New(tt.identity, true, permissions)
 
@@ -205,13 +205,14 @@ func TestAllowsCombinesListsWithUnrestrictedDimensions(t *testing.T) {
 }
 
 func TestAllowsMatchesExactTargets(t *testing.T) {
+	firstModel := accesskey.Model{UpstreamID: "first", Name: "shared"}
+	secondModel := accesskey.Model{UpstreamID: "second", Name: "other"}
+	firstAccount := account.Identity{ID: "a", UpstreamID: "first"}
+	secondAccount := account.Identity{ID: "b", UpstreamID: "second"}
 	key := newKey(t, true, accesskey.Permissions{
 		Upstreams: []upstream.ID{"first", "second"},
-		Models: []accesskey.Model{
-			{UpstreamID: "first", Name: "shared"},
-			{UpstreamID: "second", Name: "other"},
-		},
-		Accounts: []account.ID{"a", "b"},
+		Models:    []accesskey.Model{firstModel, secondModel},
+		Accounts:  []account.ID{"a", "b"},
 	})
 	tests := []struct {
 		name      string
@@ -221,49 +222,49 @@ func TestAllowsMatchesExactTargets(t *testing.T) {
 	}{
 		{
 			name:      "first permitted target",
-			model:     accesskey.Model{UpstreamID: "first", Name: "shared"},
-			candidate: account.Identity{ID: "a", UpstreamID: "first"},
+			model:     firstModel,
+			candidate: firstAccount,
 			want:      true,
 		},
 		{
 			name:      "second permitted target",
-			model:     accesskey.Model{UpstreamID: "second", Name: "other"},
-			candidate: account.Identity{ID: "b", UpstreamID: "second"},
+			model:     secondModel,
+			candidate: secondAccount,
 			want:      true,
 		},
 		{
 			name:      "same model name on another upstream",
 			model:     accesskey.Model{UpstreamID: "second", Name: "shared"},
-			candidate: account.Identity{ID: "b", UpstreamID: "second"},
+			candidate: secondAccount,
 		},
 		{
 			name:      "unlisted model",
 			model:     accesskey.Model{UpstreamID: "first", Name: "other"},
-			candidate: account.Identity{ID: "a", UpstreamID: "first"},
+			candidate: firstAccount,
 		},
 		{
 			name:      "unlisted account",
-			model:     accesskey.Model{UpstreamID: "first", Name: "shared"},
+			model:     firstModel,
 			candidate: account.Identity{ID: "c", UpstreamID: "first"},
 		},
 		{
 			name:      "account belongs to another upstream",
-			model:     accesskey.Model{UpstreamID: "first", Name: "shared"},
+			model:     firstModel,
 			candidate: account.Identity{ID: "a", UpstreamID: "second"},
 		},
 		{
 			name:      "model name case differs",
 			model:     accesskey.Model{UpstreamID: "first", Name: "Shared"},
-			candidate: account.Identity{ID: "a", UpstreamID: "first"},
+			candidate: firstAccount,
 		},
 		{
 			name:      "model name whitespace differs",
 			model:     accesskey.Model{UpstreamID: "first", Name: " shared "},
-			candidate: account.Identity{ID: "a", UpstreamID: "first"},
+			candidate: firstAccount,
 		},
 		{
 			name:      "account id case differs",
-			model:     accesskey.Model{UpstreamID: "first", Name: "shared"},
+			model:     firstModel,
 			candidate: account.Identity{ID: "A", UpstreamID: "first"},
 		},
 	}
@@ -279,7 +280,7 @@ func TestAllowsMatchesExactTargets(t *testing.T) {
 }
 
 func TestDisabledAndZeroKeysDenyAccess(t *testing.T) {
-	disabled := newKey(t, false, accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true})
+	disabled := newKey(t, false, unrestrictedPermissions())
 	tests := []struct {
 		name string
 		key  accesskey.AccessKey
@@ -303,7 +304,9 @@ func TestDisabledAndZeroKeysDenyAccess(t *testing.T) {
 }
 
 func TestUnrestrictedKeyRejectsInvalidTargets(t *testing.T) {
-	key := newKey(t, true, accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true})
+	validModel := accesskey.Model{UpstreamID: "u", Name: "m"}
+	validAccount := account.Identity{ID: "a", UpstreamID: "u"}
+	key := newKey(t, true, unrestrictedPermissions())
 	tests := []struct {
 		name      string
 		model     accesskey.Model
@@ -315,27 +318,27 @@ func TestUnrestrictedKeyRejectsInvalidTargets(t *testing.T) {
 			model:     accesskey.Model{UpstreamID: " \t\n", Name: "m"},
 			candidate: account.Identity{ID: "a", UpstreamID: " \t\n"},
 		},
-		{name: "missing model name", model: accesskey.Model{UpstreamID: "u"}, candidate: account.Identity{ID: "a", UpstreamID: "u"}},
+		{name: "missing model name", model: accesskey.Model{UpstreamID: "u"}, candidate: validAccount},
 		{
 			name:      "blank model name",
 			model:     accesskey.Model{UpstreamID: "u", Name: " \t\n"},
-			candidate: account.Identity{ID: "a", UpstreamID: "u"},
+			candidate: validAccount,
 		},
-		{name: "missing account id", model: accesskey.Model{UpstreamID: "u", Name: "m"}, candidate: account.Identity{UpstreamID: "u"}},
+		{name: "missing account id", model: validModel, candidate: account.Identity{UpstreamID: "u"}},
 		{
 			name:      "blank account id",
-			model:     accesskey.Model{UpstreamID: "u", Name: "m"},
+			model:     validModel,
 			candidate: account.Identity{ID: " \t\n", UpstreamID: "u"},
 		},
-		{name: "missing account upstream", model: accesskey.Model{UpstreamID: "u", Name: "m"}, candidate: account.Identity{ID: "a"}},
+		{name: "missing account upstream", model: validModel, candidate: account.Identity{ID: "a"}},
 		{
 			name:      "wrong account upstream",
-			model:     accesskey.Model{UpstreamID: "u", Name: "m"},
+			model:     validModel,
 			candidate: account.Identity{ID: "a", UpstreamID: "other"},
 		},
 		{
 			name:      "account upstream case differs",
-			model:     accesskey.Model{UpstreamID: "u", Name: "m"},
+			model:     validModel,
 			candidate: account.Identity{ID: "a", UpstreamID: "U"},
 		},
 	}
@@ -408,7 +411,7 @@ func TestFilterLeavesCandidatesUnchanged(t *testing.T) {
 }
 
 func TestFilterWithNoCandidates(t *testing.T) {
-	key := newKey(t, true, accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true})
+	key := newKey(t, true, unrestrictedPermissions())
 	for _, candidates := range [][]account.Identity{nil, {}} {
 		got := key.Filter(accesskey.Model{UpstreamID: "u", Name: "m"}, candidates)
 
@@ -419,41 +422,25 @@ func TestFilterWithNoCandidates(t *testing.T) {
 }
 
 func TestPermissionsLimitRoundRobinCandidates(t *testing.T) {
-	// Arrange: real accounts differ in credentials, IDs and upstreams.
-	var candidates []account.Identity
-	for _, input := range []struct {
-		id          account.ID
-		upstreamID  upstream.ID
-		credentials account.Credentials
-	}{
-		{id: "c", upstreamID: "primary", credentials: account.OAuthCredentials{AccessToken: "test-oauth"}},
-		{id: "a", upstreamID: "primary", credentials: account.APIKeyCredentials{Key: "test-key-a"}},
-		{id: "d", upstreamID: "other", credentials: account.APIKeyCredentials{Key: "test-key-d"}},
-		{id: "b", upstreamID: "primary", credentials: account.APIKeyCredentials{Key: "test-key-b"}},
-	} {
-		a, err := account.New(account.Identity{ID: input.id, Name: "Test account", UpstreamID: input.upstreamID}, input.credentials)
-		if err != nil {
-			t.Fatal(err)
-		}
-		candidates = append(candidates, a.Identity())
+	apiKey := account.APIKeyCredentials{Key: "test-key"}
+	candidates := []account.Identity{
+		newAccount(t, "c", "primary", account.OAuthCredentials{AccessToken: "test-oauth"}).Identity(),
+		newAccount(t, "a", "primary", apiKey).Identity(),
+		newAccount(t, "d", "other", apiKey).Identity(),
+		newAccount(t, "b", "primary", apiKey).Identity(),
 	}
-	key, err := accesskey.New(
-		accesskey.Identity{ID: "key-1", Name: "Agent"}, true,
-		accesskey.Permissions{
-			Upstreams: []upstream.ID{"primary"},
-			Models:    []accesskey.Model{{UpstreamID: "primary", Name: "model"}},
-			Accounts:  []account.ID{"a", "c", "d"},
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	model := accesskey.Model{UpstreamID: "primary", Name: "model"}
+	key := newKey(t, true, accesskey.Permissions{
+		Upstreams: []upstream.ID{"primary"},
+		Models:    []accesskey.Model{model},
+		Accounts:  []account.ID{"a", "c", "d"},
+	})
 	selector := selection.NewRoundRobin()
 	scope := selection.Scope{UpstreamID: "primary", Model: "model"}
 	var choices []account.ID
 
 	// Act: only the filtered IDs reach the selector.
-	allowed := key.Filter(accesskey.Model{UpstreamID: "primary", Name: "model"}, candidates)
+	allowed := key.Filter(model, candidates)
 	for range 4 {
 		id, ok := selector.Select(scope, allowed)
 		if !ok {
@@ -478,4 +465,17 @@ func newKey(t *testing.T, enabled bool, permissions accesskey.Permissions) acces
 		t.Fatal(err)
 	}
 	return key
+}
+
+func unrestrictedPermissions() accesskey.Permissions {
+	return accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true}
+}
+
+func newAccount(t *testing.T, id account.ID, upstreamID upstream.ID, credentials account.Credentials) account.Account {
+	t.Helper()
+	a, err := account.New(account.Identity{ID: id, Name: "Test account", UpstreamID: upstreamID}, credentials)
+	if err != nil {
+		t.Fatalf("create test account %q: %v", id, err)
+	}
+	return a
 }

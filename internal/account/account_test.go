@@ -72,10 +72,7 @@ func TestNewRejectsInvalidIdentityWithoutExposingCredentials(t *testing.T) {
 		credentials account.Credentials
 	}{
 		{name: "API key", credentials: account.APIKeyCredentials{Key: apiKeySecret}},
-		{name: "OAuth", credentials: account.OAuthCredentials{
-			AccessToken: accessSecret, RefreshToken: refreshSecret,
-			ProviderData: map[string]string{"secret": providerSecret},
-		}},
+		{name: "OAuth", credentials: oauthCredentials()},
 	}
 	for _, variant := range variants {
 		for _, tt := range identities {
@@ -124,7 +121,7 @@ func TestNewRejectsInvalidCredentials(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			identity := account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}
+			identity := testIdentity()
 
 			got, err := account.New(identity, tt.credentials)
 
@@ -152,7 +149,7 @@ func TestOAuthRecordDoesNotRequireFreshnessOrRefreshToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			identity := account.Identity{ID: "account", Name: "Imported account", UpstreamID: "upstream"}
+			identity := testIdentity()
 			credentials := account.OAuthCredentials{AccessToken: accessSecret, ExpiresAt: tt.expiresAt}
 
 			got, err := account.New(identity, credentials)
@@ -170,14 +167,10 @@ func TestOAuthRecordDoesNotRequireFreshnessOrRefreshToken(t *testing.T) {
 func TestIdentityDoesNotExposeCredentials(t *testing.T) {
 	for _, credentials := range []account.Credentials{
 		account.APIKeyCredentials{Key: apiKeySecret},
-		account.OAuthCredentials{AccessToken: accessSecret, RefreshToken: refreshSecret,
-			ProviderData: map[string]string{"secret": providerSecret}},
+		oauthCredentials(),
 	} {
 		t.Run(fmt.Sprintf("%T", credentials), func(t *testing.T) {
-			a, err := account.New(account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}, credentials)
-			if err != nil {
-				t.Fatal(err)
-			}
+			a := newAccount(t, credentials)
 
 			identity := a.Identity()
 			encoded, err := json.Marshal(identity)
@@ -193,11 +186,8 @@ func TestIdentityDoesNotExposeCredentials(t *testing.T) {
 }
 
 func TestNewOwnsCredentialData(t *testing.T) {
-	identity := account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}
-	credentials := account.OAuthCredentials{
-		AccessToken: accessSecret, RefreshToken: refreshSecret,
-		ProviderData: map[string]string{"secret": providerSecret},
-	}
+	identity := testIdentity()
+	credentials := oauthCredentials()
 	a, err := account.New(identity, credentials)
 	if err != nil {
 		t.Fatal(err)
@@ -209,27 +199,18 @@ func TestNewOwnsCredentialData(t *testing.T) {
 	credentials.ProviderData["secret"] = "replacement"
 	credentials.ProviderData["extra"] = "unexpected"
 
-	wantIdentity := account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}
+	wantIdentity := testIdentity()
 	if a.Identity() != wantIdentity {
 		t.Errorf("identity = %+v, want %+v", a.Identity(), wantIdentity)
 	}
-	wantCredentials := account.OAuthCredentials{
-		AccessToken: accessSecret, RefreshToken: refreshSecret,
-		ProviderData: map[string]string{"secret": providerSecret},
-	}
+	wantCredentials := oauthCredentials()
 	if !reflect.DeepEqual(a.Credentials(), wantCredentials) {
 		t.Errorf("credentials changed with input: got %#v, want %#v", a.Credentials(), wantCredentials)
 	}
 }
 
 func TestCredentialReadsAreIndependent(t *testing.T) {
-	a, err := account.New(
-		account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"},
-		account.OAuthCredentials{AccessToken: accessSecret, ProviderData: map[string]string{"secret": providerSecret}},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	a := newAccount(t, oauthCredentials())
 	first := a.Credentials().(account.OAuthCredentials)
 	second := a.Credentials().(account.OAuthCredentials)
 
@@ -253,4 +234,24 @@ func assertNoSecrets(t *testing.T, text string) {
 			t.Errorf("safe output contains credential secret %q: %s", secret, text)
 		}
 	}
+}
+
+func testIdentity() account.Identity {
+	return account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}
+}
+
+func oauthCredentials() account.OAuthCredentials {
+	return account.OAuthCredentials{
+		AccessToken: accessSecret, RefreshToken: refreshSecret,
+		ProviderData: map[string]string{"secret": providerSecret},
+	}
+}
+
+func newAccount(t *testing.T, credentials account.Credentials) account.Account {
+	t.Helper()
+	a, err := account.New(testIdentity(), credentials)
+	if err != nil {
+		t.Fatalf("create test account: %v", err)
+	}
+	return a
 }

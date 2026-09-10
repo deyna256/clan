@@ -235,6 +235,9 @@ prepare the state, perform the behavior, then
 check the results. Separate the stages with blank lines and comments when helpful.
 A stateful scenario may need several calls in Act. Name fields in test tables,
 keep expected results visible, and avoid test helpers that hide the behavior.
+For sequential steps, check each result next to its call when this is clearer.
+Do not collect intermediate results just to put every assertion at the end.
+Concurrent tests may collect results and check them after workers finish.
 
 For selection, test rotation, reordered and changing candidates, empty input,
 independent upstream/model positions and unchanged input. For concurrent calls on
@@ -248,6 +251,34 @@ true; build tags do not separate the suites.
 
 **Review:** What contract violation would each test catch? Would its failure
 message explain the problem?
+
+### Test data and helpers
+
+Keep the values that explain a scenario visible in the test. Move repeated setup
+into small functions with fixed defaults for unrelated fields. Keep short struct
+literals when their fields are the point of the test. Local named values can
+remove repetition within a table without adding a helper.
+
+Use ordinary functions and explicit field assignments. Start with helpers in the
+same `_test.go` file; share them across packages only when actual callers need it.
+Avoid builder frameworks and random data for ordinary examples. Each call must
+return independent mutable data, including nested slices and maps.
+
+A setup helper that reports failures takes `*testing.T`, calls `t.Helper()` and
+stops on a setup error. Pure data functions need no `testing.T`. Keep the operation
+under test and its expected result in the test. When testing a constructor's
+validation, call it directly instead of using a helper that requires success.
+
+Use tables when cases share setup, execution and checks. Split scenarios when a
+table needs switches or callbacks to run different behaviors. Do not remove
+distinct cases just to shorten a file.
+
+**Review:** Can the reader see why the result is expected without opening a helper?
+How much setup is unrelated to that result? Can one test change another's data?
+
+Sources: [Go test helpers](https://google.github.io/styleguide/go/decisions.html#test-helpers),
+[table-driven tests](https://go.dev/wiki/TableDrivenTests), and
+[sharing test data](https://abseil.io/resources/swe-book/html/ch12.html#sharing_code_tests_and_the_dry_principle).
 
 ## Race detection, properties and fuzzing
 
