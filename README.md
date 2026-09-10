@@ -137,7 +137,9 @@ and multiple active gateway instances are outside the initial scope.
 ## Documentation
 
 See the [development guide](docs/development.md) for agreed coding conventions
-and review questions.
+and review questions. The [contribution guide](CONTRIBUTING.md) covers issues,
+branches, commits and checks. Community behavior is covered by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Research
 
