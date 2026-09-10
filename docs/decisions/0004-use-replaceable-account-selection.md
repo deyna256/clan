@@ -57,7 +57,7 @@ and leaves the position unchanged.
 Agreed on 2026-09-10:
 
 ```go
-Select(scope Scope, candidates []AccountID) (AccountID, bool)
+Select(scope Scope, candidates []account.ID) (account.ID, bool)
 ```
 
 `Scope` identifies the upstream and concrete model. The input order does not affect
@@ -67,7 +67,8 @@ Request execution knows why accounts were excluded and handles that outcome.
 
 Selection performs no I/O and does not wait for account availability. It needs
 neither an error return nor a `context.Context` parameter for this operation.
-The concrete definitions of `Scope` and `AccountID` belong to implementation.
+`Scope.UpstreamID` uses `upstream.ID`; candidate IDs use `account.ID`, as defined
+in [ADR 0005](0005-encapsulate-credential-types-in-account.md#go-model).
 
 ## Alternatives and rationale
 

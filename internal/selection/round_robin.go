@@ -1,17 +1,16 @@
 // Package selection chooses accounts from candidates supplied by request execution.
 package selection
 
-import "sync"
+import (
+	"sync"
 
-// AccountID identifies an account within the installation.
-type AccountID string
-
-// UpstreamID identifies a configured upstream within the installation.
-type UpstreamID string
+	"github.com/deyna256/clan/internal/account"
+	"github.com/deyna256/clan/internal/upstream"
+)
 
 // Scope identifies the upstream and concrete model that share a selection position.
 type Scope struct {
-	UpstreamID UpstreamID
+	UpstreamID upstream.ID
 	Model      string
 }
 
@@ -19,12 +18,12 @@ type Scope struct {
 // It is safe for concurrent calls. Construct it with NewRoundRobin and do not copy it.
 type RoundRobin struct {
 	mu        sync.Mutex
-	positions map[Scope]AccountID
+	positions map[Scope]account.ID
 }
 
 // NewRoundRobin creates a selector with no previous selections.
 func NewRoundRobin() *RoundRobin {
-	return &RoundRobin{positions: make(map[Scope]AccountID)}
+	return &RoundRobin{positions: make(map[Scope]account.ID)}
 }
 
 // Select returns the next candidate for scope, or the zero ID and false if empty.
@@ -33,7 +32,7 @@ func NewRoundRobin() *RoundRobin {
 // An empty call leaves the position unchanged. IDs use Go string ordering.
 // The candidate slice is neither changed nor retained; callers must not modify it
 // during the call. Selecting an account does not authorize or reserve its use.
-func (r *RoundRobin) Select(scope Scope, candidates []AccountID) (AccountID, bool) {
+func (r *RoundRobin) Select(scope Scope, candidates []account.ID) (account.ID, bool) {
 	if len(candidates) == 0 {
 		return "", false
 	}
@@ -44,7 +43,7 @@ func (r *RoundRobin) Select(scope Scope, candidates []AccountID) (AccountID, boo
 
 	last, hasLast := r.positions[scope]
 	smallest := candidates[0]
-	var next AccountID
+	var next account.ID
 	foundNext := false
 	for _, id := range candidates {
 		if id < smallest {
