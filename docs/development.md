@@ -68,7 +68,7 @@ Use type parameters when actual uses share an algorithm across different types.
 Prefer concrete types or small interfaces when they are simpler. Reuse suitable
 functions from `slices` and `maps` before writing helpers.
 
-Keep `RoundRobin` specific to `Scope` and `AccountID`. Supporting another selection
+Keep `RoundRobin` specific to `Scope` and `account.ID`. Supporting another selection
 strategy does not require a generic scheduling library.
 
 **Review:** Which existing uses benefit? Does the abstraction make calling code
