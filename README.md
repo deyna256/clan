@@ -148,6 +148,7 @@ branches, commits and checks. Community behavior is covered by the
 | Study the upstream features, implementation and contracts | [Bifrost](docs/research/bifrost.md), [CLIProxyAPI](docs/research/cliproxyapi.md) |
 | Discuss Go coding and testing practices | [Go engineering practices](docs/research/go-engineering-practices.md) |
 | Compare token-budget enforcement approaches | [Token-budget research](docs/research/token-budget-enforcement.md) |
+| Review fixed budget-window transitions for issue #9 | [Budget windows](docs/research/budget-window-transitions.md) |
 | Understand usage persistence and failure recovery | [Accounting recovery research](docs/research/usage-accounting-recovery.md) |
 | Compare timeout policies for long requests and streams | [Request-timeout research](docs/research/request-timeouts.md) |
 | Explore management API contracts and design conventions | [Management API research](docs/research/management-api-contract.md) |

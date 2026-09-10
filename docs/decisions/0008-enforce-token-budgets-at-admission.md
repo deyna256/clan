@@ -1,8 +1,8 @@
 # ADR 0008: Enforce token budgets at admission and charge observed usage
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: usage transitions in `internal/usage`;
-budget windows, persistence and admission integration pending.
+Decision owner: project maintainer. Implementation: usage transitions in `internal/usage`
+and budget windows in `internal/budget`; persistence and admission integration pending.
 
 ## Decision
 
@@ -21,9 +21,18 @@ as defined in [ADR 0015](0015-use-token-bucket-rate-limits.md) and
 ## Fixed budget windows
 
 Use independent fixed 5-hour and 7-day windows. A window opens on the first admitted
-request or newly charged known usage while no window is active, whichever occurs
+upstream attempt or newly charged known usage while no window is active, whichever occurs
 first. After expiry, the same rule opens the next window. Later activity does not
 extend the end, and renewing one window does not renew the other.
+
+This includes admitted retries and account fallback. Checking eligibility alone
+does not open a window; record admission only after all required checks pass.
+Use elapsed durations of 5 and 168 hours, not calendar boundaries.
+
+Track both windows even when their limits are absent. Changing, removing or
+restoring a limit does not reset the window or its consumption. An absent limit
+disables enforcement, zero denies admission, and a positive limit allows admission
+while recorded consumption is below it. Negative limits are invalid.
 
 Charge each new known increment to both windows active when it is accepted for
 accounting, regardless of when the attempt passed admission. The time history is saved
@@ -37,6 +46,27 @@ between windows. Admission and charging must agree on a single successor window.
 
 These are CLAN limits, not rolling or calendar windows and not automatically aligned
 with provider quotas. The number of allowed tokens is configured separately.
+
+## Budget-window transitions
+
+`internal/budget` operates on values. Each window holds its opening time and used
+tokens; its end is derived. The zero state has no open windows. `Limits` uses
+optional `*int64` caps, where `nil` means absent.
+
+- `Check` validates state and limits without changing either. Expired consumption
+  does not count toward eligibility. `ErrExhausted` distinguishes a reached cap
+  from invalid input.
+- `Admit` records an already accepted attempt and opens expired or unopened
+  windows. It does not check permission or limits.
+- `Charge` adds a new known increment to both windows, opening them if needed.
+  A zero increment leaves state unchanged, including expired windows.
+
+Transitions validate inputs and return the previous state unchanged on failure.
+Reject negative counts, overflow, usage without an opening, a zero accounting time,
+or a time before either saved opening. Callers supply chronological accounting
+times; the state does not retain every event time or correct clock changes.
+Persistence owns synchronization and durable deduplication. See the
+[window research](../research/budget-window-transitions.md) for sources and tests.
 
 ## Token accounting unit
 
