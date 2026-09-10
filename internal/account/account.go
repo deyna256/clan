@@ -20,7 +20,7 @@ type Identity struct {
 	UpstreamID upstream.ID
 }
 
-// Credentials is an APIKeyCredentials or OAuthCredentials value.
+// Credentials is an [APIKeyCredentials] or [OAuthCredentials] value.
 // Credentials contain secrets and must not be logged or sent to clients.
 type Credentials interface {
 	isCredentials()
@@ -43,7 +43,7 @@ type OAuthCredentials struct {
 
 func (OAuthCredentials) isCredentials() {}
 
-// Account is an immutable snapshot. Construct it with New; its zero value is invalid.
+// Account is an immutable snapshot. Construct it with [New]; its zero value is invalid.
 // Pass Identity to code that does not need secrets. Do not log the whole Account.
 type Account struct {
 	identity    Identity
@@ -83,13 +83,12 @@ func New(identity Identity, credentials Credentials) (Account, error) {
 	return Account{identity: identity, credentials: credentials}, nil
 }
 
-// Identity returns account metadata without credentials.
+// Identity returns the account's metadata.
 func (a Account) Identity() Identity {
 	return a.identity
 }
 
-// Credentials returns an independent copy for use by a provider integration.
-// It returns nil for a zero Account. Returned data may contain secrets.
+// Credentials returns an independent copy of the stored secrets, or nil for a zero Account.
 func (a Account) Credentials() Credentials {
 	if c, ok := a.credentials.(OAuthCredentials); ok {
 		c.ProviderData = maps.Clone(c.ProviderData)

@@ -15,7 +15,7 @@ type Scope struct {
 }
 
 // RoundRobin takes turns selecting accounts in ascending ID order.
-// It is safe for concurrent calls. Construct it with NewRoundRobin and do not copy it.
+// It is safe for concurrent calls. Construct it with [NewRoundRobin] and do not copy it.
 type RoundRobin struct {
 	mu        sync.Mutex
 	positions map[Scope]account.ID
@@ -26,12 +26,11 @@ func NewRoundRobin() *RoundRobin {
 	return &RoundRobin{positions: make(map[Scope]account.ID)}
 }
 
-// Select returns the next candidate for scope, or the zero ID and false if empty.
-// It chooses the smallest ID above the previous choice, wrapping to the smallest
-// candidate when none is greater. The first choice is the smallest candidate.
-// An empty call leaves the position unchanged. IDs use Go string ordering.
-// The candidate slice is neither changed nor retained; callers must not modify it
-// during the call. Selecting an account does not authorize or reserve its use.
+// Select returns the smallest candidate ID above the last choice for scope and true,
+// wrapping to the smallest ID. The first choice is the smallest ID.
+// Empty input returns ("", false) without changing the position. IDs use Go string order.
+// Candidates are neither modified nor retained and must not change during the call.
+// Selection does not authorize or reserve an account.
 func (r *RoundRobin) Select(scope Scope, candidates []account.ID) (account.ID, bool) {
 	if len(candidates) == 0 {
 		return "", false
@@ -58,7 +57,6 @@ func (r *RoundRobin) Select(scope Scope, candidates []account.ID) (account.ID, b
 		next = smallest
 	}
 
-	// Keep the last ID even if it later disappears from the candidates.
 	r.positions[scope] = next
 	return next, true
 }

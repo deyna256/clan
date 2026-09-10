@@ -29,9 +29,9 @@ func (m Model) valid() bool {
 	return strings.TrimSpace(string(m.UpstreamID)) != "" && strings.TrimSpace(m.Name) != ""
 }
 
-// Permissions must allow all three dimensions for access to be granted.
-// Empty lists deny access; each All setting explicitly removes that restriction.
-// An All setting cannot be combined with a nonempty list in the same dimension.
+// Permissions restrict upstreams, models and accounts by exact value.
+// All three restrictions must allow access. Empty lists deny access.
+// Each All flag removes its restriction and cannot accompany a nonempty list.
 type Permissions struct {
 	AllUpstreams bool
 	Upstreams    []upstream.ID
@@ -70,16 +70,16 @@ func (p Permissions) validate() error {
 }
 
 // AccessKey is an immutable permission snapshot. Its zero value denies all access.
-// Construct it with New. It does not verify a presented access-key secret.
+// Construct it with [New]. It does not verify a presented access-key secret.
 type AccessKey struct {
 	identity    Identity
 	enabled     bool
 	permissions Permissions
 }
 
-// New validates identity and permissions and copies their lists. Nonblank values
-// are preserved; resource existence is not checked. Callers must not modify the
-// lists during construction. Errors return a zero key without input values.
+// New validates identity and permissions, preserving nonblank values and copying
+// permission lists. It does not check resource existence. Lists must not change
+// during the call. On error, New returns a zero key.
 func New(identity Identity, enabled bool, permissions Permissions) (AccessKey, error) {
 	if strings.TrimSpace(string(identity.ID)) == "" {
 		return AccessKey{}, errors.New("access key: id is required")
@@ -96,12 +96,12 @@ func New(identity Identity, enabled bool, permissions Permissions) (AccessKey, e
 	return AccessKey{identity: identity, enabled: enabled, permissions: permissions}, nil
 }
 
-// Identity returns access-key metadata without secrets.
+// Identity returns the key's metadata.
 func (k AccessKey) Identity() Identity {
 	return k.identity
 }
 
-// Allows checks permissions for a model and an account from trusted inventory.
+// Allows reports whether the key permits a model and an account from trusted inventory.
 // It does not check model support, account availability or token budgets.
 func (k AccessKey) Allows(model Model, candidate account.Identity) bool {
 	if !k.enabled || !model.valid() || strings.TrimSpace(string(candidate.ID)) == "" {
@@ -116,9 +116,9 @@ func (k AccessKey) Allows(model Model, candidate account.Identity) bool {
 		(p.AllAccounts || slices.Contains(p.Accounts, candidate.ID))
 }
 
-// Filter returns permitted IDs in candidate order, or nil when none are allowed.
-// It neither changes nor retains candidates; callers must not modify them during
-// the call. Candidate identities must come from trusted inventory, not client input.
+// Filter applies [AccessKey.Allows], preserving candidate order. It returns nil
+// if none are allowed. Candidates must not change during the call; the slice is
+// neither modified nor retained.
 func (k AccessKey) Filter(model Model, candidates []account.Identity) []account.ID {
 	var allowed []account.ID
 	for _, candidate := range candidates {

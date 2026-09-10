@@ -212,12 +212,23 @@ Extract a helper when its name explains a useful step; avoid splitting code just
 to lower a [complexity score](https://www.sonarsource.com/resources/cognitive-complexity/).
 A score can prompt review, but cannot replace it.
 
-Comments should explain contracts and reasons: concurrency, ownership,
-initialization requirements and choices that need explanation. Avoid repeating
-what the code already says.
+Prefer clear names and simple code over explanatory comments. Omit comments that
+repeat the code, label obvious steps or describe unexported symbols whose purpose
+is clear. Add a comment only when it explains a reason or constraint the code
+cannot show.
+
+Keep Go doc comments short: start with one sentence describing the exported
+symbol. Add only what callers need, such as ownership, concurrency, zero-value
+behavior and required initialization. Keep these guarantees even when they need
+more than one sentence. Use doc links to related symbols instead of repeating
+their contracts. Put design rationale and alternatives in ADRs, not source comments.
+
+Update or remove comments when the related code changes. Avoid implementation
+walkthroughs and plans for future work that can go stale.
 
 **Review:** Can a reader follow the inputs, decisions and exits without the author's
-explanation or knowledge of the code's history?
+explanation or knowledge of the code's history? Does each comment add necessary
+information that names and code cannot express?
 
 ## Tests exercise behavior
 
