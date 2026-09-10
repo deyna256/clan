@@ -56,8 +56,7 @@ produce a complete response.
 
 This separation exists in both researched projects: CLIProxyAPI exposes `Execute` and
 `ExecuteStream`; Bifrost exposes operation-specific pairs such as `ChatCompletion` and
-`ChatCompletionStream`. See the [CLIProxyAPI](../research/cliproxyapi.md) and
-[Bifrost](../research/bifrost.md) contract tables for sources.
+`ChatCompletionStream`.
 
 ## Stream consumption: Next and Close
 
@@ -175,9 +174,7 @@ ResponseEnded(reason=tool_calls)
 io.EOF
 ```
 
-The source comparison supports this design; compatibility still needs testing.
-See the event findings for [Bifrost](../research/bifrost.md#содержимое-событий-стрима)
-and [CLIProxyAPI](../research/cliproxyapi.md#содержимое-событий-стрима).
+Compatibility still needs testing.
 These event types do not promise support for every upstream event or operation.
 
 ## Context and alternatives

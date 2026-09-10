@@ -2,9 +2,7 @@
 
 These are CLAN's agreed coding rules, accepted on 2026-09-10. Product behavior is
 defined in the [ADRs](../README.md#decision-log), and commands are in the
-[Justfile](../Justfile). The [Go practices research](research/go-engineering-practices.md)
-provides sources and background. LLM instructions should link here instead of
-copying these rules.
+[Justfile](../Justfile). LLM instructions should link here instead of copying these rules.
 
 ## Packages and responsibility
 

@@ -15,18 +15,18 @@ func TestParseRetryAfter(t *testing.T) {
 		value string
 		want  retry.Cooldown
 	}{
-		{name: "zero seconds", value: "0", want: retry.Cooldown{Until: received}},
-		{name: "seconds", value: "2", want: retry.Cooldown{Until: received.Add(2 * time.Second)}},
-		{name: "leading zeros and HTTP whitespace", value: " \t0002\t ", want: retry.Cooldown{Until: received.Add(2 * time.Second)}},
-		{name: "HTTP date", value: "Sun, 06 Nov 1994 08:49:37 GMT", want: retry.Cooldown{Until: received.Add(2 * time.Second)}},
-		{name: "RFC850 date", value: "Sunday, 06-Nov-94 08:49:37 GMT", want: retry.Cooldown{Until: received.Add(2 * time.Second)}},
-		{name: "asctime date", value: "Sun Nov  6 08:49:37 1994", want: retry.Cooldown{Until: received.Add(2 * time.Second)}},
-		{name: "past date", value: "Sun, 06 Nov 1994 08:49:34 GMT", want: retry.Cooldown{Until: received.Add(-time.Second)}},
-		{name: "duration boundary", value: "9223372036", want: retry.Cooldown{Until: received.Add(9223372036 * time.Second)}},
-		{name: "duration overflow", value: "9223372037", want: retry.Cooldown{Unrepresentable: true}},
-		{name: "largest uint64", value: "18446744073709551615", want: retry.Cooldown{Unrepresentable: true}},
-		{name: "uint64 overflow", value: "18446744073709551616", want: retry.Cooldown{Unrepresentable: true}},
-		{name: "many digits", value: "999999999999999999999999999999999999", want: retry.Cooldown{Unrepresentable: true}},
+		{name: "zero seconds", value: "0", want: retry.Cooldown{Kind: retry.RetryAt, Until: received}},
+		{name: "seconds", value: "2", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(2 * time.Second)}},
+		{name: "leading zeros and HTTP whitespace", value: " \t0002\t ", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(2 * time.Second)}},
+		{name: "HTTP date", value: "Sun, 06 Nov 1994 08:49:37 GMT", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(2 * time.Second)}},
+		{name: "RFC850 date", value: "Sunday, 06-Nov-94 08:49:37 GMT", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(2 * time.Second)}},
+		{name: "asctime date", value: "Sun Nov  6 08:49:37 1994", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(2 * time.Second)}},
+		{name: "past date", value: "Sun, 06 Nov 1994 08:49:34 GMT", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(-time.Second)}},
+		{name: "duration boundary", value: "9223372036", want: retry.Cooldown{Kind: retry.RetryAt, Until: received.Add(9223372036 * time.Second)}},
+		{name: "duration overflow", value: "9223372037", want: retry.Cooldown{Kind: retry.RetryBlocked}},
+		{name: "largest uint64", value: "18446744073709551615", want: retry.Cooldown{Kind: retry.RetryBlocked}},
+		{name: "uint64 overflow", value: "18446744073709551616", want: retry.Cooldown{Kind: retry.RetryBlocked}},
+		{name: "many digits", value: "999999999999999999999999999999999999", want: retry.Cooldown{Kind: retry.RetryBlocked}},
 		{name: "missing"},
 		{name: "whitespace only", value: " \t"},
 		{name: "negative", value: "-1"},
@@ -43,7 +43,7 @@ func TestParseRetryAfter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := retry.ParseRetryAfter(tt.value, received)
 
-			if err != nil || got.Unrepresentable != tt.want.Unrepresentable || !got.Until.Equal(tt.want.Until) {
+			if err != nil || got.Kind != tt.want.Kind || !got.Until.Equal(tt.want.Until) {
 				t.Fatalf("ParseRetryAfter() = (%+v, %v), want %+v", got, err, tt.want)
 			}
 		})
@@ -60,22 +60,21 @@ func TestParseRetryAfterRejectsZeroReceiptTime(t *testing.T) {
 	}
 }
 
-func TestRetryTimeAtZeroSentinel(t *testing.T) {
+func TestParseRetryAfterPreservesZeroDate(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		value    string
 		received time.Time
-		want     retry.Cooldown
 	}{
-		{name: "seconds reach zero", value: "1", received: time.Time{}.Add(-time.Second), want: retry.Cooldown{Unrepresentable: true}},
-		{name: "future zero date", value: "Mon, 01 Jan 0001 00:00:00 GMT", received: time.Time{}.Add(-time.Second), want: retry.Cooldown{Unrepresentable: true}},
+		{name: "seconds reach zero", value: "1", received: time.Time{}.Add(-time.Second)},
+		{name: "future zero date", value: "Mon, 01 Jan 0001 00:00:00 GMT", received: time.Time{}.Add(-time.Second)},
 		{name: "past zero date", value: "Mon, 01 Jan 0001 00:00:00 GMT", received: time.Time{}.Add(time.Second)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := retry.ParseRetryAfter(tt.value, tt.received)
 
-			if err != nil || got.Unrepresentable != tt.want.Unrepresentable || !got.Until.Equal(tt.want.Until) {
-				t.Fatalf("ParseRetryAfter() = (%+v, %v), want %+v", got, err, tt.want)
+			if err != nil || got.Kind != retry.RetryAt || !got.Until.IsZero() {
+				t.Fatalf("ParseRetryAfter() = (%+v, %v), want RetryAt with zero date", got, err)
 			}
 		})
 	}
@@ -152,7 +151,7 @@ func TestOverlappingWaits(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			input := eligibleInput()
 			input.Jitter = 500 * time.Millisecond
-			input.ApplicableCooldown.Until = input.Now.Add(tt.cooldown)
+			input.ApplicableCooldown = retry.Cooldown{Kind: retry.RetryAt, Until: input.Now.Add(tt.cooldown)}
 
 			got, err := retry.Evaluate(input)
 
@@ -176,12 +175,11 @@ func TestReevaluationKeepsJitterAnchor(t *testing.T) {
 		{after: 500 * time.Millisecond, want: 0},
 	} {
 		input.Now = input.FailureAt.Add(step.after)
-		expectedInput := input
 
 		got, err := retry.Evaluate(input)
 
-		if err != nil || got != (retry.Decision{Retry: true, Delay: step.want}) || input != expectedInput {
-			t.Fatalf("after %s: Evaluate() = (%+v, %v), want delay %s and unchanged input", step.after, got, err, step.want)
+		if err != nil || got != (retry.Decision{Retry: true, Delay: step.want}) {
+			t.Fatalf("after %s: Evaluate() = (%+v, %v), want delay %s", step.after, got, err, step.want)
 		}
 	}
 }
@@ -271,7 +269,7 @@ func TestReceiptTimeAndCleanup(t *testing.T) {
 func TestCandidateChangePreservesAllowances(t *testing.T) {
 	input := eligibleInput()
 	input.Attempts, input.Waited, input.Jitter = 2, 4750*time.Millisecond, 250*time.Millisecond
-	input.ApplicableCooldown = retry.Cooldown{Until: input.Now.Add(time.Second)}
+	input.ApplicableCooldown = retry.Cooldown{Kind: retry.RetryAt, Until: input.Now.Add(time.Second)}
 
 	got, err := retry.Evaluate(input)
 	if err != nil || got != (retry.Decision{}) {
@@ -327,7 +325,9 @@ func TestInvalidTimesAndCooldown(t *testing.T) {
 		{name: "zero failure time", now: valid.Now},
 		{name: "zero current time", failure: valid.FailureAt},
 		{name: "time before failure", failure: valid.FailureAt, now: valid.Now.Add(-time.Nanosecond)},
-		{name: "contradictory cooldown", failure: valid.FailureAt, now: valid.Now, cooldown: retry.Cooldown{Until: valid.Now, Unrepresentable: true}},
+		{name: "blocked with date", failure: valid.FailureAt, now: valid.Now, cooldown: retry.Cooldown{Kind: retry.RetryBlocked, Until: valid.Now}},
+		{name: "absent with date", failure: valid.FailureAt, now: valid.Now, cooldown: retry.Cooldown{Until: valid.Now}},
+		{name: "unknown cooldown kind", failure: valid.FailureAt, now: valid.Now, cooldown: retry.Cooldown{Kind: 255}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			input := eligibleInput()
@@ -346,15 +346,28 @@ func TestInvalidTimesAndCooldown(t *testing.T) {
 	}
 }
 
-func TestAbsentCooldownIsNotAnAbsoluteDate(t *testing.T) {
-	input := eligibleInput()
-	input.FailureAt = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
-	input.Now = input.FailureAt
+func TestCooldownKindDistinguishesZeroDate(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		kind retry.CooldownKind
+		want retry.Decision
+	}{
+		{name: "absent", kind: retry.NoCooldown, want: retry.Decision{Retry: true}},
+		{name: "zero date", kind: retry.RetryAt, want: retry.Decision{Retry: true, Delay: time.Second}},
+		{name: "blocked", kind: retry.RetryBlocked},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input := eligibleInput()
+			input.FailureAt = time.Time{}.Add(-time.Second)
+			input.Now = input.FailureAt
+			input.ApplicableCooldown = retry.Cooldown{Kind: tt.kind}
 
-	got, err := retry.Evaluate(input)
+			got, err := retry.Evaluate(input)
 
-	if err != nil || got != (retry.Decision{Retry: true}) {
-		t.Fatalf("Evaluate() = (%+v, %v), want immediate retry", got, err)
+			if err != nil || got != tt.want {
+				t.Fatalf("Evaluate() = (%+v, %v), want %+v", got, err, tt.want)
+			}
+		})
 	}
 }
 

@@ -28,9 +28,8 @@ Gemini is deferred on both API sides.
 | Shared Go types | Selected: execution rules and adapters use the same request model |
 | Direct conversion between each pair of protocols | Gives each pair its own conversion code, but more protocol combinations can mean duplicated logic |
 
-See the source research on [Bifrost](../research/bifrost.md) and
-[CLIProxyAPI](../research/cliproxyapi.md). This decision does not select either
-project as a dependency or adopt its interfaces.
+This decision does not select Bifrost or CLIProxyAPI as a dependency or adopt
+their interfaces.
 
 ## Consequences
 

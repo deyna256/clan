@@ -103,13 +103,17 @@ A zero deadline means none. The failure and current times are required, with the
 failure no later than the current time. Reject nonpositive attempt counts, negative
 durations, invalid jitter and contradictory cooldown fields.
 
+Cooldown has three explicit kinds: `NoCooldown`, `RetryAt` and `RetryBlocked`.
+Its zero value means no restriction. `RetryAt` uses `Until` as an absolute time,
+including the zero date; other kinds require a zero `Until`. Unknown kinds are
+invalid. The date itself does not indicate whether a cooldown exists.
+
 Retry-After parsing removes only surrounding HTTP spaces and tabs. Missing or
 malformed input yields no cooldown. Numeric values use unsigned ASCII decimal
 syntax; validate all digits before handling overflow. Keep ordinary deadlines as
-absolute times. A valid number too large for `time.Duration`, or a future deadline
-equal to the zero-time sentinel, marks the affected target unavailable for the
-current request, without an expiring substitute deadline. Invalid receipt time is
-a caller error.
+absolute times. A valid number too large for `time.Duration` produces `RetryBlocked`,
+marking the affected target unavailable for the current request without an expiring
+substitute deadline. Invalid receipt time is a caller error.
 
 Execution owns waiting, cleanup, cancellation/deadline rechecks and access/budget
 checks before dispatch. Provider classification and scope matching require tests

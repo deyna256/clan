@@ -1,7 +1,5 @@
 # Code of Conduct
 
-Draft: the maintainer must provide a private reporting contact before publication.
-
 ## Respectful participation
 
 Treat people with respect, regardless of their background, identity or experience.
@@ -18,7 +16,8 @@ when someone officially represents the project elsewhere.
 
 ## Reporting and response
 
-Report violations privately to the maintainer. The reporting contact is pending.
+Report violations privately to the maintainer at
+[literallybugcreator@gmail.com](mailto:literallybugcreator@gmail.com).
 Include what happened and relevant links; do not post private details in an issue.
 
 The maintainer will review reports fairly and share details only with those who

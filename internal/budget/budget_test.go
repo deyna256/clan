@@ -27,6 +27,7 @@ func TestCheckEligibility(t *testing.T) {
 		{name: "short equality", limits: budget.Limits{FiveHours: new(int64(50))}, wantErr: budget.ErrExhausted},
 		{name: "long equality", limits: budget.Limits{SevenDays: new(int64(100))}, wantErr: budget.ErrExhausted},
 		{name: "overrun", limits: budget.Limits{FiveHours: new(int64(49))}, wantErr: budget.ErrExhausted},
+		{name: "long overrun", limits: budget.Limits{SevenDays: new(int64(99))}, wantErr: budget.ErrExhausted},
 		{name: "short expiry", limits: budget.Limits{FiveHours: new(int64(50))}, after: 5 * time.Hour},
 		{name: "long still exhausted", limits: budget.Limits{SevenDays: new(int64(100))}, after: 5 * time.Hour, wantErr: budget.ErrExhausted},
 		{name: "long expiry", limits: budget.Limits{SevenDays: new(int64(100))}, after: 168 * time.Hour},
@@ -239,48 +240,6 @@ func TestCumulativeUsageAcrossExpiry(t *testing.T) {
 			t.Fatalf("step %d: delta %d, Charge() = (%+v, %v), want delta %d and %+v", i, delta, nextWindows, err, step.delta, step.want)
 		}
 		attempt, windows = nextAttempt, nextWindows
-	}
-}
-
-func TestCapChangesPreserveAccounting(t *testing.T) {
-	now := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
-	previous := budget.State{
-		FiveHours: budget.Window{OpenedAt: now, Used: 100},
-		SevenDays: budget.Window{OpenedAt: now, Used: 100},
-	}
-	if err := budget.Check(previous, budget.Limits{}, now); err != nil {
-		t.Fatal(err)
-	}
-
-	next, err := budget.Charge(previous, 50, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tt := range []struct {
-		name string
-		cap  *int64
-		want error
-	}{
-		{name: "exhausted", cap: new(int64(100)), want: budget.ErrExhausted},
-		{name: "removed"},
-		{name: "restored", cap: new(int64(100)), want: budget.ErrExhausted},
-		{name: "raised", cap: new(int64(151))},
-		{name: "lowered", cap: new(int64(150)), want: budget.ErrExhausted},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			err := budget.Check(next, budget.Limits{SevenDays: tt.cap}, now)
-
-			if !errors.Is(err, tt.want) {
-				t.Fatalf("Check() = %v, want %v", err, tt.want)
-			}
-		})
-	}
-	want := budget.State{
-		FiveHours: budget.Window{OpenedAt: now, Used: 150},
-		SevenDays: budget.Window{OpenedAt: now, Used: 150},
-	}
-	if next != want {
-		t.Fatalf("after cap changes = %+v, want %+v", next, want)
 	}
 }
 

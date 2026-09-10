@@ -162,8 +162,7 @@ and normal admission checks. Do not block requests until an administrator interv
 just because usage may have been lost. An exhausted saved budget or a failed budget
 check still blocks admission. Mark missing data where detectable; not every lost
 update can be recovered. An interrupted history record alone does not block new
-attempts or allow resending an upstream request. See the
-[recovery research](../research/usage-accounting-recovery.md).
+attempts or allow resending an upstream request.
 
 ## Rationale and alternatives
 
@@ -176,7 +175,7 @@ Reserving an estimated token count, or a maximum that execution cannot exceed, c
 reduce overruns. Both need rules to compare reserved tokens with actual usage and
 adjust the counters. They are deferred. The selected policy
 uses Bifrost's admission approach, without adopting its monetary accounting or storage
-architecture; see the [comparison](../research/token-budget-enforcement.md).
+architecture.
 
 ## Validation and open details
 

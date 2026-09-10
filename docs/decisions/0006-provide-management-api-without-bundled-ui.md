@@ -98,8 +98,7 @@ their discovery behavior and supported models need not be identical.
 Validate model selection and an actual inference request in each supported client
 version, including access restrictions. Define discovery routes, how to collect model
 details, how to distinguish identical names across upstreams, and how to support
-clients without suitable discovery in the model module. See the
-[client compatibility research](../research/client-model-discovery.md).
+clients without suitable discovery in the model module.
 
 ## Resource creation
 

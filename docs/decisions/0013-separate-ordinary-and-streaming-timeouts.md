@@ -49,8 +49,7 @@ timeout could stop it before its overall deadline. If the upstream sends nothing
 no timeout can reliably tell whether it is still thinking or has stalled.
 
 Without an overall timeout, an active stream can hold its concurrency slot for a
-long time. Client and reverse-proxy limits still apply. See the
-[source comparison and Go implementation considerations](../research/request-timeouts.md).
+long time. Client and reverse-proxy limits still apply.
 
 ## Validation and open details
 
