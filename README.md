@@ -153,6 +153,7 @@ branches, commits and checks. Community behavior is covered by the
 | Compare timeout policies for long requests and streams | [Request-timeout research](docs/research/request-timeouts.md) |
 | Explore management API contracts and design conventions | [Management API research](docs/research/management-api-contract.md) |
 | Review access-key generation and verification for issue #11 | [Access-key verification](docs/research/access-key-verification.md) |
+| Review encryption of stored credentials for issue #12 | [Credential encryption](docs/research/upstream-credential-encryption.md) |
 | Understand model discovery in client agents | [Client model-discovery research](docs/research/client-model-discovery.md) |
 | Understand the research context and documentation references | [Research overview](docs/research/architecture-foundation.md) |
 
