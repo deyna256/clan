@@ -6,10 +6,9 @@ defined in the [ADRs](../README.md#decision-log), and commands are in the
 
 ## Packages and responsibility
 
-Give each package a clear job and export only what callers need. Split files to
-make related code easier to navigate. Create a package for a separate job, not
-because a file has reached a certain length. Avoid catch-all packages such as
-`utils` or `common`.
+Give each package a clear job and export only what callers need. Split files when
+it helps navigation, and packages when responsibilities differ. File length alone
+is not a reason to split. Avoid catch-all packages such as `utils` or `common`.
 
 Account selection manages rotation and positions. Credential renewal, database
 access and client authorization belong elsewhere.
@@ -27,7 +26,6 @@ interfaces such as `io.Reader` when they fit.
 Implement and test `RoundRobin` directly. Add the selector interface when request
 execution needs it, following
 [ADR 0004](decisions/0004-use-replaceable-account-selection.md#selection-interface).
-Go's implicit interface implementation lets selection stay independent of its caller.
 
 **Review:** Who needs this interface? Do they need every method? Does the interface
 help separate dependencies, or just repeat an implementation?
@@ -52,10 +50,9 @@ Initialize required dependencies and mutable data structures during construction
 Use `nil` where its meaning is clear: a nil error means success, and a nil slice
 can represent an empty sequence. Do not allocate a slice just to avoid nil.
 
-Check required dependencies in the constructor. Create `RoundRobin`'s position map
-there, not on the first `Select` call. Document when a constructor is required:
-callers can still create the zero value of an exported struct. An interface is
-not needed just to force constructor use.
+Check required dependencies in the constructor and create mutable state there,
+such as `RoundRobin`'s position map. Document when construction is required:
+callers can still create the zero value of an exported struct.
 
 **Review:** Which values can be absent? Is required state ready after construction?
 Do repeated nil checks point to missing initialization?
@@ -66,8 +63,7 @@ Use type parameters when actual uses share an algorithm across different types.
 Prefer concrete types or small interfaces when they are simpler. Reuse suitable
 functions from `slices` and `maps` before writing helpers.
 
-Keep `RoundRobin` specific to `Scope` and `account.ID`. Supporting another selection
-strategy does not require a generic scheduling library.
+Keep `RoundRobin` specific to `Scope` and `account.ID`.
 
 **Review:** Which existing uses benefit? Does the abstraction make calling code
 easier to understand? Possible future reuse alone is not enough.
@@ -204,8 +200,8 @@ Handle errors and boundary cases early so the main path is easy to follow.
 Keep cleanup correct on early returns. Extract functions for useful operations,
 not to meet a line limit.
 
-Reduce the facts a reader must track at once: deep nesting, mixed boolean
-conditions and variables that change meaning. Give a function one clear job.
+Give each function one clear job. Avoid deep nesting, mixed boolean conditions
+and variables that change meaning.
 Extract a helper when its name explains a useful step; avoid splitting code just
 to lower a [complexity score](https://www.sonarsource.com/resources/cognitive-complexity/).
 A score can prompt review, but cannot replace it.
@@ -240,8 +236,8 @@ result. Use simple test doubles when a dependency needs to return a controlled
 response or failure.
 
 Use [Arrange, Act, Assert (AAA)](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-best-practices#arrange-your-tests):
-prepare the state, perform the behavior, then
-check the results. Separate the stages with blank lines and comments when helpful.
+prepare the state, run the operation, then check the results.
+Separate the stages with blank lines and comments when helpful.
 A stateful scenario may need several calls in Act. Name fields in test tables,
 keep expected results visible, and avoid test helpers that hide the behavior.
 For sequential steps, check each result next to its call when this is clearer.
@@ -297,10 +293,11 @@ Use the race detector, as configured in the Justfile. It checks executed paths
 for data races; it does not prove correct concurrent behavior. Also assert the
 operation's guarantees.
 
-Use property checks alongside specific examples. For selection, the result must
-belong to the candidates, and reordering them from the same starting position must
-preserve the choice. For one scope with a fixed set of unique candidates, selection
-counts should differ by at most one. Ordinary Go tests can check these properties.
+Alongside specific examples, check rules that hold across inputs. For selection,
+the result must belong to the candidates; reordering them from the same selection
+position must preserve the choice. With a fixed set of unique candidates in one
+scope, selection counts should differ by at most one. Ordinary Go tests can check
+these properties.
 
 Use fuzzing where generated inputs help test complex input handling, such as
 JSON and stream parsers. Define useful properties and keep failing inputs as

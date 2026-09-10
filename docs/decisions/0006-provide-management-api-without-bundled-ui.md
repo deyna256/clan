@@ -14,9 +14,8 @@ and business rules belong in the backend.
 
 ## Context and alternatives
 
-Configuration files alone do not meet the requirement for interactive management.
-A bundled panel requires shipping the backend and frontend together. A separate panel uses the
-same API as scripts and other clients, with no additional backend service required.
+Configuration files alone do not provide interactive management. A separate panel
+can ship independently and use the same API as scripts and other clients.
 
 ## Management route prefix
 
@@ -142,8 +141,8 @@ remain open. This decision does not set preconditions for DELETE or other mutati
 Use [Problem Details, RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) with
 `Content-Type: application/problem+json`: a stable `type` URI, explanatory `title`
 and `detail`, and `status` matching the HTTP response. Include `request_id` to find
-the matching server logs. Validation errors include an extension identifying invalid fields and
-problems; exact identifiers, status mappings and extension schemas remain open.
+server logs. Validation errors include invalid fields and their problems in an
+extension; exact identifiers, status mappings and extension schemas remain open.
 Inference errors retain their OpenAI- or Anthropic-compatible representation.
 
 ## Management list pagination
@@ -155,9 +154,9 @@ unique tie-breaker, such as ID, when sort values are equal.
 
 Do not require a `total` field or total-count query. Page-number navigation is outside
 this contract; filters help find records. Data may change between page requests;
-cursor pagination does not freeze it. Page sizes, ordering, filters, cursor validation and behavior
-under concurrent changes remain open. Inference model lists and aggregate usage
-reports retain their own response formats.
+cursor pagination does not freeze it. Page sizes, ordering, filters, cursor validation
+and behavior under concurrent changes remain open. Inference model lists and
+aggregate usage reports retain their own response formats.
 
 ## Administrator access
 
@@ -186,10 +185,10 @@ names and preflight details remain open. This policy does not define inference C
 ## OpenAPI source and publication
 
 Describe HTTP types and operations in Go and generate OpenAPI from that description.
-Go is the source of truth; keep control of the HTTP implementation in handwritten Go
-rather than generating a server from OpenAPI. Publish the generated specification
-through a dedicated endpoint for the panel and other consumers. It must describe
-the running release without exposing runtime secrets.
+Keep the HTTP implementation in handwritten Go; do not generate the server from
+OpenAPI. Publish the generated specification through a dedicated endpoint for the
+panel and other consumers. It must describe the running release without exposing
+runtime secrets.
 
 Review each module's contract before implementing its behavior. Types for business
 rules and storage must not depend on the API-description tool. The library,
@@ -207,6 +206,7 @@ Verify that credentials do not appear in the published specification.
 ## Remaining contract decisions
 
 Agree on successful responses (status, body and headers), ID assignment and duplicate
-creation, how clients submit secrets and responses hide them, read-only fields, deletion and references,
-and compatibility between backend and panel releases. Define exact resource fields,
-filters and the other details identified above with their owning modules.
+creation, how secrets are submitted and hidden in responses, read-only fields,
+deletion, resource references and compatibility between backend and panel releases.
+Define exact resource fields, filters and the other details identified above with
+their owning modules.

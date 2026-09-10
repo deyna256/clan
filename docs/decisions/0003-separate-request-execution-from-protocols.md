@@ -45,9 +45,8 @@ they arrive, without waiting for the complete response.
 Expose separate provider-execution methods for complete responses and streaming,
 using shared typed request data.
 The ordinary method returns a complete response or an error. The streaming method
-returns a stream of events or a startup error. Reading the stream can also fail,
-and the caller must receive that error. Opening a stream does not
-mean generation has completed successfully.
+returns a stream of events or a startup error. Later read errors must also reach
+the caller. Opening a stream does not mean generation has succeeded.
 
 The alternative was one event stream for both modes, with an aggregator producing
 ordinary responses. Separate methods were selected to make the two result contracts
@@ -62,9 +61,8 @@ This separation exists in both researched projects: CLIProxyAPI exposes `Execute
 
 Return a typed stream with `Next` and `Close` methods. `Next` reads the next event
 or reports the end of the stream or a read error. `Close` releases its resources.
-The context passed when opening
-the stream controls its full lifetime; individual `Next` calls do not introduce
-separate contexts.
+The context passed when opening the stream controls its full lifetime;
+individual `Next` calls do not take separate contexts.
 
 Contract requirements:
 
@@ -183,8 +181,7 @@ The supported client APIs need the same access, routing and retry behavior. Keep
 rules in individual HTTP handlers would duplicate policy. Letting each provider
 adapter own retries would make the total attempt limit harder to enforce.
 
-This separates protocol conversion from request execution rules.
-It builds on [ADR 0002](0002-use-common-request-format.md), without copying an
+This builds on [ADR 0002](0002-use-common-request-format.md), without copying an
 upstream project's full interface or plugin system.
 
 ## Consequences
@@ -204,7 +201,7 @@ types; HTTP frameworks and provider-specific parsing stay in adapters.
 | Area | Required checks |
 |---|---|
 | Execution | Success, restricted access, retryable failures, interrupted streams; restrictions survive fallback; adapters do not hide extra attempts |
-| Stream lifetime | Early/repeated close, cancellation during blocked I/O, truncation, trailing metadata, exclusive event/error results, EOF only on normal completion, no events after termination |
+| Stream lifetime | Early/repeated close, cancellation during blocked I/O, truncation, trailing metadata, event or error but never both, EOF only on normal completion, no events after termination |
 | Event conversion | Text; interleaved calls with fragmented arguments and late identity; reasoning with late signatures or no visible text; trailing usage; repeated snapshots; generation limits and abrupt truncation |
 | Client encoding | Protocol ordering and preservation of IDs, content, completion reasons and usage for every supported client protocol |
 

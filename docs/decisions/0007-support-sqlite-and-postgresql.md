@@ -21,8 +21,7 @@ it does not itself copy data between databases.
 ## Deployment scope
 
 Support one running CLAN instance per installation with either SQLite or PostgreSQL.
-The process handles
-multiple client requests concurrently; this is not a single-request restriction.
+That process handles multiple client requests concurrently.
 Do not run overlapping gateway processes or containers against the same installation.
 
 Coordinate active-request limits, OAuth refresh and pending usage writes inside that
@@ -114,10 +113,8 @@ records and backups require their original key. See the
 
 ## Context and alternatives
 
-SQLite alone would keep deployment small but would not meet the requested choice
-of storage. Requiring PostgreSQL would remove the default local-storage option.
-Supporting both combines a default without a separate database service with an
-explicit PostgreSQL deployment option.
+SQLite keeps the default deployment small. PostgreSQL gives operators the requested
+alternative. Supporting both requires testing the same behavior on each backend.
 
 ## Consequences and validation
 

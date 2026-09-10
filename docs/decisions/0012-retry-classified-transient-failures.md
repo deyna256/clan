@@ -1,7 +1,7 @@
 # ADR 0012: Retry classified transient failures without replaying unknown outcomes
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: value policy in `internal/retry`;
+Decision owner: project maintainer. Implementation: policy functions in `internal/retry`;
 provider classification and request-execution integration pending.
 
 ## Decision
@@ -81,15 +81,15 @@ non-retryable error eligible.
 ## Policy interface
 
 `internal/retry` separates Retry-After parsing from evaluation of one candidate.
-Provider adapters supply retryability and outcome certainty; inbound adapters
-report response commitment. Request execution selects the candidate and supplies
-the effective cooldown for restrictions that apply to it. This module does not
-match account, model or provider scopes itself.
+Provider adapters report whether retry is allowed and the outcome is known.
+Inbound adapters report whether the client response has started. Execution selects
+the candidate and supplies the effective cooldown for restrictions that apply to it.
+This module does not match account, model or provider scopes itself.
 
 Evaluation reads caller-owned attempt count, actual waiting, failure time, current
 time, optional deadline, jitter and failure facts. Unknown outcomes, cancellation
-and response commitment veto retries. The result is either no retry or a remaining
-delay; invalid caller inputs return no retry and an error.
+or a client response that has started prevent retries. The result is either no retry
+or a remaining delay; invalid caller inputs return no retry and an error.
 
 Draw jitter once for each next attempt and anchor it to failure observation. Reuse
 the same draw when evaluating other accounts or checking again. Its remaining time

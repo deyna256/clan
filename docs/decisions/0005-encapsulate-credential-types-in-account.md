@@ -68,10 +68,8 @@ work, described below.
 
 ## OAuth renewal timing
 
-Check OAuth credential freshness before dispatching an upstream generation attempt
-and renew only when needed. Reuse a token that is still fresh enough;
-do not refresh it on every request. API-key
-accounts do not participate in OAuth renewal.
+Before each upstream attempt, check whether the OAuth token needs renewal.
+Reuse it when still fresh enough. API-key accounts need no renewal.
 
 Keep credential preparation and renewal independent of the HTTP handler and any
 background scheduler. A future hybrid approach can add a background trigger using
@@ -97,8 +95,8 @@ Renewal must not hide generation retries or account switching.
 ## Consequences and validation
 
 Account creation must enforce exactly one valid credential type.
-Test this rule and the same account-selection and
-access behavior for both authorization methods, without exposing credentials to selection.
+Test this rule and the same selection and access behavior for both authorization
+methods, without exposing credentials to selection.
 
 Renewal checks should cover fresh-token reuse, renewal before dispatch when due,
 concurrent requests sharing an update, and independent progress for other accounts.

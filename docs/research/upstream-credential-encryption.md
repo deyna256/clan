@@ -21,67 +21,32 @@ helper also has global configuration, no associated data, and plaintext passthro
 when encryption is disabled. Those behaviors do not fit our explicit-key boundary.
 [Pinned helper](https://github.com/maximhq/bifrost/blob/e32fe9771d733503febb19a3c2ed1b80f04a9508/framework/encrypt/encrypt.go#L71).
 
-## Selected contract
+## Identity binding and buffers
 
-Use `internal/credentialcipher` with a concrete cipher constructed from an
-explicitly supplied 32-byte key:
+[ADR 0007](../decisions/0007-support-sqlite-and-postgresql.md#upstream-credential-encryption)
+defines the record format and identity binding. The
+[implementation](../../internal/credentialcipher/cipher.go) accepts serialized bytes;
+credential validation and serialization belong to callers.
 
-```go
-func New(key []byte) (*Cipher, error)
-func (c *Cipher) Encrypt(accountID account.ID, upstreamID upstream.ID, plaintext []byte) ([]byte, error)
-func (c *Cipher) Decrypt(accountID account.ID, upstreamID upstream.ID, record []byte) ([]byte, error)
-```
+Prefixing the account ID with its byte length separates it from the upstream ID
+without an ambiguous delimiter. Preserve exact bytes, including non-UTF-8 IDs.
+Use the destination record's identity when decrypting, not an identity copied
+from the ciphertext. Binding prevents moving a ciphertext to another identity;
+it does not prevent replaying an old valid record under the same identity.
 
-The constructor validates key length and retains cipher state, not the caller's
-key slice. Later mutation of that slice does not change the cipher. Provisioning
-must supply random key material; length validation cannot prove entropy. No
-password derivation or admin-token dependency. Construction through `New` is required.
-
-Accept arbitrary serialized bytes, including empty payloads. Credential validity
-and API-key/OAuth serialization belong outside this module. Inputs remain unchanged;
-returned buffers belong to the caller. No text encoding or JSON requirement.
-
-Record format: `0x01 || nonce[12] || ciphertext || tag[16]`, adding 29 bytes.
-Version 1 fixes the algorithm and layout. Reject unknown versions and truncated
-records; never treat unrecognized data as plaintext. Nonces remain library-owned.
-
-Require exact, nonblank account and upstream IDs as authenticated associated data:
-
-```text
-AAD = 0x01 || uint64BE(accountID byte length) || accountID bytes || upstreamID bytes
-```
-
-The length separates the two IDs without delimiter ambiguity. Preserve exact
-bytes, including non-UTF-8 strings permitted by current identity types. Exclude
-display names so renaming does not require re-encryption. Callers supply the
-destination record's identity; do not trust an identity copied from the ciphertext.
-
-A ciphertext copied to another identity must fail authentication. Moving credentials
-to another account or upstream requires decrypting under the old identity and
-re-encrypting under the new one. This does not protect all database metadata or
-prevent rollback of old valid ciphertext under the same identity.
-
-On validation or authentication failure, return nil output and an error containing
-no keys, plaintext or ciphertext. Wrong-key and tampering errors need no distinct
-cryptographic details. Use fresh destinations: `AEAD.Open` may overwrite its
-destination even on failure. Discard any returned bytes when it fails.
+Use fresh output buffers: `AEAD.Open` may overwrite its destination even when
+authentication fails. Discard any returned bytes on failure.
 [AEAD buffer contract](https://pkg.go.dev/crypto/cipher#AEAD).
 
-## Bounds and tests
+## Bounds and validation
 
-Check the GCM message-size bound and allocation-length arithmetic before encryption;
-do not impose an arbitrary credential-size setting. General memory limits belong
-to callers. The per-key 2^32-message bound spans all instances, restarts and backups;
-an in-memory counter would not enforce it. Key provisioning and rotation must
-respect that lifetime bound. No key ring or rotation workflow in this issue.
+Check GCM message-size and allocation-length bounds. A separate arbitrary
+credential-size setting is unnecessary here; callers own general memory limits.
+An in-memory counter cannot enforce the per-key encryption limit across restarts
+and backups. Key provisioning and rotation must account for that lifetime.
 [Go GCM bounds](https://go.dev/src/crypto/cipher/gcm.go).
 
-Test representative API-key and full OAuth bytes, binary/empty payloads, an
-independent fixed encrypted record, wrong keys/identities, ambiguous ID pairs,
-malformed versions/lengths and tampered nonce/ciphertext/tag. Verify nil output
-on failure, unchanged input buffers and independence from the original key slice.
-No injected random source, statistical nonce tests or enormous test allocations.
-
-SQL, serialization, environment configuration
-and rotation remain separate work. Follow the [development guide](../development.md)
-and run all four `just` checks.
+[Tests](../../internal/credentialcipher/cipher_test.go) use an independent encrypted
+record and check payload round trips, tampering, identity binding and buffer
+ownership. They need no injected random source, statistical nonce checks or
+huge allocations. SQL, serialization and rotation need their own tests later.

@@ -16,10 +16,9 @@ and API keys. It serves OpenAI- and Anthropic-compatible APIs in one installatio
 Administrators configure external LLM services (upstreams), connect accounts, and
 issue access keys that control which services applications and people can use.
 
-CLAN chooses an account for the requested model and upstream. If a failure is known
-to allow a retry, CLAN can try another allowed account before the client response
-begins. It does not resend a request if the upstream may already have processed it
-and the outcome is unknown.
+CLAN chooses an account for the requested model and upstream. After a failure known
+to allow retry, it can try another allowed account before the client response begins.
+It does not resend requests whose upstream outcome is unknown.
 
 **Language:** Go. Its concurrency support and standard HTTP library suit a gateway
 handling simultaneous requests, long-lived streams, and cancellation.
@@ -50,7 +49,8 @@ See the [documentation](#documentation) for project research and accepted decisi
 
 ## Confirmed scope
 
-These features are agreed but not yet implemented.
+This is the agreed product scope. Some core modules are implemented; the gateway
+is not yet usable.
 
 | Area | Initial scope |
 |---|---|
@@ -122,8 +122,7 @@ request before it reaches the upstream.
 
 Request execution selects eligible accounts with round-robin and owns retries,
 cancellation, timeouts, token accounting and attempt history. Each attempt keeps
-the requested model and the caller's access rules. The blocks show responsibilities
-within the process. See
+the requested model and the caller's access rules. See
 [ADR 0003](docs/decisions/0003-separate-request-execution-from-protocols.md) for the
 full contract.
 
@@ -187,7 +186,8 @@ another module, document the shared rules and check them against the accepted AD
 Keep Markdown in this repository. This README describes purpose, principles, scope
 and documentation links. Architecture decision records (ADRs) describe agreed behavior
 and explain why it was chosen.
-Research provides dated evidence and proposals, not additional requirements.
+Research records dated evidence and alternatives, not additional requirements.
+Link to ADRs and code for current contracts instead of copying their rules and types.
 
 An ADR explains the decision, the problem, alternatives, trade-offs, how to test it,
 and remaining questions. Keep each record focused and link to another ADR instead of

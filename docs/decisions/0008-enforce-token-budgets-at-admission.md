@@ -103,7 +103,7 @@ without adding them to their parent counters again.
 
 Use the explicit total when known. Otherwise, count known input and output;
 where a parent is unknown, count its known subsets. A known total or both known
-parents provide complete counter coverage. This does not mean the stream has
+parents make the total token count known. This does not mean the stream has
 finished. Missing categories remain unknown.
 
 For each attempt, keep its latest snapshot and the amount already charged.
@@ -124,8 +124,8 @@ a partial lower bound below it is allowed. Adapters must retain still-valid tota
 and known breakdowns when merging provider patches, and discard or recalculate
 stale totals rather than present them as current measurements.
 
-This value transition does not persist or deduplicate database writes. The
-accounting transaction must save the attempt state and its increment together.
+The transition does not save data. The accounting transaction must save the attempt
+state and its increment together and prevent duplicate charges.
 
 ## Accounting failures
 

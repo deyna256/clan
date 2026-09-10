@@ -26,91 +26,30 @@ attempts across the request; copying that retry loop would change our policy.
 [Pinned retry tests](https://github.com/router-for-me/CLIProxyAPI/blob/09a29bd345bc44c473abe7fd07859e32df2ea543/sdk/cliproxy/auth/conductor_retry_round_test.go#L102),
 [cooldown handling](https://github.com/router-for-me/CLIProxyAPI/blob/09a29bd345bc44c473abe7fd07859e32df2ea543/sdk/cliproxy/auth/conductor_cooldown.go#L1569).
 
-## Selected contract
+## Why CLAN keeps absolute retry times
 
-Use `internal/retry` with two pure functions:
+HashiCorp returns a delay and a parsing-success flag. Its retry loop calculates
+that delay after response cleanup. CLAN reevaluates candidates and lets cleanup
+reduce the remaining delay, so it keeps an absolute retry time.
+[HashiCorp implementation](https://github.com/hashicorp/go-retryablehttp/blob/main/client.go).
 
-```go
-type Cooldown struct {
-    Until           time.Time
-    Unrepresentable bool
-}
+A 100-second header followed by ten seconds of cleanup must still block retry
+within our five-second wait allowance. A six-second header followed by eight
+seconds of cleanup needs no further wait. Clamping both headers to five seconds
+would lose this distinction.
 
-type Input struct {
-    Attempts           int
-    Waited             time.Duration
-    Jitter             time.Duration
-    FailureAt          time.Time
-    Now                time.Time
-    Deadline           time.Time
-    Retryable          bool
-    OutcomeUnknown     bool
-    Committed          bool
-    Cancelled          bool
-    ApplicableCooldown Cooldown
-}
+The current [policy contract](../decisions/0012-retry-classified-transient-failures.md#policy-interface)
+uses explicit cooldown kinds. `RetryAt` carries a date; `NoCooldown` means no
+restriction; `RetryBlocked` prevents retry for that candidate during the request.
+A date equal to `time.Time{}` is therefore distinct from an absent cooldown.
 
-type Decision struct {
-    Retry bool
-    Delay time.Duration
-}
+Validate all numeric digits before checking overflow. A valid value too large
+for `time.Duration` blocks the affected candidate for this request. It must not
+become a short delay or disappear as if the header were malformed.
 
-func ParseRetryAfter(value string, receivedAt time.Time) (Cooldown, error)
-func Evaluate(input Input) (Decision, error)
-```
+## Validation
 
-`Evaluate` considers one candidate. The executor selects it and supplies the
-effective cooldown for applicable account, model or provider restrictions.
-An unaffected account receives no cooldown. Scope matching is an executor
-responsibility, not a guarantee of this value function.
-
-Provider adapters supply failure facts. Unknown outcomes override retryability;
-response commitment or cancellation prevents retry. This function does not
-classify HTTP responses or recover credentials.
-
-Draw jitter once for the next attempt, anchored to failure observation, and reuse
-it across candidates and later evaluations. Expose the agreed 500 ms and 1 s
-maxima; the executor draws a duration and the policy validates it. Delay is the
-maximum remaining jitter and cooldown, or zero when both have elapsed.
-
-Actual waiting shares the five-second allowance. Cleanup time can reduce a pending
-delay without consuming that allowance. At exactly five seconds already waited,
-only a zero-delay retry can qualify. A delay may equal the remaining allowance,
-but its target must be strictly before any overall deadline. Zero deadline means
-none. Three attempts used or waiting beyond the allowance means stop.
-
-Reject invalid caller inputs: nonpositive attempt count, negative durations,
-out-of-range jitter, zero/inverted observation times, or a cooldown with both
-`Until` and `Unrepresentable`. The zero cooldown means no restriction. Invalid
-input returns no retry and an error. `FailureAt` and `Now` are required, with
-`FailureAt <= Now`. Execution rechecks cancellation, deadline,
-access and budgets after waiting and owns upstream cleanup.
-
-## Retry-After boundaries
-
-Trim HTTP optional whitespace (space and tab), then accept only unsigned ASCII decimal digits
-or an HTTP-date. Parse all three HTTP date layouts. Past dates add no remaining
-delay. Malformed text returns the zero cooldown without an error; an invalid
-caller-supplied receipt time is an error.
-
-Represent ordinary delays as absolute times. Validate the complete numeric syntax
-before handling overflow. A valid number too large to represent as a duration
-sets `Unrepresentable`, blocking the affected target for this request. The same
-applies to a future deadline equal to the zero-time sentinel used for absence.
-
-Do not shorten a delay to five seconds: a 100-second header followed by ten seconds
-of cleanup must still block retry. A six-second header followed by eight seconds
-of cleanup can legitimately need no wait. The overflow marker never expires during
-reevaluation; it does not claim to retain an exact provider deadline.
-
-## Review and implementation brief
-
-Test eligibility vetoes, attempt counts, jitter bounds, overlapping delays,
-reevaluation after cleanup, wait/deadline equality, malformed/overflowing headers,
-HTTP date layouts and unchanged input. Use explicit times and draws; no sleeps
-or statistical assertions. Provider classification and scope-matching tests belong
-to their future callers; naming identical boolean inputs after different HTTP
-errors does not test those behaviors.
-
-No account registry, retry loop, HTTP calls, clock interface or OAuth recovery.
-Follow the [development guide](../development.md) and run all four `just` checks.
+[Policy tests](../../internal/retry/retry_test.go) cover delay boundaries,
+reevaluation, parsing and the three cooldown states with fixed times and jitter.
+Provider classification and scope matching need tests in their future callers;
+policy tests alone cannot verify them.

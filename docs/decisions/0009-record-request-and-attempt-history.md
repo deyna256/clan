@@ -47,9 +47,9 @@ upstream and account. Count a two-attempt request once as a client request; join
 aggregation must not multiply it. Derive request usage from attempts instead of
 maintaining another independent total. Duplicate accounting updates must not add usage.
 
-Reports are limited by retention, missing provider usage and history-write gaps. Do
-not imply that every request was recorded. Keeping less history means reports cover a shorter period. There is no separate
-year-long summary after the underlying records are deleted.
+Reports are limited by retention, missing provider usage and history-write gaps.
+Do not imply that every request was recorded. Shorter retention reduces the reporting
+period; no year-long summary remains after the underlying records are deleted.
 
 ## Retention and deletion
 

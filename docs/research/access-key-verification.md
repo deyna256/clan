@@ -31,52 +31,24 @@ a fixed format. On our Go baseline, `rand.Read` fills the buffer and returns no
 error; an entropy-source failure terminates the process.
 [Go crypto/rand](https://pkg.go.dev/crypto/rand).
 
-## Selected contract
+## Format and validation
 
-Add these operations to `internal/accesskey`, alongside the existing identity
-and permission types:
+[ADR 0007](../decisions/0007-support-sqlite-and-postgresql.md#access-key-verification)
+defines the key format and storage rules. The [implementation](../../internal/accesskey/verification.go)
+provides generation, hash derivation and verification.
 
-```go
-type VerificationHash [32]byte
+Base64 `Strict` decoding still ignores CR/LF. Checking the exact encoded and
+decoded lengths excludes those characters; strict decoding also rejects unused
+trailing bits. [Go base64 contract](https://pkg.go.dev/encoding/base64#Encoding.Strict).
 
-func Generate() (raw string, hash VerificationHash)
-func Hash(raw string) (VerificationHash, bool)
-func (hash VerificationHash) Verify(raw string) bool
-```
+`subtle.ConstantTimeCompare` protects the digest comparison. It does not make a
+database lookup or a whole authentication request take constant time.
+[Go comparison contract](https://pkg.go.dev/crypto/subtle#ConstantTimeCompare).
 
-- Generate `clan_` plus 43 unpadded base64url characters: 48 ASCII characters in
-  total, carrying 256 random bits. Identity stays in `accesskey.ID`; it is not
-  embedded in the secret. No configurable entropy or imported-key issuance.
-- Accept only this canonical format. Reject whitespace, padding, wrong case in
-  the prefix, invalid alphabet and noncanonical trailing bits. Do not trim input.
-  Base64 `Strict` still ignores CR/LF, so enforce the exact length and decoded
-  size too. [Go base64 contract](https://pkg.go.dev/encoding/base64#Encoding.Strict).
-- Hash the entire canonical string with SHA-256. Invalid input returns a zero
-  hash and `false`; the caller must check the boolean. Syntax cannot prove
-  randomness; new keys must come from `Generate`.
-- Use the digest for a future indexed lookup. Keep it separate from the stable
-  access-key ID. A stored digest must never be accepted as a bearer credential.
-- Store the 32-byte digest. The storage boundary must reject other byte lengths
-  before constructing this type. No textual record parser or algorithm registry.
-- `Verify` validates the presented key and compares all 32 digest bytes using
-  `subtle.ConstantTimeCompare`. This protects the comparison step, not the timing
-  of a whole authentication request or database lookup.
-  [Go comparison contract](https://pkg.go.dev/crypto/subtle#ConstantTimeCompare).
-- Return the raw key as an ordinary string for explicit delivery. Callers must
-  not log it or retain it for later retrieval. There is no automatic redaction
-  or memory-zeroization promise. One-time delivery belongs to the management API.
+## Validation
 
-## Implementation and test brief
-
-One executor owns the new source file and external `accesskey_test` tests; the
-primary agent owns ADR updates. Follow the [development guide](../development.md).
-
-Test generated format and verification, an independently computed SHA-256 vector,
-a different valid key, a changed digest, and a digest presented as a raw key.
-Use a compact malformed-input table for length, prefix, alphabet, whitespace,
-padding and noncanonical trailing bits. Check that large malformed inputs fail
-without panic. Keep expected values independent of the implementation.
-
-No statistical randomness tests, timing benchmarks, injected entropy framework,
-secret wrapper, database, HTTP or changes to permission checks. Run
-`just format --check`, `just deps`, `just lint` and `just test`.
+[Tests](../../internal/accesskey/verification_test.go) check the generated format,
+an independent SHA-256 vector, mismatched keys and malformed input. Statistical
+randomness tests and injected entropy sources would add little to this wrapper
+around `crypto/rand`. One-time key delivery and database lookup need tests when
+those operations are implemented.
