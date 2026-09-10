@@ -1,7 +1,11 @@
 # ADR 0011: Count admitted requests in an exact sliding RPM window
 
-Status: Accepted. Recorded: 2026-09-09.
+Status: Superseded by [ADR 0015](0015-use-token-bucket-rate-limits.md) on 2026-09-10.
+Recorded: 2026-09-09.
 Decision owner: project maintainer. Implementation: not started.
+
+The replacement uses a token bucket to reduce implementation and memory costs.
+The original decision below is retained for context.
 
 ## Decision
 

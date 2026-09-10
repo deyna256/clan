@@ -42,11 +42,12 @@ variants are defined in [ADR 0005](0005-encapsulate-credential-types-in-account.
 Call credentials issued to applications and people **access keys** (Russian:
 **ключи доступа**), with Go name `AccessKey`. They are distinct from the admin token
 and upstream credentials. Permissions restrict upstreams, models and accounts.
-RPM, concurrency and fixed 5-hour/7-day token limits are settings of the access key,
-not independent policy resources. Observed consumption cannot be edited as settings.
+RPM, burst, concurrency and fixed 5-hour/7-day token limits are settings of the
+access key, not independent policy resources. Observed consumption cannot be edited
+as settings.
 Enforcement is defined in [ADR 0008](0008-enforce-token-budgets-at-admission.md),
 [ADR 0010](0010-limit-concurrent-client-requests.md) and
-[ADR 0011](0011-use-sliding-window-rpm.md).
+[ADR 0015](0015-use-token-bucket-rate-limits.md).
 
 History and reporting follow [ADR 0009](0009-record-request-and-attempt-history.md).
 Keep distinct catalog entries when the same model name exists on different upstreams.

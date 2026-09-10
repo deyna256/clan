@@ -59,7 +59,7 @@ These features are agreed but not yet implemented.
 | Accounts and routing | Accounts belong to upstreams. Choose an allowed account for the requested model using round-robin; check access on every attempt |
 | Failover | Limit retries to failures that allow them. Never silently restart a response or resend a request whose outcome is unknown |
 | Access keys | Separate keys for applications and people, restricted by upstream, model and account |
-| Limits | Requests per minute, concurrent client requests, and token budgets over independent fixed 5-hour and 7-day windows |
+| Limits | Request-rate limits with token-bucket bursts, concurrent client requests, and token budgets over independent fixed 5-hour and 7-day windows |
 | Consumption | Count known input/output tokens, including failed attempts; show when usage is unknown. An attempt that passes budget checks may finish over budget |
 | History | Request outcomes, separate attempts, account status and safe failure details; one year of configurable retention and reports computed on demand |
 | Management | HTTP JSON API under `/api`, with a separate admin token. Generate OpenAPI from Go and publish it through a dedicated endpoint |
@@ -168,10 +168,11 @@ branches, commits and checks. Community behavior is covered by the
 | [0008 — Token-budget enforcement](docs/decisions/0008-enforce-token-budgets-at-admission.md) | Accepted | Token windows, observed usage, overruns and accounting failures |
 | [0009 — Request history](docs/decisions/0009-record-request-and-attempt-history.md) | Accepted | Request/attempt history, retention, reporting and recovery |
 | [0010 — Client-request concurrency](docs/decisions/0010-limit-concurrent-client-requests.md) | Accepted | One slot per active client request; reject without queuing |
-| [0011 — Sliding-window RPM](docs/decisions/0011-use-sliding-window-rpm.md) | Accepted | Exact sliding RPM window, counted once per client request |
+| [0011 — Sliding-window RPM](docs/decisions/0011-use-sliding-window-rpm.md) | Superseded by 0015 | Previous exact sliding-window policy |
 | [0012 — Retry policy](docs/decisions/0012-retry-classified-transient-failures.md) | Accepted | Retry eligibility, attempt/wait limits and Retry-After |
 | [0013 — Timeout policies](docs/decisions/0013-separate-ordinary-and-streaming-timeouts.md) | Accepted | Separate overall, startup, inactivity and write timeouts |
 | [0014 — HTTP routing](docs/decisions/0014-use-chi-for-http-routing.md) | Accepted | chi over net/http, route groups and standard handlers |
+| [0015 — Token-bucket rate limits](docs/decisions/0015-use-token-bucket-rate-limits.md) | Accepted | Sustained request rate and burst capacity, counted once per client request |
 
 ### Design sequencing
 

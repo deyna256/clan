@@ -75,7 +75,7 @@ and release through the public contract. Integration tests must cover immediate
 429 without upstream dispatch, retries retaining one slot, streams holding slots
 through cleanup, and release on terminal and admission-error paths.
 
-RPM accounting is defined in [ADR 0011](0011-use-sliding-window-rpm.md), and timeout
-policies in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md). HTTP status
-mapping, configuration loading and holding slots across retries and stream cleanup
+Request-rate accounting is defined in [ADR 0015](0015-use-token-bucket-rate-limits.md).
+Timeout policies are defined in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md).
+HTTP status mapping, configuration loading and holding slots across retries and stream cleanup
 remain admission and execution integration work.
