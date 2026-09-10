@@ -55,6 +55,32 @@ Keeping encryption keys separate from encrypted data follows
 Encryption protects stored credentials when the database is exposed without the key;
 CLAN still needs the plaintext values when authenticating with an upstream.
 
+## Access-key verification
+
+Generate 32 bytes with `crypto/rand` and encode them as `clan_` followed by
+43 canonical unpadded base64url characters. The 48-character key contains
+256 random bits and no embedded access-key ID.
+
+Store the SHA-256 digest of the complete canonical key, without salt or pepper.
+These are generated random secrets, not human passwords. Use the digest for
+indexed lookup; keep `accesskey.ID` independent from the secret and its hash.
+
+`internal/accesskey` provides generation, hash derivation and verification.
+Reject malformed keys without trimming or normalization. Compare digests with
+`crypto/subtle.ConstantTimeCompare`; this does not guarantee uniform timing for
+database lookups or the whole authentication request. A stored digest is never
+a bearer credential.
+
+Represent the verification hash as 32 bytes. The storage boundary must reject
+other lengths before constructing that value. Algorithm changes require an
+explicit compatibility decision, not a configurable algorithm registry.
+
+The generated key is an ordinary string returned separately from its hash.
+Callers own one-time delivery and must not log or persist the raw value. The
+primitive does not automatically redact strings or promise memory zeroization.
+See the [verification research](../research/access-key-verification.md) for
+sources, alternatives and tests.
+
 ## Context and alternatives
 
 SQLite alone would keep deployment small but would not meet the requested choice
@@ -76,4 +102,5 @@ independence from admin-token rotation.
 
 Define drivers, query tooling, schema and migrations with the storage module.
 Environment-variable names, SQLite location, backup/restore, key provisioning,
-cryptographic algorithms, encrypted-record format, rotation and recovery also remain open.
+upstream-credential encryption algorithms, encrypted-record format, rotation and
+recovery also remain open.
