@@ -263,6 +263,8 @@ Use ordinary functions and explicit field assignments. Start with helpers in the
 same `_test.go` file; share them across packages only when actual callers need it.
 Avoid builder frameworks and random data for ordinary examples. Each call must
 return independent mutable data, including nested slices and maps.
+When testing that input is preserved, save an independent expected value before
+the call. A shared map or slice can let a bug change both the input and expectation.
 
 A setup helper that reports failures takes `*testing.T`, calls `t.Helper()` and
 stops on a setup error. Pure data functions need no `testing.T`. Keep the operation

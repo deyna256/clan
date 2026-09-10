@@ -38,6 +38,11 @@ func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			identity := account.Identity{ID: " account-1 ", Name: " Primary account ", UpstreamID: " upstream-1 "}
+			want := tt.credentials
+			if oauth, ok := want.(account.OAuthCredentials); ok {
+				oauth.ProviderData = maps.Clone(oauth.ProviderData)
+				want = oauth
+			}
 
 			got, err := account.New(identity, tt.credentials)
 
@@ -47,8 +52,11 @@ func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 			if got.Identity() != identity {
 				t.Errorf("identity = %+v, want %+v", got.Identity(), identity)
 			}
-			if !reflect.DeepEqual(got.Credentials(), tt.credentials) {
-				t.Errorf("credentials = %#v, want %#v", got.Credentials(), tt.credentials)
+			if !reflect.DeepEqual(got.Credentials(), want) {
+				t.Errorf("credentials = %#v, want %#v", got.Credentials(), want)
+			}
+			if !reflect.DeepEqual(tt.credentials, want) {
+				t.Errorf("New() changed input credentials: got %#v, want %#v", tt.credentials, want)
 			}
 		})
 	}

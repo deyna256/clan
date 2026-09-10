@@ -45,6 +45,7 @@ func TestNewRejectsInvalidIdentity(t *testing.T) {
 }
 
 func TestNewRejectsInvalidPermissions(t *testing.T) {
+	validModel := accesskey.Model{UpstreamID: "u", Name: "m"}
 	tests := []struct {
 		name        string
 		permissions accesskey.Permissions
@@ -73,8 +74,8 @@ func TestNewRejectsInvalidPermissions(t *testing.T) {
 			wantField:   "models",
 		},
 		{
-			name:        "model with blank upstream",
-			permissions: accesskey.Permissions{Models: []accesskey.Model{{UpstreamID: " \t\n", Name: "m"}}},
+			name:        "blank upstream after valid model",
+			permissions: accesskey.Permissions{Models: []accesskey.Model{validModel, {UpstreamID: " \t\n", Name: "m"}}},
 			wantField:   "models",
 		},
 		{
@@ -83,8 +84,8 @@ func TestNewRejectsInvalidPermissions(t *testing.T) {
 			wantField:   "models",
 		},
 		{
-			name:        "model with blank name",
-			permissions: accesskey.Permissions{Models: []accesskey.Model{{UpstreamID: "u", Name: " \t\n"}}},
+			name:        "blank name after valid model",
+			permissions: accesskey.Permissions{Models: []accesskey.Model{validModel, {UpstreamID: "u", Name: " \t\n"}}},
 			wantField:   "models",
 		},
 		{name: "empty account", permissions: accesskey.Permissions{Accounts: []account.ID{""}}, wantField: "accounts"},
@@ -163,6 +164,18 @@ func TestAllowsCombinesListsWithUnrestrictedDimensions(t *testing.T) {
 			name:        "listed account",
 			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{"a"}},
 			want:        true,
+		},
+		{
+			name:        "upstream case differs",
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"U"}, AllModels: true, AllAccounts: true},
+		},
+		{
+			name:        "upstream whitespace differs",
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{" u "}, AllModels: true, AllAccounts: true},
+		},
+		{
+			name:        "account whitespace differs",
+			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{" a "}},
 		},
 		{name: "empty upstreams", permissions: accesskey.Permissions{Upstreams: []upstream.ID{}, AllModels: true, AllAccounts: true}},
 		{name: "empty models", permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{}, AllAccounts: true}},
