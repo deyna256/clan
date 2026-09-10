@@ -1,7 +1,8 @@
 # ADR 0007: Support SQLite by default and PostgreSQL through environment configuration
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer. Implementation: access-key verification and
+credential encryption primitives; database integration pending.
 
 ## Decision
 
@@ -81,6 +82,36 @@ primitive does not automatically redact strings or promise memory zeroization.
 See the [verification research](../research/access-key-verification.md) for
 sources, alternatives and tests.
 
+## Upstream-credential encryption
+
+`internal/credentialcipher` uses AES-256-GCM with an explicitly supplied 32-byte
+key. Construct the cipher with `New`; environment loading, provisioning and payload
+serialization belong to callers. No encryption-disabled or plaintext fallback mode.
+
+The library generates nonces through `cipher.NewGCMWithRandomNonce`. Store
+`0x01 || nonce[12] || ciphertext || tag[16]` as bytes. Version 1 fixes this layout
+and algorithm; reject unsupported versions and malformed records.
+
+Authenticate the exact nonblank account and upstream IDs as associated data:
+`0x01 || uint64BE(accountID byte length) || accountID bytes || upstreamID bytes`.
+Names are excluded. A copied ciphertext cannot authenticate under a different
+identity. Moving credentials requires decrypting with the old identity and
+re-encrypting with the new one. This does not authenticate all database metadata
+or prevent rollback to an old valid ciphertext under the same identity.
+
+Encrypt arbitrary serialized bytes, including empty payloads. Inputs remain
+unchanged and outputs are caller-owned. On validation or authentication failure,
+return no plaintext and an error without secret contents. Use fresh buffers;
+failed AEAD decryption may overwrite its destination. The constructor must not
+retain the caller's mutable key slice. No automatic redaction or zeroization claim.
+
+Respect GCM message-size and allocation-length bounds. The random-nonce mode permits
+at most 2^32 encryptions per key across all instances and restarts; provisioning
+and rotation must respect that lifetime. Do not use a per-object counter as proof
+of compliance. Key selection and rotation workflows remain separate work; existing
+records and backups require their original key. See the
+[encryption research](../research/upstream-credential-encryption.md).
+
 ## Context and alternatives
 
 SQLite alone would keep deployment small but would not meet the requested choice
@@ -102,5 +133,4 @@ independence from admin-token rotation.
 
 Define drivers, query tooling, schema and migrations with the storage module.
 Environment-variable names, SQLite location, backup/restore, key provisioning,
-upstream-credential encryption algorithms, encrypted-record format, rotation and
-recovery also remain open.
+rotation and recovery also remain open.
