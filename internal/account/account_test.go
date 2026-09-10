@@ -28,8 +28,8 @@ func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 		{
 			name: "OAuth",
 			credentials: account.OAuthCredentials{
-				AccessToken:  "access-token-secret",
-				RefreshToken: "refresh-token-secret",
+				AccessToken:  " access-token-secret ",
+				RefreshToken: " refresh-token-secret ",
 				ExpiresAt:    time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 				ProviderData: map[string]string{"tenant": "provider-value"},
 			},
@@ -37,7 +37,7 @@ func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			identity := account.Identity{ID: "account-1", Name: "Primary account", UpstreamID: "upstream-1"}
+			identity := account.Identity{ID: " account-1 ", Name: " Primary account ", UpstreamID: " upstream-1 "}
 
 			got, err := account.New(identity, tt.credentials)
 
@@ -56,15 +56,16 @@ func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 
 func TestNewRejectsInvalidIdentityWithoutExposingCredentials(t *testing.T) {
 	identities := []struct {
-		name     string
-		identity account.Identity
+		name      string
+		identity  account.Identity
+		wantField string
 	}{
-		{name: "missing id", identity: account.Identity{Name: "Primary", UpstreamID: "upstream"}},
-		{name: "blank id", identity: account.Identity{ID: " \t\n", Name: "Primary", UpstreamID: "upstream"}},
-		{name: "missing name", identity: account.Identity{ID: "account", UpstreamID: "upstream"}},
-		{name: "blank name", identity: account.Identity{ID: "account", Name: " \t\n", UpstreamID: "upstream"}},
-		{name: "missing upstream", identity: account.Identity{ID: "account", Name: "Primary"}},
-		{name: "blank upstream", identity: account.Identity{ID: "account", Name: "Primary", UpstreamID: " \t\n"}},
+		{name: "missing id", identity: account.Identity{Name: "Primary", UpstreamID: "upstream"}, wantField: "id"},
+		{name: "blank id", identity: account.Identity{ID: " \t\n", Name: "Primary", UpstreamID: "upstream"}, wantField: "id"},
+		{name: "missing name", identity: account.Identity{ID: "account", UpstreamID: "upstream"}, wantField: "name"},
+		{name: "blank name", identity: account.Identity{ID: "account", Name: " \t\n", UpstreamID: "upstream"}, wantField: "name"},
+		{name: "missing upstream", identity: account.Identity{ID: "account", Name: "Primary"}, wantField: "upstream"},
+		{name: "blank upstream", identity: account.Identity{ID: "account", Name: "Primary", UpstreamID: " \t\n"}, wantField: "upstream"},
 	}
 	variants := []struct {
 		name        string
@@ -87,6 +88,9 @@ func TestNewRejectsInvalidIdentityWithoutExposingCredentials(t *testing.T) {
 				if got.Identity() != (account.Identity{}) || got.Credentials() != nil {
 					t.Error("New() returned a partial account on failure")
 				}
+				if !strings.Contains(" "+err.Error()+" ", " "+tt.wantField+" ") {
+					t.Errorf("error %q does not identify field %q", err, tt.wantField)
+				}
 				assertNoSecrets(t, err.Error())
 			})
 		}
@@ -97,23 +101,25 @@ func TestNewRejectsInvalidCredentials(t *testing.T) {
 	tests := []struct {
 		name        string
 		credentials account.Credentials
+		wantField   string
 	}{
-		{name: "no variant"},
-		{name: "empty API key", credentials: account.APIKeyCredentials{}},
-		{name: "blank API key", credentials: account.APIKeyCredentials{Key: " \t\n"}},
+		{name: "no variant", wantField: "credentials"},
+		{name: "empty API key", credentials: account.APIKeyCredentials{}, wantField: "API key"},
+		{name: "blank API key", credentials: account.APIKeyCredentials{Key: " \t\n"}, wantField: "API key"},
 		{name: "empty access token", credentials: account.OAuthCredentials{
 			RefreshToken: refreshSecret, ProviderData: map[string]string{"secret": providerSecret},
-		}},
-		{name: "blank access token", credentials: account.OAuthCredentials{AccessToken: " \t\n", RefreshToken: refreshSecret}},
-		{name: "nil API key pointer", credentials: (*account.APIKeyCredentials)(nil)},
-		{name: "nil OAuth pointer", credentials: (*account.OAuthCredentials)(nil)},
-		{name: "API key pointer", credentials: &account.APIKeyCredentials{Key: apiKeySecret}},
-		{name: "OAuth pointer", credentials: &account.OAuthCredentials{AccessToken: accessSecret}},
+		}, wantField: "access token"},
+		{name: "blank access token", credentials: account.OAuthCredentials{AccessToken: " \t\n", RefreshToken: refreshSecret}, wantField: "access token"},
+		{name: "nil API key pointer", credentials: (*account.APIKeyCredentials)(nil), wantField: "credentials"},
+		{name: "nil OAuth pointer", credentials: (*account.OAuthCredentials)(nil), wantField: "credentials"},
+		{name: "API key pointer", credentials: &account.APIKeyCredentials{Key: apiKeySecret}, wantField: "credentials"},
+		{name: "OAuth pointer", credentials: &account.OAuthCredentials{AccessToken: accessSecret}, wantField: "credentials"},
 		{
 			name: "embedded interface",
 			credentials: struct{ account.Credentials }{
 				Credentials: account.APIKeyCredentials{Key: apiKeySecret},
 			},
+			wantField: "credentials",
 		},
 	}
 	for _, tt := range tests {
@@ -127,6 +133,9 @@ func TestNewRejectsInvalidCredentials(t *testing.T) {
 			}
 			if got.Identity() != (account.Identity{}) || got.Credentials() != nil {
 				t.Error("New() returned a partial account on failure")
+			}
+			if !strings.Contains(" "+err.Error()+" ", " "+tt.wantField+" ") {
+				t.Errorf("error %q does not identify field %q", err, tt.wantField)
 			}
 			assertNoSecrets(t, err.Error())
 		})

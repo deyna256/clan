@@ -26,7 +26,7 @@ type Credentials interface {
 	isCredentials()
 }
 
-// APIKeyCredentials authenticates with an upstream API key.
+// APIKeyCredentials holds an upstream API key.
 type APIKeyCredentials struct {
 	Key string
 }
