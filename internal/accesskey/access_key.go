@@ -1,4 +1,4 @@
-// Package accesskey checks access to upstreams, models and accounts.
+// Package accesskey generates and verifies keys and checks their permissions.
 package accesskey
 
 import (
