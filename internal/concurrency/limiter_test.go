@@ -28,6 +28,17 @@ func TestReleaseMakesOneSlotAvailable(t *testing.T) {
 	}
 }
 
+func TestZeroLimitRejectsFirstAcquisition(t *testing.T) {
+	limiter := concurrency.New()
+
+	slot, err := limiter.TryAcquire("key", 0)
+
+	t.Cleanup(slot.Release)
+	if !errors.Is(err, concurrency.ErrLimitReached) {
+		t.Fatalf("first TryAcquire() with zero limit: error = %v, want ErrLimitReached", err)
+	}
+}
+
 func TestRejectedAcquisitionsLeaveCountsUnchanged(t *testing.T) {
 	tests := []struct {
 		name         string
