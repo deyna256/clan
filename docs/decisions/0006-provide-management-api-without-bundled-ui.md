@@ -1,7 +1,9 @@
 # ADR 0006: Provide a management API without a bundled web panel
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer.
+Implementation: [access-key permissions](../../internal/accesskey/access_key.go)
+implemented; management HTTP API not started.
 
 ## Decision
 
@@ -50,6 +52,41 @@ History and reporting follow [ADR 0009](0009-record-request-and-attempt-history.
 Keep distinct catalog entries when the same model name exists on different upstreams.
 A listed model may have no account available to serve it at that moment.
 
+## Access-key permission rules
+
+Agreed on 2026-09-10: deny access unless it is explicitly permitted. Upstream,
+model and account restrictions must all allow the target. A disabled key denies
+every target.
+
+| Restriction | Meaning |
+|---|---|
+| Absent or empty list | Allow nothing in that dimension |
+| Nonempty list | Allow only the listed values |
+| Explicit all setting | Allow every value in that dimension |
+
+Identify a model by its upstream ID and exact name. The same name on another
+upstream is a different target. Match IDs and model names exactly; do not treat
+strings as wildcard patterns. An account must belong to the requested upstream,
+even when all accounts are permitted.
+
+The Go model uses `accesskey.ID`, `Identity`, `Permissions` and `AccessKey`.
+`Permissions` has an all setting and a list for each dimension. Combining all
+with a nonempty list is invalid. IDs, names and list entries must be nonblank;
+validation preserves supplied values. Checking that referenced resources exist
+belongs to the configuration/storage boundary. Lists act as sets, so repeated
+entries do not grant additional access.
+
+Construct an immutable key snapshot with `accesskey.New`. It copies permission
+lists; later edits to the input cannot change access. The zero key denies all
+access. Changing settings requires a new snapshot.
+
+`Allows` checks one target and account identity. `Filter` returns allowed account
+IDs in candidate order, without changing or retaining the candidate slice.
+Candidates must come from trusted account inventory, not client-supplied account
+metadata. These operations inspect no credentials and perform no I/O. They do not
+prove that the presented access-key secret is valid or that a model is supported
+or an account is currently available.
+
 ## Model discovery for clients
 
 Client-facing model listings are separate from the admin catalog and respect the
@@ -84,8 +121,8 @@ parallel `PUT`. Accept `Content-Type: application/merge-patch+json` under
 | `null` | Remove the field if the schema permits its absence |
 
 Validate the resulting resource. Removing a required field is an error. Resource
-schemas must define optional permissions and limits: the patch format alone does
-not decide whether an absent restriction means unrestricted access or denial.
+schemas must preserve the permission rules above and define optional limit fields;
+the patch format alone does not decide their meaning.
 
 ## Concurrent configuration updates
 
