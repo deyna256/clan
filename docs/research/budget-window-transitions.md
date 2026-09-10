@@ -31,7 +31,7 @@ or background worker is needed.
 
 The caller supplies accounting times in order. Without a last-event field, the
 module cannot detect every backwards timestamp within an active window. SQL time
-encoding and synchronization belong to storage.
+encoding belongs to storage; the accounting coordinator owns synchronization.
 [Go time semantics](https://pkg.go.dev/time#hdr-Monotonic_Clocks).
 
 If a window expires at 15:00 and a retry is admitted at 15:02, the new window opens
@@ -44,5 +44,7 @@ late usage, overruns, invalid state and overflow without partial updates.
 Cumulative usage of 100, 150 and 150 across expiry charges only 50 to the new window;
 the duplicate neither charges nor opens a window.
 
-These pure functions need no concurrent tests. The future accounting transaction
-must prove that concurrent writes and retries cannot lose or duplicate charges.
+These pure functions need no concurrent tests. The accounting coordinator must
+test concurrent updates and saving without losing or duplicating consumption.
+The selected persistence model saves
+[budget snapshots](../decisions/0008-enforce-token-budgets-at-admission.md#snapshot-persistence-and-restart).

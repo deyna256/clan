@@ -38,8 +38,8 @@ type State struct {
 // Advance returns the next state and newly chargeable tokens for the same attempt.
 // It validates both inputs without modifying them. Invalid or decreasing counters
 // return the previous state, zero charge and an error. Repeated snapshots charge
-// nothing; separate attempts need separate states. Durable deduplication requires
-// callers to save the state and charge together in a transaction.
+// nothing; separate attempts need separate states. Callers must apply the next
+// state and its budget charge together.
 func Advance(previous State, snapshot Snapshot) (State, int64, error) {
 	previousAmount, err := previous.Usage.amount()
 	if err != nil {
