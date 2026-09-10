@@ -15,7 +15,7 @@ attempt, retries and account fallback.
 An admitted attempt may finish and exceed the budget. Record the full overrun;
 exhaustion alone does not interrupt a stream or reduce its output limit. Cancellation
 and timeouts still apply. RPM and concurrency operate at the client-request level,
-as defined in [ADR 0011](0011-use-sliding-window-rpm.md) and
+as defined in [ADR 0015](0015-use-token-bucket-rate-limits.md) and
 [ADR 0010](0010-limit-concurrent-client-requests.md).
 
 ## Fixed budget windows
