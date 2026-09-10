@@ -151,7 +151,9 @@ are preserved separately from local addresses for subsequent tool results.
   separate. Preserve the type and source of opaque data; one provider's signature is not automatically
   valid for another provider. `ItemEnded` may deliver data received after text ended.
   An inbound adapter may therefore need to delay closing its reasoning block.
-- Usage updates replace known counters rather than add cumulative snapshots.
+- Usage updates carry normalized cumulative snapshots, not provider patches.
+  Adapters merge partial fields; accounting charges only new observed consumption.
+  See the [usage contract](0008-enforce-token-budgets-at-admission.md#cumulative-usage-contract).
   Unknown counters remain distinguishable from zero; provider adapters normalize
   token counts to CLAN's accounting rules, including cache-related counters.
 - On normal protocol completion, close remaining items/parts and deliver all known

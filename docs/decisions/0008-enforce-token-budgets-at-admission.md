@@ -1,7 +1,8 @@
 # ADR 0008: Enforce token budgets at admission and charge observed usage
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer. Implementation: usage transitions in `internal/usage`;
+budget windows, persistence and admission integration pending.
 
 ## Decision
 
@@ -61,6 +62,40 @@ total incomplete.
 
 Missing usage alone does not block later requests. Other access and limit checks
 still apply. Totals may be lower than actual usage and must show when data is missing.
+
+## Cumulative usage contract
+
+Adapters emit full normalized snapshots of the currently known counters,
+not raw provider patches. Each counter records whether its value is known;
+unknown differs from an observed zero. Input includes cache reads and writes,
+which are separate subsets. Output includes reasoning. Preserve these details
+without adding them to their parent counters again.
+
+Use the explicit total when known. Otherwise, count known input and output;
+where a parent is unknown, count its known subsets. A known total or both known
+parents provide complete counter coverage. This does not mean the stream has
+finished. Missing categories remain unknown.
+
+For each attempt, keep its latest snapshot and the amount already charged.
+A pure transition returns the next state and only the positive difference above
+that amount. Repeated snapshots and late breakdowns add no charge. For example,
+100, 150, 150 charges 100, 50, 0.
+
+Reject negative values, arithmetic overflow, decreasing or lost known breakdowns,
+and inconsistent totals or subsets. Unknown counters must have a zero payload.
+On error, return the previous state unchanged and no increment; the caller owns
+error handling. Validate supplied previous state as well as the new snapshot.
+
+An outdated total may become unknown when partial counters advance. For example,
+known total 100 with input 80 can become input 90 with unknown total and output.
+Keep the already charged 100 and add zero. Later input 90 and output 20 establish
+110 and add 10. A new complete total below the amount already charged is invalid;
+a partial lower bound below it is allowed. Adapters must retain still-valid totals
+and known breakdowns when merging provider patches, and discard or recalculate
+stale totals rather than present them as current measurements.
+
+This value transition does not persist or deduplicate database writes. The
+accounting transaction must save the attempt state and its increment together.
 
 ## Accounting failures
 
