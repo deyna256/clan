@@ -260,8 +260,10 @@ the default full run. Coverage alone does not show test quality.
 
 ## Tooling and dependencies
 
-Use an explicit golangci-lint set: `govet`, `staticcheck`, `errcheck` and `unused`.
-Add checks when their purpose is clear. Keep formatting in `gofmt`. Suppress a
+For now, `just lint` runs `go vet ./...`. When golangci-lint is added, start with
+`govet`, `staticcheck`, `errcheck` and `unused`.
+Add checks when their purpose is clear. Use `just format` to format with `gofmt`
+and `just format --check` to check without changing files. Suppress a
 finding only where needed, naming the linter and explaining the exception.
 Ignoring an error needs a reason.
 

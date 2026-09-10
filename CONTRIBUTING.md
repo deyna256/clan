@@ -65,12 +65,16 @@ committing.
 ## Checks and review
 
 Use the commands in the [Justfile](Justfile): `just format` formats Go code,
-`just deps` updates and verifies dependencies, `just test-unit` runs fast tests,
-and `just test` runs all tests. Run the relevant checks before submitting changes.
+`just format --check` checks formatting without changing files, `just deps` updates
+and verifies dependencies, and `just lint` runs `go vet ./...`. `just test-unit`
+runs fast tests, and `just test` runs all tests. Run the relevant checks before
+submitting changes.
 Documentation-only changes need link and formatting checks, not Go tests.
 
-`just lint` is reserved for golangci-lint; its installation and configuration are
-still pending. Docker lifecycle commands are also not configured yet.
+The [CI workflow](.github/workflows/ci.yml) runs formatting, dependency, static
+analysis and test checks on pull requests to `main` and pushes to `main`.
+Use the Go version in `go.mod` and the Just version pinned in the workflow.
+Golangci-lint and Docker lifecycle commands are not configured yet.
 
 A pull request should link its issue, explain the resulting behavior, and state
 which checks passed or could not run. Update affected documentation with the code.

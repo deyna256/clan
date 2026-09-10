@@ -1,4 +1,4 @@
-# Command skeleton: checks and lifecycle operations are not configured yet.
+# Code checks are available; Docker lifecycle commands are not configured yet.
 
 # Run all tests in the module with race detection and shuffled execution.
 test:
@@ -10,11 +10,28 @@ test-unit:
 
 # Run static analysis without modifying source files.
 lint:
-    golangci-lint run
+    go vet ./...
 
-# Format Go files in place.
-format:
-    gofmt -w .
+# Format Go files, or check them without changes with --check.
+[positional-arguments]
+format mode="":
+    #!/usr/bin/env sh
+    set -eu
+    case "$1" in
+        "") gofmt -w . ;;
+        --check)
+            files=$(gofmt -l .)
+            if [ -n "$files" ]; then
+                printf '%s\n' "$files"
+                printf '%s\n' 'Run just format to format these files.' >&2
+                exit 1
+            fi
+            ;;
+        *)
+            printf '%s\n' 'Usage: just format [--check]' >&2
+            exit 2
+            ;;
+    esac
 
 # Synchronize module dependencies and verify their cached contents.
 deps:
