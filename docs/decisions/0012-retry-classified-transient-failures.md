@@ -1,7 +1,8 @@
 # ADR 0012: Retry classified transient failures without replaying unknown outcomes
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer. Implementation: value policy in `internal/retry`;
+provider classification and request-execution integration pending.
 
 ## Decision
 
@@ -76,6 +77,44 @@ deadline, stop retrying and return the failure. Do not shorten an upstream retry
 time to fit the local allowance. A missing or malformed header supplies no additional
 delay; use the ordinary retry policy. Retry-After does not make an otherwise
 non-retryable error eligible.
+
+## Policy interface
+
+`internal/retry` separates Retry-After parsing from evaluation of one candidate.
+Provider adapters supply retryability and outcome certainty; inbound adapters
+report response commitment. Request execution selects the candidate and supplies
+the effective cooldown for restrictions that apply to it. This module does not
+match account, model or provider scopes itself.
+
+Evaluation reads caller-owned attempt count, actual waiting, failure time, current
+time, optional deadline, jitter and failure facts. Unknown outcomes, cancellation
+and response commitment veto retries. The result is either no retry or a remaining
+delay; invalid caller inputs return no retry and an error.
+
+Draw jitter once for each next attempt and anchor it to failure observation. Reuse
+the same draw when evaluating other accounts or checking again. Its remaining time
+overlaps the applicable cooldown; cleanup can reduce both without consuming the
+separate waiting allowance. Do not restart either delay during reevaluation.
+
+At exactly five seconds already waited, only zero additional delay is allowed.
+Waiting beyond the allowance or using three attempts means stop. A delay may equal
+the remaining allowance, but its target must be strictly before an overall deadline.
+A zero deadline means none. The failure and current times are required, with the
+failure no later than the current time. Reject nonpositive attempt counts, negative
+durations, invalid jitter and contradictory cooldown fields.
+
+Retry-After parsing removes only surrounding HTTP spaces and tabs. Missing or
+malformed input yields no cooldown. Numeric values use unsigned ASCII decimal
+syntax; validate all digits before handling overflow. Keep ordinary deadlines as
+absolute times. A valid number too large for `time.Duration`, or a future deadline
+equal to the zero-time sentinel, marks the affected target unavailable for the
+current request, without an expiring substitute deadline. Invalid receipt time is
+a caller error.
+
+Execution owns waiting, cleanup, cancellation/deadline rechecks and access/budget
+checks before dispatch. Provider classification and scope matching require tests
+there; tests of this policy alone do not prove them. See the
+[research and test brief](../research/retry-policy.md).
 
 ## Rationale and alternative
 
