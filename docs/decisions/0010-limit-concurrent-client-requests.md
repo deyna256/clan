@@ -1,7 +1,9 @@
 # ADR 0010: Limit concurrent client requests without an admission queue
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer.
+Implementation: [concurrency slots](../../internal/concurrency/limiter.go) implemented;
+admission and request execution integration are pending.
 
 ## Decision
 
@@ -27,14 +29,53 @@ and streaming. Immediate rejection avoids an admission queue, queue capacity set
 and queue-wait deadlines. Waiting for a free slot could absorb short bursts, but is
 not selected for the initial implementation; the client decides whether to retry.
 
-## Validation and open details
+## Slot contract
 
-Future tests must cover simultaneous admissions at the limit, isolation between
-keys, immediate 429 without upstream dispatch, retries retaining one slot, streams
-holding slots through cleanup, and release on all terminal and admission-error paths
-without leaks or double release.
+Agreed on 2026-09-10: create one limiter for the gateway process with `concurrency.New`.
+`TryAcquire(keyID, limit) (Slot, error)` atomically checks and takes one slot for
+an `accesskey.ID`. It does not queue requests for a free slot; it may briefly wait
+for the mutex. Blank key IDs are invalid; other IDs are preserved and compared
+exactly. Separate limiter instances have independent counts.
+
+| Limit | Meaning |
+|---|---|
+| Positive | Maximum active slots for the key |
+| `0` | Reject new acquisitions |
+| `Unlimited` (`-1`) | Admit without a configured cap, while still counting slots |
+| Below `-1` | Invalid input |
+
+Exhaustion returns `ErrLimitReached`. Invalid input returns a different error.
+Both leave counts unchanged and return a zero slot. `Slot.Release` is safe on a
+zero slot and releases a successful acquisition at most once, including concurrent
+calls through copies of that slot. Release after upstream cleanup, or when a later
+admission check rejects the request. Cancellation alone does not release a slot.
+
+Each acquisition uses the supplied configuration snapshot. Raising a limit allows
+more acquisitions; lowering it does not cancel active work. With five active slots
+and a new limit of two, admission resumes when the count falls below two. Slots
+acquired under `Unlimited` also count against a later finite limit.
+
+The admission coordinator reads configuration before acquisition. An admission
+already in progress may use an older snapshot after a configuration update.
+This primitive does not guarantee that completion of an admin update prevents all
+later acquisitions using old values, and it stores no copy of the configured limit.
+
+Delete a key's counter when its last slot is released. Releasing an old slot again
+must not affect a new counter for the same key. No background cleanup is needed.
+
+Use a map and a short mutex-protected check and increment. A fixed-capacity channel
+or `x/sync/semaphore` would need extra machinery for changing limits. Protect each
+slot's release with `sync.OnceFunc`, following the ownership pattern used by Go's
+[LimitListener](https://github.com/golang/net/blob/master/netutil/listen.go).
+
+## Validation and integration
+
+Unit tests cover capacity, limit changes, key isolation, and concurrent acquisition
+and release through the public contract. Integration tests must cover immediate
+429 without upstream dispatch, retries retaining one slot, streams holding slots
+through cleanup, and release on terminal and admission-error paths.
 
 RPM accounting is defined in [ADR 0011](0011-use-sliding-window-rpm.md), and timeout
-policies in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md). Concrete
-concurrency values and what happens when a key's limit changes during active requests remain
-details for the admission and configuration modules.
+policies in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md). HTTP status
+mapping, configuration loading and holding slots across retries and stream cleanup
+remain admission and execution integration work.

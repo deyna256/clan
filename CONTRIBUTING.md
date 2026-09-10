@@ -76,5 +76,16 @@ analysis and test checks on pull requests to `main` and pushes to `main`.
 Use the Go version in `go.mod` and the Just version pinned in the workflow.
 Golangci-lint and Docker lifecycle commands are not configured yet.
 
-A pull request should link its issue, explain the resulting behavior, and state
-which checks passed or could not run. Update affected documentation with the code.
+## Pull requests
+
+Use the [pull request template](.github/pull_request_template.md) with these sections:
+
+- **Problem:** explain what is missing or wrong and why the change is needed.
+- **Changes:** describe the resulting behavior and the decisions needed to review it.
+- **Validation:** state which checks passed or could not run, and what behavior
+  the tests cover.
+
+Keep each section short and avoid repeating the issue or listing every changed
+file. Add sections only when needed, such as migration steps or breaking changes.
+Link the issue; use `Closes #<number>` when the PR completes it. Update the
+description and affected documentation when the code changes.
