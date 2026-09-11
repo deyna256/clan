@@ -79,8 +79,10 @@ explicit compatibility decision, not a configurable algorithm registry.
 The generated key is an ordinary string returned separately from its hash.
 Callers own one-time delivery and must not log or persist the raw value. The
 primitive does not automatically redact strings or promise memory zeroization.
-See the [verification research](../research/access-key-verification.md) for
-sources, alternatives and tests.
+The fixed format uses 32 random bytes because [`rand.Text`](https://pkg.go.dev/crypto/rand#Text)
+may increase its output length. Strict base64 decoding still permits CR/LF;
+exact length checks also matter. See the [decoder contract](https://pkg.go.dev/encoding/base64#Encoding.Strict)
+and [verification tests](../../internal/accesskey/verification_test.go).
 
 ## Upstream-credential encryption
 
@@ -95,7 +97,8 @@ and algorithm; reject unsupported versions and malformed records.
 Authenticate the exact nonblank account and upstream IDs as associated data:
 `0x01 || uint64BE(accountID byte length) || accountID bytes || upstreamID bytes`.
 Names are excluded. A copied ciphertext cannot authenticate under a different
-identity. Moving credentials requires decrypting with the old identity and
+identity. When decrypting, use the destination record's identity, not one supplied
+with the ciphertext. Moving credentials requires decrypting with the old identity and
 re-encrypting with the new one. This does not authenticate all database metadata
 or prevent rollback to an old valid ciphertext under the same identity.
 
@@ -110,7 +113,8 @@ at most 2^32 encryptions per key across all instances and restarts; provisioning
 and rotation must respect that lifetime. Do not use a per-object counter as proof
 of compliance. Key selection and rotation workflows remain separate work; existing
 records and backups require their original key. See the
-[encryption research](../research/upstream-credential-encryption.md).
+[random-nonce contract](https://pkg.go.dev/crypto/cipher#NewGCMWithRandomNonce)
+and [AEAD buffer rules](https://pkg.go.dev/crypto/cipher#AEAD).
 
 ## Context and alternatives
 
@@ -134,6 +138,17 @@ independence from admin-token rotation.
 Use `database/sql` with `pgx/v5/stdlib` for PostgreSQL and `modernc.org/sqlite`
 for SQLite. The SQLite driver keeps builds independent of a C toolchain.
 Use explicit SQL and embedded migrations through Goose's instance-based provider.
+
+An explicit transaction prevents a cancelled upsert from committing after the
+caller has started a newer save. pgx may return before server cleanup finishes;
+commit only after the upsert succeeds and has acquired its write lock. A commit
+error can still leave the result unknown. See [pgx cancellation](https://pkg.go.dev/github.com/jackc/pgx/v5/pgconn#hdr-Context_Support)
+and [Go transactions](https://go.dev/doc/database/execute-transactions).
+
+Handwritten SQL is sufficient for this small contract; query generation adds
+little here. Goose supplies migration versioning, and the standard SQL API
+already manages connection pools. SQLite uses WAL with `synchronous=FULL` to
+avoid NORMAL's power-loss trade-off. See [SQLite durability](https://www.sqlite.org/pragma.html#pragma_synchronous).
 
 Store window openings as UTC RFC3339Nano text to preserve the same instant and
 nanosecond precision in both databases. SQL NULL represents an unopened window;

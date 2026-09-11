@@ -28,7 +28,7 @@ and middleware groups. Handlers use standard `net/http` types.
 
 > **Status:** early. The design is still being worked out and there is no usable build yet.
 
-See the [documentation](#documentation) for project research and accepted decisions.
+See the [documentation](#documentation) for development guides and accepted decisions.
 
 ## Principles
 
@@ -134,23 +134,16 @@ and multiple active gateway instances are outside the initial scope.
 
 ## Documentation
 
-See the [development guide](docs/development.md) for agreed coding conventions
-and review questions. The [contribution guide](CONTRIBUTING.md) covers issues,
-branches, commits and checks. Community behavior is covered by the
-[Code of Conduct](CODE_OF_CONDUCT.md).
-
-See [storage setup](docs/storage.md) for the snapshot contract and database tests.
-
-### Research
-
 | I want to… | Read |
 |---|---|
-| Review fixed budget-window transitions for issue #9 | [Budget windows](docs/research/budget-window-transitions.md) |
-| Review retry eligibility and delay rules for issue #10 | [Retry policy](docs/research/retry-policy.md) |
-| Review access-key generation and verification for issue #11 | [Access-key verification](docs/research/access-key-verification.md) |
-| Review encryption of stored credentials for issue #12 | [Credential encryption](docs/research/upstream-credential-encryption.md) |
-| Review budget snapshot storage for issue #21 | [Accounting storage](docs/research/accounting-storage.md) |
-| Review combined admission and live accounting for issues #22 and #23 | [Admission and accounting](docs/research/admission-accounting.md) |
+| Understand the modules and request flow | [Architecture](docs/architecture.md) |
+| Write and review Go code and tests | [Development guide](docs/development.md) |
+| Open an issue or PR, or write documentation | [Contributing](CONTRIBUTING.md) |
+| Use storage and run database tests | [Storage setup](docs/storage.md) |
+| Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |
+
+Working notes belong in the ignored `.local/` directory; see
+[local working documents](CONTRIBUTING.md#local-working-documents).
 
 ### Decision log
 
@@ -172,45 +165,3 @@ See [storage setup](docs/storage.md) for the snapshot contract and database test
 | [0014 — HTTP routing](docs/decisions/0014-use-chi-for-http-routing.md) | Accepted | chi over net/http, route groups and standard handlers |
 | [0015 — Token-bucket rate limits](docs/decisions/0015-use-token-bucket-rate-limits.md) | Accepted | Sustained request rate and burst capacity, counted once per client request |
 
-### Design sequencing
-
-Next, finish the remaining
-[management contract decisions](docs/decisions/0006-provide-management-api-without-bundled-ui.md#remaining-contract-decisions).
-Resolve other open questions with the modules responsible for them: account
-availability and OAuth recovery, live configuration
-changes, model discovery and protocol coverage, selection and conversation continuity,
-client-facing errors, and startup/shutdown behavior. Select numeric timeout defaults
-during implementation.
-
-These details are still open; they are not approved behavior. If a choice affects
-another module, document the shared rules and check them against the accepted ADRs.
-
-### Documentation conventions
-
-Keep Markdown in this repository. This README describes purpose, principles, scope
-and documentation links. Architecture decision records (ADRs) describe agreed behavior
-and explain why it was chosen.
-Research records dated evidence and alternatives, not additional requirements.
-Link to ADRs and code for current contracts instead of copying their rules and types.
-
-An ADR explains the decision, the problem, alternatives, trade-offs, how to test it,
-and remaining questions. Keep each record focused and link to another ADR instead of
-repeating its rules. This follows [Michael Nygard's ADR guidance](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
-
-**Accepted** means the maintainer agreed to the decision; it does not mean implemented.
-New decisions start as **Proposed**. If a decision changes, keep the reasons for it,
-mark it **Superseded** and link its replacement. Wording corrections do not change
-accepted behavior or require another ADR.
-
-Add guides when users can follow them, and reference pages when configuration and
-API contracts exist. Link commands to the [Justfile](Justfile).
-No documentation site, extra framework sections or empty documents are needed.
-
-Use text diagrams or Mermaid beside the explanation when they clarify a boundary or
-flow. State whether arrows show runtime calls or code dependencies. Keep Go
-interfaces small and based on what the calling code needs. Separate responsibilities
-do not require a service, package hierarchy or interface for every function.
-See [Go's interface guidance](https://go.dev/wiki/CodeReviewComments#interfaces).
-
-When a module changes, update its affected contracts and links in the same change.
-LLM instructions should link to these decisions rather than duplicate them.

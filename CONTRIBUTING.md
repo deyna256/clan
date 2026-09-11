@@ -89,3 +89,38 @@ Keep each section short and avoid repeating the issue or listing every changed
 file. Add sections only when needed, such as migration steps or breaking changes.
 Link the issue; use `Closes #<number>` when the PR completes it. Update the
 description and affected documentation when the code changes.
+
+## Documentation
+
+Keep shared documentation in Markdown and review it with the code it describes.
+README covers purpose, scope and navigation; [architecture](docs/architecture.md)
+maps modules and flows; [development](docs/development.md) defines coding rules.
+Add task guides and reference pages when the corresponding features exist.
+Keep instructions, reference details and design explanations separate where that
+helps the reader. Do not create empty sections for a template.
+
+Use short ADRs for significant decisions: status, context, decision and consequences.
+Include alternatives and sources when they explain the choice. Keep necessary
+cross-module rules; link to Go contracts instead of copying signatures. Existing
+records may use extra sections for detailed contracts and validation.
+This follows [Nygard's ADR guidance](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
+
+New decisions are **Proposed** until agreed. **Accepted** does not mean implemented.
+When replacing a decision, retain the old record as **Superseded** and link its
+replacement. Wording fixes do not require a new ADR.
+
+Update affected docs and links in the same change. Use plain English and diagrams
+that identify whether arrows mean runtime flow or code dependencies. Give each
+rule one home; other docs and LLM instructions should link there.
+
+### Local working documents
+
+Use `.local/` at the repository root for research, drafts and development plans;
+for example, `.local/research/` and `.local/plans/`. Create subfolders as needed.
+Git ignores this directory. Do not commit it or force-add its contents.
+
+Before removing shared research, preserve the decision's essential reasons,
+alternatives and source links in its ADR. Track unresolved task questions in issues.
+Shared docs must not require or link to local notes: a fresh clone must contain
+everything needed to understand and work on the project. Ignored notes are local
+to each checkout and are not copied to other clones or worktrees.

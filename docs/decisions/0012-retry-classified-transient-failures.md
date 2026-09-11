@@ -118,7 +118,12 @@ substitute deadline. Invalid receipt time is a caller error.
 Execution owns waiting, cleanup, cancellation/deadline rechecks and access/budget
 checks before dispatch. Provider classification and scope matching require tests
 there; tests of this policy alone do not prove them. See the
-[research and test brief](../research/retry-policy.md).
+[policy tests](../../internal/retry/retry_test.go).
+
+Absolute retry times preserve delays while cleanup runs: a six-second Retry-After
+followed by eight seconds of cleanup needs no further wait. A hundred-second value
+after ten seconds of cleanup still exceeds our wait allowance. Clamping either
+header to five seconds would lose this distinction.
 
 ## Rationale and alternative
 

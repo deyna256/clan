@@ -81,8 +81,9 @@ Transitions validate inputs and return the previous state unchanged on failure.
 Reject negative counts, overflow, usage without an opening, a zero accounting time,
 or a time before either saved opening. Callers supply chronological accounting
 times; the state does not retain every event time or correct clock changes.
-The accounting coordinator owns synchronization. See the
-[window research](../research/budget-window-transitions.md) for sources and tests.
+The accounting coordinator owns synchronization. Window ends are computed when
+needed; no reset worker is required. See the [window tests](../../internal/budget/budget_test.go)
+and [Go time semantics](https://pkg.go.dev/time#hdr-Monotonic_Clocks).
 
 ## Token accounting unit
 
@@ -264,8 +265,16 @@ active work but cannot guarantee a strict token limit.
 Reserving an estimated token count, or a maximum that execution cannot exceed, could
 reduce overruns. Both need rules to compare reserved tokens with actual usage and
 adjust the counters. They are deferred. In-memory checks and periodic snapshots
-follow Bifrost's local accounting approach. CLAN keeps its own token-window and
+follow [Bifrost's local tracker](https://github.com/maximhq/bifrost/blob/0145f674ec5f61b87f05c69940a8e1cbaa086dbc/plugins/governance/tracker.go#L80-L229).
+CLAN keeps its own token-window and
 save-failure policies; it does not adopt monetary accounting or cluster coordination.
+
+Requiring a saved opening before dispatch would couple admission to each SQL write
+and require recovery when a commit result is unknown. Consuming RPM before that
+write can charge a rejected request; consuming it afterwards can leave a window
+opened for an RPM rejection. Local admission followed by snapshots avoids that
+cross-system transaction. The library's [reservation cancellation](https://pkg.go.dev/golang.org/x/time/rate#Reservation.CancelAt)
+does not guarantee an exact refund after other reservations.
 
 ## Validation and open details
 
