@@ -150,6 +150,7 @@ See [storage setup](docs/storage.md) for the snapshot contract and database test
 | Review access-key generation and verification for issue #11 | [Access-key verification](docs/research/access-key-verification.md) |
 | Review encryption of stored credentials for issue #12 | [Credential encryption](docs/research/upstream-credential-encryption.md) |
 | Review budget snapshot storage for issue #21 | [Accounting storage](docs/research/accounting-storage.md) |
+| Review combined admission and live accounting for issues #22 and #23 | [Admission and accounting](docs/research/admission-accounting.md) |
 
 ### Decision log
 

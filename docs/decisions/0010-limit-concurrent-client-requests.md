@@ -2,8 +2,8 @@
 
 Status: Accepted. Recorded: 2026-09-09.
 Decision owner: project maintainer.
-Implementation: [concurrency slots](../../internal/concurrency/limiter.go) implemented;
-admission and request execution integration are pending.
+Implementation: [concurrency slots](../../internal/concurrency/limiter.go) and
+admission coordinator implemented; request execution integration is pending.
 
 ## Decision
 
@@ -55,7 +55,7 @@ more acquisitions; lowering it does not cancel active work. With five active slo
 and a new limit of two, admission resumes when the count falls below two. Slots
 acquired under `Unlimited` also count against a later finite limit.
 
-The admission coordinator reads configuration before acquisition. An admission
+The admission coordinator receives configuration before acquisition. An admission
 already in progress may use an older snapshot after a configuration update.
 This primitive does not guarantee that completion of an admin update prevents all
 later acquisitions using old values, and it stores no copy of the configured limit.
@@ -77,5 +77,5 @@ through cleanup, and release on terminal and admission-error paths.
 
 Request-rate accounting is defined in [ADR 0015](0015-use-token-bucket-rate-limits.md).
 Timeout policies are defined in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md).
-HTTP status mapping, configuration loading and holding slots across retries and stream cleanup
-remain admission and execution integration work.
+The admission coordinator retains slots across retries. HTTP status mapping,
+configuration loading and release after stream cleanup remain execution integration work.

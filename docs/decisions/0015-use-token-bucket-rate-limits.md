@@ -1,8 +1,8 @@
 # ADR 0015: Limit request rates with a token bucket
 
 Status: Accepted. Recorded: 2026-09-10.
-Decision owner: project maintainer. Implementation: limiter in `internal/ratelimit`;
-admission integration pending.
+Decision owner: project maintainer. Implementation: limiter in `internal/ratelimit`
+and admission coordinator; request execution integration pending.
 Supersedes [ADR 0011](0011-use-sliding-window-rpm.md).
 
 ## Decision
@@ -137,5 +137,5 @@ Integration tests must cover other admission failures consuming no permit, retri
 counted once, and no refund after an admitted request fails or is cancelled.
 
 Also test reset through zero and Unlimited, configuration ordering, invalid
-updates preserving the old state, removal and reconfiguration. HTTP handling and
-coordination with other admission checks belong to request execution.
+updates preserving the old state, removal and reconfiguration. The admission
+coordinator combines limit checks; HTTP handling belongs to request execution.
