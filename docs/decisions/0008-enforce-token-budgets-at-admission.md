@@ -1,8 +1,8 @@
 # ADR 0008: Enforce token budgets at admission and charge observed usage
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: usage transitions, budget windows
-and snapshot storage; accounting and admission integration pending.
+Decision owner: project maintainer. Implementation: usage transitions, budget windows,
+snapshot storage and admission coordinator; request execution integration pending.
 
 ## Decision
 
@@ -150,13 +150,20 @@ Persist attempt details through the separate history mechanism in
 
 | Failure | New upstream attempts | Already admitted work |
 |---|---|---|
+| Initial budget-state load fails | HTTP 503 for that key, even without token caps; retry loading on later requests | Other initialized keys follow their normal checks |
 | An applicable configured budget cannot be checked reliably | HTTP 503, including retry/fallback; do not use an unverified stale counter | Continue |
 | Saving a budget snapshot fails | HTTP 503 for the affected budgeted key until pending state is confirmed saved | Continue |
 | Optional detailed-history write fails | Follow normal admission checks | Continue; see ADR 0009 |
 
-Keys without configured token budgets do not require budget checks, but still undergo
-access and other applicable limit checks. Unknown provider usage is not a failed
-write of known usage and does not itself block admission.
+Restore budget state before the first admission for every key, including keys
+without token caps. A failed read is not an empty state: existing window openings
+and counts must be known before adding usage. A successful read with no saved row
+starts with unopened windows. This refinement was accepted on 2026-09-11.
+
+After restoration, keys without configured token budgets skip cap enforcement and
+are not blocked by save failures. Access and other applicable limit checks still
+apply. Unknown provider usage is not a failed write of known usage and does not
+itself block admission.
 
 Keep current budget state in memory and retry saving it. Normal delay between
 periodic saves is not a failure and does not block admission. After a failed save,
@@ -173,6 +180,38 @@ logical order; provider requests for one key may still execute concurrently.
 Apply transitions at their accounting acceptance time. Saving later must not
 recalculate charges or window openings using the save time. Already admitted
 attempts continue reporting usage while saving is pending.
+
+## Coordinator contract
+
+`internal/admission` owns admission and live accounting in one process. It reuses
+the permission, concurrency, RPM, usage and budget primitives. Provider execution,
+account selection, HTTP errors and history remain outside this package.
+
+- `Start` checks trusted model/account access, restores the key's saved state and
+  admits the first attempt. It returns a request lease and a separate attempt handle.
+- `NextAttempt` uses fresh permissions and budget caps while preserving the original
+  key, model, slot and RPM charge. The executor owns sequential attempt execution.
+- `Observe` applies a cumulative usage snapshot and its budget increment together,
+  or changes neither. Attempt handles retain their own usage; copies share state.
+- `Release` ends the lease after upstream cleanup. Repeated release is safe. It
+  prevents new attempts but does not discard usage from an existing attempt.
+
+Access and token/concurrency limits are immutable inputs for each call; do not
+change cap pointers during a call. RPM uses its latest applied configuration,
+including an explicit Unlimited entry. Admission never reapplies an older RPM
+configuration. These settings do not form an atomic configuration transaction.
+
+Load once per key before admission, without holding the state lock during I/O.
+Waiting callers can cancel; a failed load permits a later retry. Under the short
+state lock, check cancellation and budgets, prepare window opening, and take a
+provisional slot. Acquire RPM last, then publish the prepared opening without
+another fallible check. A rejection releases the provisional slot. Cancellation
+after admission does not refund RPM or release the request before cleanup.
+
+Sample accounting time under the state lock. Keep loaded keys for the process
+lifetime and attempt state with its handle. No event queue or attempt registry
+is required. `Observe` has no request context: cancellation must not discard
+received consumption.
 
 ## Snapshot persistence and restart
 
@@ -195,8 +234,25 @@ After restart, restore saved windows before using them for admission. Do not rep
 old attempt usage or reconstruct budgets from history. A crash may lose consumption
 and openings since the last successful save, even with a healthy database.
 Use normal admission checks without an administrator-only recovery block. An
-exhausted saved budget or an unreadable required snapshot still prevents admission.
+exhausted saved budget or an unreadable initial snapshot still prevents admission.
 Mark lost data where detectable; complete recovery is not guaranteed.
+
+`Flush(ctx)` saves a finite set of pending keys through one writer. Waiting for
+the writer is cancellable. Capture each key's latest state immediately before its
+save, outside the I/O itself. Keys not reached before cancellation remain pending.
+Each save has a five-second timeout; a failed key does not prevent trying the others
+unless the flush context is cancelled.
+
+A successful retry clears the save-failure block even when newer changes arrived
+during that save. Those changes remain pending normally. Waiting for a completely
+clean state could keep a continuously active key blocked indefinitely.
+
+Use a five-second initial interval for `Run`; failed saves retry on the next tick.
+This is a cadence, not a bound on persistence lag. The application supplies the
+interval and error reporter and owns the worker goroutine. On shutdown, stop new
+admission, drain request cleanup, cancel and join the worker, then perform a final
+flush with a separate bounded context before closing storage. Cancelling the worker
+does not discard pending state or perform an unbounded final save.
 
 ## Rationale and alternatives
 
@@ -223,6 +279,5 @@ save-failure policies; it does not adopt monetary accounting or cluster coordina
 | Persistence | Atomic window snapshots in both databases; repeated saves and lost commit acknowledgement; no stale overwrite or lost changes during saving; key settings and history remain independent |
 | Restart | Saved counters remain authoritative; exhaustion/check failures still block; no manual-recovery block or claimed reconstruction of unsaved usage |
 
-Define the save interval, retry scheduling, memory lifetime and shutdown handling
-with the accounting module. SQL tools and time encoding are defined in
+SQL tools and time encoding are defined in
 [ADR 0007](0007-support-sqlite-and-postgresql.md#budget-snapshot-storage).
