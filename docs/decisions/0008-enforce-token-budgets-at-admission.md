@@ -1,14 +1,14 @@
 # ADR 0008: Enforce token budgets at admission and charge observed usage
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: usage transitions in `internal/usage`
-and budget windows in `internal/budget`; persistence and admission integration pending.
+Decision owner: project maintainer. Implementation: usage transitions, budget windows
+and snapshot storage; accounting and admission integration pending.
 
 ## Decision
 
-Admission means checking whether a request or attempt may proceed. Before every
-upstream attempt, check token usage already counted against all
-configured access-key token budgets. Reject exhausted budgets with HTTP 429. Charge
+Admission is CLAN's decision that a request or attempt may proceed after passing
+all required checks. Before every upstream attempt, check counted token usage
+against all configured access-key token budgets. Reject exhausted budgets with HTTP 429. Charge
 observed usage without reserving estimated future tokens. This applies to the first
 attempt, retries and account fallback.
 
@@ -17,6 +17,22 @@ exhaustion alone does not interrupt a stream or reduce its output limit. Cancell
 and timeouts still apply. RPM and concurrency operate at the client-request level,
 as defined in [ADR 0015](0015-use-token-bucket-rate-limits.md) and
 [ADR 0010](0010-limit-concurrent-client-requests.md).
+
+## Admission and persistence
+
+Agreed on 2026-09-11: admission happens in the gateway process, before persistence
+is confirmed. Coordinate the final checks, RPM acquisition for the first attempt,
+and window opening in memory as one admission decision. Rejected attempts do not
+open windows; rejected client requests consume no RPM.
+
+If saving an opening fails after admission, continue the admitted attempt and keep
+the write pending. Do not refund RPM or turn this into a pre-admission rejection.
+New attempts for the affected key with configured token budgets receive HTTP 503
+until the pending state is confirmed saved. This includes retries and fallback.
+A budget that cannot be checked reliably before admission prevents dispatch.
+
+Admission does not mean the provider received the request or execution succeeded.
+It does not require an atomic transaction spanning memory and SQL.
 
 ## Fixed budget windows
 
@@ -65,7 +81,7 @@ Transitions validate inputs and return the previous state unchanged on failure.
 Reject negative counts, overflow, usage without an opening, a zero accounting time,
 or a time before either saved opening. Callers supply chronological accounting
 times; the state does not retain every event time or correct clock changes.
-Persistence owns synchronization and durable deduplication. See the
+The accounting coordinator owns synchronization. See the
 [window research](../research/budget-window-transitions.md) for sources and tests.
 
 ## Token accounting unit
@@ -124,45 +140,63 @@ a partial lower bound below it is allowed. Adapters must retain still-valid tota
 and known breakdowns when merging provider patches, and discard or recalculate
 stale totals rather than present them as current measurements.
 
-The transition does not save data. The accounting transaction must save the attempt
-state and its increment together and prevent duplicate charges.
+The transition does not save data. Keep attempt usage state in memory while the
+attempt can report usage. Apply its next state and budget charge together under
+the coordinator's synchronization; a failed transition changes neither.
+Persist attempt details through the separate history mechanism in
+[ADR 0009](0009-record-request-and-attempt-history.md).
 
 ## Accounting failures
 
 | Failure | New upstream attempts | Already admitted work |
 |---|---|---|
 | An applicable configured budget cannot be checked reliably | HTTP 503, including retry/fallback; do not use an unverified stale counter | Continue |
-| Known usage cannot be saved | HTTP 503 for the affected budgeted key while unsaved charges remain pending | Continue |
+| Saving a budget snapshot fails | HTTP 503 for the affected budgeted key until pending state is confirmed saved | Continue |
 | Optional detailed-history write fails | Follow normal admission checks | Continue; see ADR 0009 |
 
 Keys without configured token budgets do not require budget checks, but still undergo
 access and other applicable limit checks. Unknown provider usage is not a failed
-write of known usage and does not trigger the pending-charge block.
+write of known usage and does not itself block admission.
 
-Keep known unsaved charges in process memory and retry saving without double
-charging. Reconnecting to the database alone does not unblock admission: confirm
-the pending charges were saved, then apply normal checks. Report accounting failures through
-logs and metrics without credentials or request content.
+Keep current budget state in memory and retry saving it. Normal delay between
+periodic saves is not a failure and does not block admission. After a failed save,
+reconnecting alone does not unblock admission: confirm pending state was saved,
+then apply normal checks. Report failures through logs and metrics without
+credentials or request content.
 
-## Atomic persistence and process failure
+## Accounting order
 
-Save known usage increments, affected budget counters and duplicate-processing
-protection in one transaction in the primary database. Concurrent writes must not
-lose increments. Retrying after a lost commit acknowledgement must not double-charge
-or move an existing charge into a new window. Optional detailed-history writes are
-independent; history retention cannot reset active budget counters.
+Process accounting changes in acceptance order for each access key. This includes
+window openings and usage from all its attempts. Different keys need no shared
+logical order; provider requests for one key may still execute concurrently.
 
-Do not require an unfinished-accounting record before each upstream call. Normal
-budget checks and window opening still apply. No separate durable journal or external
-queue is selected. Pending charges and temporary blocks belong to the single process
-specified in [ADR 0007](0007-support-sqlite-and-postgresql.md).
+Apply transitions at their accounting acceptance time. Saving later must not
+recalculate charges or window openings using the save time. Already admitted
+attempts continue reporting usage while saving is pending.
 
-A crash may lose unsaved usage and pending charges. After restart, use saved counters
-and normal admission checks. Do not block requests until an administrator intervenes
-just because usage may have been lost. An exhausted saved budget or a failed budget
-check still blocks admission. Mark missing data where detectable; not every lost
-update can be recovered. An interrupted history record alone does not block new
-attempts or allow resending an upstream request.
+## Snapshot persistence and restart
+
+Agreed on 2026-09-11: check and update budgets in memory, then periodically save
+their current state. This replaces the earlier event-sequence and durable replay
+design. The database stores both windows' opening times and absolute token counts
+atomically per access key. Save only budget state, without overwriting key settings.
+
+Saving the same snapshot again succeeds without adding consumption. This also
+handles a lost commit acknowledgement. One writer owns save order: an older
+snapshot must never overwrite a newer one. Changes accepted during a save remain
+pending for a later save; completing the older save must not clear them.
+
+Pending work is the latest state to save, not a queue of every accounting event.
+No event sequence, gap check, durable receipt or event replay is required.
+Detailed history is independent; saving attempt state and budget state together
+is not required. History gaps and cleanup cannot alter budget counters.
+
+After restart, restore saved windows before using them for admission. Do not replay
+old attempt usage or reconstruct budgets from history. A crash may lose consumption
+and openings since the last successful save, even with a healthy database.
+Use normal admission checks without an administrator-only recovery block. An
+exhausted saved budget or an unreadable required snapshot still prevents admission.
+Mark lost data where detectable; complete recovery is not guaranteed.
 
 ## Rationale and alternatives
 
@@ -173,9 +207,9 @@ active work but cannot guarantee a strict token limit.
 
 Reserving an estimated token count, or a maximum that execution cannot exceed, could
 reduce overruns. Both need rules to compare reserved tokens with actual usage and
-adjust the counters. They are deferred. The selected policy
-uses Bifrost's admission approach, without adopting its monetary accounting or storage
-architecture.
+adjust the counters. They are deferred. In-memory checks and periodic snapshots
+follow Bifrost's local accounting approach. CLAN keeps its own token-window and
+save-failure policies; it does not adopt monetary accounting or cluster coordination.
 
 ## Validation and open details
 
@@ -185,10 +219,10 @@ architecture.
 | Normalization | Inclusive totals, separate cache categories, reasoning, known totals without breakdowns, partial/unknown versus zero |
 | Attempts | Charge failures and cancellation; retries neither refund nor double-charge; request aggregation does not add a charge |
 | Boundaries | Before/at/after expiry; late usage opening a window; cumulative snapshots across windows; duplicates after reset; concurrent opening |
-| Failures | 503 without dispatch for initial/retry attempts; admitted work continues; no bypass via fallback or restored connectivity with pending charges |
-| Persistence | Atomic counters and deduplication in both databases; lost commit acknowledgement; independence from optional history and retention |
+| Failures | Unreliable checks reject before dispatch; failed saves preserve admitted work and RPM but block later budgeted attempts; normal save delay does not block |
+| Persistence | Atomic window snapshots in both databases; repeated saves and lost commit acknowledgement; no stale overwrite or lost changes during saving; key settings and history remain independent |
 | Restart | Saved counters remain authoritative; exhaustion/check failures still block; no manual-recovery block or claimed reconstruction of unsaved usage |
 
-Define write timing, retry scheduling, pending-charge bounds and shutdown handling
-with the accounting module. Delayed writes must preserve the rule that accounting
-time determines the budget window. The exact storage mechanism is still open.
+Define the save interval, retry scheduling, memory lifetime and shutdown handling
+with the accounting module. SQL tools and time encoding are defined in
+[ADR 0007](0007-support-sqlite-and-postgresql.md#budget-snapshot-storage).

@@ -139,6 +139,8 @@ and review questions. The [contribution guide](CONTRIBUTING.md) covers issues,
 branches, commits and checks. Community behavior is covered by the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
+See [storage setup](docs/storage.md) for the snapshot contract and database tests.
+
 ### Research
 
 | I want to… | Read |
@@ -147,6 +149,7 @@ branches, commits and checks. Community behavior is covered by the
 | Review retry eligibility and delay rules for issue #10 | [Retry policy](docs/research/retry-policy.md) |
 | Review access-key generation and verification for issue #11 | [Access-key verification](docs/research/access-key-verification.md) |
 | Review encryption of stored credentials for issue #12 | [Credential encryption](docs/research/upstream-credential-encryption.md) |
+| Review budget snapshot storage for issue #21 | [Accounting storage](docs/research/accounting-storage.md) |
 
 ### Decision log
 

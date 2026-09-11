@@ -1,8 +1,8 @@
 # ADR 0007: Support SQLite by default and PostgreSQL through environment configuration
 
 Status: Accepted. Recorded: 2026-09-09.
-Decision owner: project maintainer. Implementation: access-key verification and
-credential encryption primitives; database integration pending.
+Decision owner: project maintainer. Implementation: access-key verification,
+credential encryption and budget snapshot storage; application wiring pending.
 
 ## Decision
 
@@ -24,8 +24,9 @@ Support one running CLAN instance per installation with either SQLite or Postgre
 That process handles multiple client requests concurrently.
 Do not run overlapping gateway processes or containers against the same installation.
 
-Coordinate active-request limits, OAuth refresh and pending usage writes inside that
-process. Database transactions still protect concurrent accounting. This version
+Coordinate active-request limits, OAuth refresh and pending budget saves inside that
+process. Save each key's budget windows atomically, as defined in
+[ADR 0008](0008-enforce-token-budgets-at-admission.md#snapshot-persistence-and-restart). This version
 does not need locks, admission blocks or active-request counters shared across processes.
 Choosing PostgreSQL does not enable running multiple gateway instances.
 
@@ -128,6 +129,20 @@ successful encryption and decryption of upstream credentials, encrypted storage 
 OAuth renewal, rejection of corrupted ciphertext or a wrong encryption key, and
 independence from admin-token rotation.
 
-Define drivers, query tooling, schema and migrations with the storage module.
+## Budget snapshot storage
+
+Use `database/sql` with `pgx/v5/stdlib` for PostgreSQL and `modernc.org/sqlite`
+for SQLite. The SQLite driver keeps builds independent of a C toolchain.
+Use explicit SQL and embedded migrations through Goose's instance-based provider.
+
+Store window openings as UTC RFC3339Nano text to preserve the same instant and
+nanosecond precision in both databases. SQL NULL represents an unopened window;
+zone names and Go's monotonic clock reading are not persisted.
+The supported serialized years are 0 through 9999.
+
+The storage constructor receives an explicit target. Environment loading and the
+default SQLite file location belong to application startup. See the
+[storage guide](../storage.md) for the concrete contract and test setup.
+
 Environment-variable names, SQLite location, backup/restore, key provisioning,
 rotation and recovery also remain open.

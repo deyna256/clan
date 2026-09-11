@@ -68,7 +68,7 @@ func Admit(previous State, now time.Time) (State, error) {
 // Charge adds a newly accounted increment to both windows, including overruns.
 // Supply only new usage, such as the delta from usage.Advance, and its accounting
 // acceptance time. Zero changes nothing after validation. Errors return the whole
-// previous state unchanged; durable deduplication belongs to the caller.
+// previous state unchanged. Callers own synchronization and persistence.
 func Charge(previous State, increment int64, now time.Time) (State, error) {
 	if increment < 0 {
 		return previous, errors.New("budget: increment must be nonnegative")
