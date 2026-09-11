@@ -26,7 +26,7 @@ by Bifrost; it does not adopt either project's entire configuration or implement
 
 ### Round-robin state scope
 
-Agreed on 2026-09-10: keep an independent round-robin position for each configured
+Keep an independent round-robin position for each configured
 upstream ID and concrete model name. Access keys share that position; each call
 still supplies only the candidates allowed for its request. Do not keep a separate
 position per access key or inbound protocol.
@@ -36,14 +36,14 @@ guarantee an even distribution for each individual access key.
 
 ### State lifetime
 
-Agreed on 2026-09-10: one selector instance serves all requests in the gateway
+One selector instance serves all requests in the gateway
 process. Keep its positions only in memory; do not save them to the database.
 Restart clears all positions, so each upstream/model pair starts again with the
 smallest available account ID. This does not reset saved usage or token budgets.
 
 ### Candidate order and membership changes
 
-Agreed on 2026-09-10: use a stable order by account ID, independent of the input
+Use a stable order by account ID, independent of the input
 list order. Remember the last selected ID for each upstream/model pair. Choose
 the smallest candidate ID greater than it, wrapping to the smallest candidate
 when none is greater. Without a previous selection, choose the smallest ID.
@@ -53,8 +53,6 @@ accounts take their place in ID order. An empty candidate set returns no selecti
 and leaves the position unchanged.
 
 ### Selection interface
-
-Agreed on 2026-09-10:
 
 ```go
 Select(scope Scope, candidates []account.ID) (account.ID, bool)

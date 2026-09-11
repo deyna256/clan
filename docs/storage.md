@@ -1,5 +1,7 @@
 # Budget snapshot storage
 
+## Open and close
+
 `internal/storage.Open(ctx, Config{Backend: ..., DSN: ...})` returns a concrete
 store and applies embedded SQL migrations with Goose's instance provider.
 The caller closes it. `Backend` accepts `sqlite` (also the empty default) or
@@ -7,7 +9,9 @@ The caller closes it. `Backend` accepts `sqlite` (also the empty default) or
 including paths with spaces or URI punctuation; PostgreSQL's is a URI or keyword
 connection string.
 An invalid explicit selection fails without switching databases. Application
-environment loading and the default SQLite location remain bootstrap decisions.
+environment loading and the default SQLite location belong to application startup.
+
+## Load and save
 
 `Load(ctx, accesskey.ID)` returns `(budget.State, found, error)`. A missing row
 has `found=false` and no error; a saved zero state has `found=true`. Failed or
@@ -25,6 +29,8 @@ opening. Round trips preserve `time.Time.Equal`, not the original location or
 monotonic clock metadata. Counts are signed 64-bit nonnegative integers; unopened
 windows must have zero usage. IDs must be nonblank UTF-8 without NUL and are
 otherwise preserved exactly. Save and Load validate these storage boundaries.
+
+## Database settings
 
 SQLite uses one pooled connection, WAL and `synchronous=FULL`; the driver applies
 those settings and a five-second busy timeout to each replacement connection.
@@ -49,10 +55,6 @@ can create schemas. Each fixture creates and removes its own uniquely named
 schema; existing tables are untouched. Missing PostgreSQL configuration or an
 unreachable database fails the full suite. `just test-unit` uses `-short` and skips
 database integration tests.
-
-Repeated saves test absolute replacement, not a simulated network failure.
-Settings persistence has no implementation yet; its integration checks belong
-with that owner. Storage writes only the budget table.
 
 For example, start a disposable local PostgreSQL instance:
 

@@ -435,12 +435,11 @@ func TestFilterWithNoCandidates(t *testing.T) {
 }
 
 func TestPermissionsLimitRoundRobinCandidates(t *testing.T) {
-	apiKey := account.APIKeyCredentials{Key: "test-key"}
 	candidates := []account.Identity{
-		newAccount(t, "c", "primary", account.OAuthCredentials{AccessToken: "test-oauth"}).Identity(),
-		newAccount(t, "a", "primary", apiKey).Identity(),
-		newAccount(t, "d", "other", apiKey).Identity(),
-		newAccount(t, "b", "primary", apiKey).Identity(),
+		{ID: "c", UpstreamID: "primary"},
+		{ID: "a", UpstreamID: "primary"},
+		{ID: "d", UpstreamID: "other"},
+		{ID: "b", UpstreamID: "primary"},
 	}
 	model := accesskey.Model{UpstreamID: "primary", Name: "model"}
 	key := newKey(t, true, accesskey.Permissions{
@@ -482,13 +481,4 @@ func newKey(t *testing.T, enabled bool, permissions accesskey.Permissions) acces
 
 func unrestrictedPermissions() accesskey.Permissions {
 	return accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true}
-}
-
-func newAccount(t *testing.T, id account.ID, upstreamID upstream.ID, credentials account.Credentials) account.Account {
-	t.Helper()
-	a, err := account.New(account.Identity{ID: id, Name: "Test account", UpstreamID: upstreamID}, credentials)
-	if err != nil {
-		t.Fatalf("create test account %q: %v", id, err)
-	}
-	return a
 }
