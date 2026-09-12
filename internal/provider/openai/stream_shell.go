@@ -273,7 +273,7 @@ func (s *streamState) mergeLocalShell(index int, item *streamItem, next generati
 		return nil, nil
 	}
 	item.started = true
-	return []generation.Event{generation.ItemStarted{Index: index, Item: copyShellItem(next)}}, nil
+	return []generation.Event{generation.ItemStarted{Index: index, Item: copyLocalShellItem(next)}}, nil
 }
 
 func mergeLocalShellAction(previous, next generation.LocalShellAction) (generation.LocalShellAction, error) {
@@ -301,18 +301,14 @@ func mergeLocalShellAction(previous, next generation.LocalShellAction) (generati
 	return next, err
 }
 
-func copyShellItem(item generation.Item) generation.Item {
-	switch value := item.(type) {
-	case generation.OpenAIShellResult:
-		value.Output = slices.Clone(value.Output)
-		return value
-	case generation.OpenAILocalShellCall:
-		value.Action.Command = slices.Clone(value.Action.Command)
-		value.Action.Env = maps.Clone(value.Action.Env)
-		return value
-	default:
+func copyLocalShellItem(item generation.Item) generation.Item {
+	value, ok := item.(generation.OpenAILocalShellCall)
+	if !ok {
 		return item
 	}
+	value.Action.Command = slices.Clone(value.Action.Command)
+	value.Action.Env = maps.Clone(value.Action.Env)
+	return value
 }
 
 func shellBytes(item generation.Item) int {

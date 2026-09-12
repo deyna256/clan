@@ -171,6 +171,7 @@ func (s *Stream) closeBody() error {
 func (s *Stream) finish(err error) {
 	s.terminal = err
 	_ = s.closeBody()
+	s.state.items, s.state.order = nil, nil
 	s.state.diagnostics.finish()
 }
 

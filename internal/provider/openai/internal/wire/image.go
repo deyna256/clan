@@ -27,7 +27,6 @@ func encodeImageTool(tool generation.OpenAIImageGenerationTool) (json.RawMessage
 		{"background", tool.Background, []string{"", "auto", "opaque", "transparent"}},
 		{"output_format", tool.OutputFormat, []string{"", "png", "jpeg", "webp"}},
 		{"quality", tool.Quality, []string{"", "auto", "low", "medium", "high", "xhigh", "max"}},
-		{"input_fidelity", fidelity, []string{"", "low", "high"}},
 		{"moderation", tool.Moderation, []string{"", "auto", "low"}},
 	} {
 		if !slices.Contains(field.allowed, field.value) {

@@ -232,7 +232,7 @@ func (s *streamState) complete(e responseEvent) ([]generation.Event, error) {
 		}
 		for _, key := range item.order {
 			part := item.parts[key]
-			events = append(events, generation.PartEnded{Address: part.address, Part: copyPart(withText(part.part, part.text.String()))})
+			events = append(events, generation.PartEnded{Address: part.address, Part: withText(part.part, part.text.String())})
 		}
 		events = append(events, generation.ItemEnded{Index: index, Item: item.snapshot()})
 	}
@@ -582,22 +582,16 @@ func (item *streamItem) snapshot() generation.Item {
 	switch value := item.item.(type) {
 	case generation.OpenAIMCPCall:
 		value.Arguments = item.arguments.String()
-		return copyMCPItem(value)
+		return value
 	case generation.OpenAIMCPApprovalRequest:
 		value.Arguments = item.arguments.String()
 		return value
-	case generation.OpenAIMCPListTools, generation.OpenAIMCPApprovalResponse:
-		return copyMCPItem(value)
-	case generation.OpenAIComputerCall, generation.OpenAIComputerResult:
-		return copyComputerItem(value)
 	case generation.OpenAIShellCall:
 		value.Action.Commands = make([]string, len(item.commands))
 		for index, command := range item.commands {
 			value.Action.Commands[index] = command.String()
 		}
 		return value
-	case generation.OpenAIShellResult, generation.OpenAILocalShellCall, generation.OpenAILocalShellResult:
-		return copyShellItem(value)
 	case generation.ToolCall:
 		value.Arguments = item.arguments.String()
 		return value

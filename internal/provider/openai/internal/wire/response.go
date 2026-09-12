@@ -368,12 +368,9 @@ func DecodePart(data []byte, warn func(string)) (generation.Part, error) {
 }
 
 func optionalString(raw json.RawMessage) (generation.Optional[string], error) {
-	if string(raw) == "null" {
-		return generation.Null[string](), nil
-	}
-	var value string
+	var value generation.Optional[string]
 	if json.Unmarshal(raw, &value) != nil {
 		return generation.Optional[string]{}, failure(generation.ProtocolError)
 	}
-	return generation.Some(value), nil
+	return value, nil
 }

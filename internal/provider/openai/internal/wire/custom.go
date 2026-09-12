@@ -8,6 +8,15 @@ import (
 	"github.com/deyna256/clan/internal/generation"
 )
 
+type customTool struct {
+	Name           string                        `json:"name"`
+	Description    generation.Optional[string]   `json:"description,omitzero"`
+	Format         json.RawMessage               `json:"format,omitempty"`
+	Async          generation.Optional[bool]     `json:"async,omitzero"`
+	DeferLoading   generation.Optional[bool]     `json:"defer_loading,omitzero"`
+	AllowedCallers generation.Optional[[]string] `json:"allowed_callers,omitzero"`
+}
+
 func encodeCustomTool(tool generation.CustomTool) (json.RawMessage, error) {
 	if err := requiredString("name", tool.Name); err != nil {
 		return nil, err
@@ -34,14 +43,9 @@ func encodeCustomTool(tool generation.CustomTool) (json.RawMessage, error) {
 		return nil, at("format", err)
 	}
 	return json.Marshal(struct {
-		Type           string                        `json:"type"`
-		Name           string                        `json:"name"`
-		Description    generation.Optional[string]   `json:"description,omitzero"`
-		Format         json.RawMessage               `json:"format,omitempty"`
-		Async          generation.Optional[bool]     `json:"async,omitzero"`
-		DeferLoading   generation.Optional[bool]     `json:"defer_loading,omitzero"`
-		AllowedCallers generation.Optional[[]string] `json:"allowed_callers,omitzero"`
-	}{"custom", tool.Name, tool.Description, format, tool.OpenAI.Async, tool.OpenAI.DeferLoading, tool.OpenAI.AllowedCallers})
+		Type string `json:"type"`
+		customTool
+	}{"custom", customTool{tool.Name, tool.Description, format, tool.OpenAI.Async, tool.OpenAI.DeferLoading, tool.OpenAI.AllowedCallers}})
 }
 
 func encodeCustomFormat(format generation.CustomInputFormat) (json.RawMessage, error) {

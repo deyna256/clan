@@ -41,21 +41,25 @@ func encodeNamespaceTool(tool generation.OpenAINamespaceTool) (json.RawMessage, 
 	}{"namespace", tool.Name, tool.Description, children})
 }
 
+type functionTool struct {
+	Name           string                        `json:"name"`
+	Description    generation.Optional[string]   `json:"description,omitzero"`
+	Parameters     json.RawMessage               `json:"parameters,omitempty"`
+	Strict         generation.Optional[bool]     `json:"strict,omitzero"`
+	Async          generation.Optional[bool]     `json:"async,omitzero"`
+	DeferLoading   generation.Optional[bool]     `json:"defer_loading,omitzero"`
+	AllowedCallers generation.Optional[[]string] `json:"allowed_callers,omitzero"`
+	OutputSchema   json.RawMessage               `json:"output_schema,omitempty"`
+}
+
 func encodeFunctionTool(tool generation.FunctionTool, namespaced bool) (json.RawMessage, error) {
 	if err := validateFunctionTool(tool, namespaced); err != nil {
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Type           string                        `json:"type"`
-		Name           string                        `json:"name"`
-		Description    generation.Optional[string]   `json:"description,omitzero"`
-		Parameters     json.RawMessage               `json:"parameters,omitempty"`
-		Strict         generation.Optional[bool]     `json:"strict,omitzero"`
-		Async          generation.Optional[bool]     `json:"async,omitzero"`
-		DeferLoading   generation.Optional[bool]     `json:"defer_loading,omitzero"`
-		AllowedCallers generation.Optional[[]string] `json:"allowed_callers,omitzero"`
-		OutputSchema   json.RawMessage               `json:"output_schema,omitempty"`
-	}{"function", tool.Name, tool.Description, tool.Parameters, tool.Strict, tool.OpenAI.Async, tool.OpenAI.DeferLoading, tool.OpenAI.AllowedCallers, tool.OpenAI.OutputSchema})
+		Type string `json:"type"`
+		functionTool
+	}{"function", functionTool{tool.Name, tool.Description, tool.Parameters, tool.Strict, tool.OpenAI.Async, tool.OpenAI.DeferLoading, tool.OpenAI.AllowedCallers, tool.OpenAI.OutputSchema}})
 }
 
 func validateFunctionTool(tool generation.FunctionTool, namespaced bool) error {

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deyna256/clan/internal/provider/openai/internal/transport"
+	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
 )
 
 func (c *Client) resourceJSON(ctx context.Context, attempt Attempt, method string, path []string, query url.Values, payload any) ([]byte, error) {
@@ -25,10 +26,10 @@ func (c *Client) resourceJSON(ctx context.Context, attempt Attempt, method strin
 	}
 	request := transport.Request{Method: method, Path: path, Query: query, Body: body, ContentType: contentType, Accept: "application/json"}
 	response, err := c.transport.Do(ctx, attempt.Credentials.Key, request)
-	return c.resourceBody(attempt, response, err)
+	return c.resourceBody(response, err)
 }
 
-func (c *Client) resourceBody(attempt Attempt, response *http.Response, err error) ([]byte, error) {
+func (c *Client) resourceBody(response *http.Response, err error) ([]byte, error) {
 	if err != nil {
 		return nil, transportFailure(err)
 	}
@@ -38,9 +39,8 @@ func (c *Client) resourceBody(attempt Attempt, response *http.Response, err erro
 		return body, transportFailure(err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		diagnostics := c.diagnostics(attempt)
-		defer diagnostics.finish()
-		_, err = decodeHTTPFailure(response, body, diagnostics)
+		envelope, _ := wire.DecodeEnvelope(body)
+		err = classifyHTTPFailure(response.StatusCode, response.Header, envelope.Error)
 	}
 	return body, err
 }

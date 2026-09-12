@@ -334,4 +334,5 @@ func (s *Session) Close() error {
 func (s *Session) finish(err error) {
 	s.terminal = err
 	_ = s.Close()
+	s.lanes = nil
 }

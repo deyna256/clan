@@ -47,16 +47,7 @@ func decodeLoadedTool(raw json.RawMessage, namespaced bool) (generation.Tool, er
 }
 
 func decodeLoadedFunction(raw json.RawMessage, namespaced bool) (generation.Tool, error) {
-	var value struct {
-		Name           string                        `json:"name"`
-		Description    generation.Optional[string]   `json:"description"`
-		Parameters     json.RawMessage               `json:"parameters"`
-		Strict         generation.Optional[bool]     `json:"strict"`
-		Async          generation.Optional[bool]     `json:"async"`
-		DeferLoading   generation.Optional[bool]     `json:"defer_loading"`
-		AllowedCallers generation.Optional[[]string] `json:"allowed_callers"`
-		OutputSchema   json.RawMessage               `json:"output_schema"`
-	}
+	var value functionTool
 	if json.Unmarshal(raw, &value) != nil {
 		return nil, failure(generation.ProtocolError)
 	}
@@ -68,14 +59,7 @@ func decodeLoadedFunction(raw json.RawMessage, namespaced bool) (generation.Tool
 }
 
 func decodeLoadedCustom(raw json.RawMessage) (generation.Tool, error) {
-	var value struct {
-		Name           string                        `json:"name"`
-		Description    generation.Optional[string]   `json:"description"`
-		Format         json.RawMessage               `json:"format"`
-		Async          generation.Optional[bool]     `json:"async"`
-		DeferLoading   generation.Optional[bool]     `json:"defer_loading"`
-		AllowedCallers generation.Optional[[]string] `json:"allowed_callers"`
-	}
+	var value customTool
 	if json.Unmarshal(raw, &value) != nil {
 		return nil, failure(generation.ProtocolError)
 	}

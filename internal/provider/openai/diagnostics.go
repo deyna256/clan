@@ -2,7 +2,6 @@ package openai
 
 import (
 	"log/slog"
-	"strings"
 	"sync"
 )
 
@@ -34,8 +33,7 @@ func (d *diagnostics) warn(reason, eventType, action string) {
 	if d.counts[reason] != 1 {
 		return
 	}
-	// Event types come from the provider; do not let them turn into payload logs.
-	if len(eventType) > 96 || strings.ContainsAny(eventType, "\r\n\t ") {
+	if reason == "unknown_event" || reason == "invalid_event" {
 		eventType = "unrecognized"
 	}
 	d.logger.Warn("provider protocol warning", "reason", reason, "event_type", eventType, "action", action)
