@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateComputerCallKeepsSingleAndBatchedActions(t *testing.T) {
@@ -18,15 +18,12 @@ func TestGenerateComputerCallKeepsSingleAndBatchedActions(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := computerCall()
 	want.Action = generation.ComputerScreenshot{}
 	want.Actions = []generation.ComputerAction{generation.ComputerClick{X: 0, Y: 20, Button: "left", Keys: generation.Null[[]string]()}, generation.ComputerType{Text: "hello"}}
-	if !reflect.DeepEqual(result.Response.Output, []generation.Item{want}) || result.Response.Finish.Reason != "tool_calls" {
-		t.Fatalf("response = %#v; want %#v and tool_calls", result.Response, want)
-	}
+	require.Equal(t, []generation.Item{want}, result.Response.Output)
+	require.Equal(t, "tool_calls", result.Response.Finish.Reason)
 }
 
 func TestStreamComputerInterleavesCallsAndKeepsLateChecks(t *testing.T) {
@@ -59,9 +56,8 @@ func TestStreamComputerInterleavesCallsAndKeepsLateChecks(t *testing.T) {
 		generation.ItemEnded{Index: 1, Item: other},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamComputerKeepsOmittedActions(t *testing.T) {
@@ -76,9 +72,7 @@ func TestStreamComputerKeepsOmittedActions(t *testing.T) {
 	want := computerCall()
 	want.Action = generation.ComputerScreenshot{}
 	want.Actions = []generation.ComputerAction{generation.ComputerWait{}}
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 }
 
 func TestStreamComputerRejectsConflictsAndPreservesUsage(t *testing.T) {
@@ -114,9 +108,7 @@ func TestStreamComputerSnapshotsOwnNestedData(t *testing.T) {
 	call := computerCallJSON(`,"action":{"type":"drag","path":[{"x":0,"y":10}],"keys":["SHIFT"]},"actions":[{"type":"keypress","keys":["ENTER"]}]`)
 	client := streamClient(t, io.Discard, created(), outputItemAdded(0, call), `{"type":"response.completed","response":`+responseWithItems(call)+`}`)
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = stream.Close() })
 
 	var end generation.OpenAIComputerCall
@@ -126,9 +118,7 @@ func TestStreamComputerSnapshotsOwnNestedData(t *testing.T) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		switch value := event.(type) {
 		case generation.ItemStarted:
 			starts++
@@ -146,9 +136,8 @@ func TestStreamComputerSnapshotsOwnNestedData(t *testing.T) {
 	want := computerCall()
 	want.Action = generation.ComputerDrag{Path: []generation.ComputerPoint{{X: 0, Y: 10}}, Keys: generation.Some([]string{"SHIFT"})}
 	want.Actions = []generation.ComputerAction{generation.ComputerKeypress{Keys: []string{"ENTER"}}}
-	if starts != 1 || !reflect.DeepEqual(end, want) {
-		t.Fatalf("starts = %d; end = %#v; want one mutated start and %#v", starts, end, want)
-	}
+	require.Equal(t, 1, starts)
+	require.Equal(t, want, end)
 }
 
 func TestStreamComputerResultRetainsScreenshotAndAcknowledgements(t *testing.T) {
@@ -166,9 +155,7 @@ func TestStreamComputerResultRetainsScreenshotAndAcknowledgements(t *testing.T) 
 		Output:                   generation.ComputerScreenshotOutput{FileID: generation.Some("file_1"), ImageURL: generation.Some("https://example.com/screenshot.png"), Detail: generation.Some("original")},
 		AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{ID: "check_1", Code: generation.Null[string]()}}), CreatedBy: generation.Some("program_1"),
 	}
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 }
 
 func TestGenerateComputerResultAllowsOmittedScreenshotReferences(t *testing.T) {
@@ -176,13 +163,10 @@ func TestGenerateComputerResultAllowsOmittedScreenshotReferences(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := generation.OpenAIComputerResult{ID: generation.Some("out_1"), CallID: "call_1", Status: generation.Some("completed")}
-	if !reflect.DeepEqual(result.Response.Output, []generation.Item{want}) || result.Response.Finish.Reason != "stop" {
-		t.Fatalf("response = %#v; want %#v and stop", result.Response, want)
-	}
+	require.Equal(t, []generation.Item{want}, result.Response.Output)
+	require.Equal(t, "stop", result.Response.Finish.Reason)
 }
 
 func TestStreamComputerBoundsRetainedActions(t *testing.T) {
@@ -230,9 +214,8 @@ func TestStreamComputerRetainsModifiersInBothActionForms(t *testing.T) {
 				t.Fatal(err)
 			}
 			end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIComputerCall)
-			if !reflect.DeepEqual(end.Action, tc.want) || !reflect.DeepEqual(end.Actions, []generation.ComputerAction{tc.want}) {
-				t.Fatalf("end = %#v; want single and batch action %#v", end, tc.want)
-			}
+			require.Equal(t, tc.want, end.Action)
+			require.Equal(t, []generation.ComputerAction{tc.want}, end.Actions)
 		})
 	}
 }
@@ -249,9 +232,8 @@ func TestStreamComputerAcceptsLateModifiers(t *testing.T) {
 	}
 	want := generation.ComputerMove{X: 0, Y: 1, Keys: generation.Some([]string{"SHIFT"})}
 	end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIComputerCall)
-	if !reflect.DeepEqual(end.Action, want) || !reflect.DeepEqual(end.Actions, []generation.ComputerAction{want}) {
-		t.Fatalf("end = %#v; want late modifiers on both forms", end)
-	}
+	require.Equal(t, want, end.Action)
+	require.Equal(t, []generation.ComputerAction{want}, end.Actions)
 }
 
 func TestStreamComputerRejectsChangedScreenshotAndAcknowledgements(t *testing.T) {
@@ -286,9 +268,7 @@ func TestStreamComputerFinalOnlyIncomplete(t *testing.T) {
 	want := computerCall()
 	want.Status = "incomplete"
 	want.Actions = []generation.ComputerAction{generation.ComputerType{Text: "hel"}}
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Reason != "max_output_tokens" || finish.Status != "incomplete" {
 		t.Fatalf("finish = %#v; want incomplete due to max_output_tokens", finish)
 	}

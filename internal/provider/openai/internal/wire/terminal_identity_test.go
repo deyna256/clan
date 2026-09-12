@@ -6,6 +6,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTerminalOutputRejectsConflictingIdentities(t *testing.T) {
@@ -25,9 +26,7 @@ func TestTerminalOutputRejectsConflictingIdentities(t *testing.T) {
 		for _, status := range []string{"completed", "incomplete"} {
 			t.Run(tc.name+"/"+status, func(t *testing.T) {
 				envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"model","status":"` + status + `","incomplete_details":{"reason":"max_output_tokens"},"output":[` + tc.first + `,` + tc.second + `]}`))
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 
 				result, err := envelope.Result(func(string) {})
 
@@ -51,9 +50,7 @@ func TestTerminalOutputPreservesCallResultPairs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"model","status":"completed","output":[` + tc.first + `,` + tc.second + `]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			result, err := envelope.Result(func(string) {})
 

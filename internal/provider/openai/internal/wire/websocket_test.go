@@ -7,6 +7,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeWebSocketCreate(t *testing.T) {
@@ -16,9 +17,7 @@ func TestEncodeWebSocketCreate(t *testing.T) {
 
 	body, err := wire.EncodeWebSocketCreate(request, "draft_1.a-b", generation.Some(false))
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"type":"response.create","model":"test-model","input":[],"stream_id":"draft_1.a-b","generate":false,"previous_response_id":"resp_previous","store":false}`)
 }
 
@@ -27,9 +26,7 @@ func TestEncodeWebSocketDefaultLane(t *testing.T) {
 
 	body, err := wire.EncodeWebSocketCreate(request, "", generation.Optional[bool]{})
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"type":"response.create","model":"test-model","input":[]}`)
 }
 

@@ -5,13 +5,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamRejectsUsageFromConflictingResponse(t *testing.T) {
@@ -35,9 +35,7 @@ func TestStreamRejectsUsageFromConflictingResponse(t *testing.T) {
 				generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
 				generation.UsageUpdated{Usage: usage.Snapshot{Input: count(3)}},
 			}
-			if !reflect.DeepEqual(events, want) {
-				t.Fatalf("events = %#v; want only the original response and its usage", events)
-			}
+			require.Equal(t, want, events)
 		})
 	}
 }
@@ -47,9 +45,7 @@ func TestRetrieveResponseStreamRejectsForeignFailureUsage(t *testing.T) {
 		`{"type":"response.failed","response":{"id":"resp_2","model":"test-model","status":"failed","error":{"code":"server_error"},"usage":{"input_tokens":70}}}`,
 	)
 	stream, err := client.RetrieveResponseStream(t.Context(), testAttempt(), "resp_1", openai.ResponseRetrieveOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer stream.Close()
 
 	event, err := stream.Next()
@@ -72,9 +68,7 @@ func TestStreamRetainsMatchingUsageWhenEnvelopeContentIsMalformed(t *testing.T) 
 		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
 		generation.UsageUpdated{Usage: usage.Snapshot{Input: count(70)}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want the matching response's known usage", events)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamBoundsResponseIdentityAndRetainsUsage(t *testing.T) {
@@ -90,9 +84,7 @@ func TestStreamBoundsResponseIdentityAndRetainsUsage(t *testing.T) {
 
 			assertProtocolError(t, err)
 			want := []generation.Event{generation.UsageUpdated{Usage: usage.Snapshot{Input: count(2)}}}
-			if !reflect.DeepEqual(events, want) {
-				t.Fatalf("events = %#v; want usage without an oversized response", events)
-			}
+			require.Equal(t, want, events)
 		})
 	}
 }
@@ -110,9 +102,7 @@ func TestStreamChargesResponseIdentityOnce(t *testing.T) {
 		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want one start and end", events)
-	}
+	require.Equal(t, want, events)
 }
 
 func boundedStreamClient(t *testing.T, body string, limit int64) *openai.Client {
@@ -121,8 +111,6 @@ func boundedStreamClient(t *testing.T, body string, limit int64) *openai.Client 
 		&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 		})}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return client
 }

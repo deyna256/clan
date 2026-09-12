@@ -3,11 +3,11 @@ package openai_test
 import (
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamRetainsToolProvenance(t *testing.T) {
@@ -47,9 +47,7 @@ func TestStreamRetainsToolProvenance(t *testing.T) {
 							ended = item.Item
 						}
 					}
-					if !reflect.DeepEqual(ended, tc.want) {
-						t.Fatalf("ended=%#v; want %#v", ended, tc.want)
-					}
+					require.Equal(t, tc.want, ended)
 				})
 			}
 			t.Run("bounds creator", func(t *testing.T) {

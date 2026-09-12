@@ -1,13 +1,13 @@
 package wire
 
 import (
-	"bytes"
 	"encoding/json"
 	"math"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/tidwall/gjson"
 )
 
 type searchLocation struct {
@@ -215,34 +215,22 @@ func encodeSearchFilter(filter generation.SearchFilter, depth int) (json.RawMess
 }
 
 func filterValue(raw json.RawMessage, membership bool) bool {
-	if !utf8.Valid(raw) || !json.Valid(raw) {
+	if !utf8.Valid(raw) || !gjson.ValidBytes(raw) {
 		return false
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
+	value := gjson.ParseBytes(raw)
+	if !membership {
+		return value.Type == gjson.String || value.Type == gjson.Number || value.Type == gjson.True || value.Type == gjson.False
+	}
+	if !value.IsArray() {
 		return false
 	}
-	if membership {
-		values, ok := value.([]any)
-		if !ok {
-			return false
-		}
-		for _, item := range values {
-			switch item.(type) {
-			case string, json.Number:
-			default:
-				return false
-			}
-		}
-		return true
-	}
-	switch value.(type) {
-	case string, json.Number, bool:
-		return true
-	}
-	return false
+	valid := true
+	value.ForEach(func(_, item gjson.Result) bool {
+		valid = item.Type == gjson.String || item.Type == gjson.Number
+		return valid
+	})
+	return valid
 }
 
 func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }

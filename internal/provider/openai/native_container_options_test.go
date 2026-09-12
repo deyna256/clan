@@ -5,6 +5,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
@@ -31,9 +32,7 @@ func TestNativeContainerToolOptionsUseSameSchema(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertRequestJSON(t, gjson.GetBytes(body, tc.path).Raw, tc.want)
 		})
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompactRequestPreservesPresence(t *testing.T) {
@@ -18,9 +19,7 @@ func TestCompactRequestPreservesPresence(t *testing.T) {
 
 	body, err := wire.EncodeCompact(request)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":null,"input":[],"instructions":"","previous_response_id":"resp_1","prompt_cache_key":null,"prompt_cache_retention":"in_memory","prompt_cache_options":{"mode":"explicit","ttl":"30m"},"service_tier":"flex"}`)
 }
 
@@ -35,18 +34,14 @@ func TestCountRequestPreservesIndependentOptions(t *testing.T) {
 
 	body, err := wire.EncodeInputTokenRequest(request)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":null,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}],"parallel_tool_calls":false,"reasoning":null,"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}},"verbosity":"low"},"tools":[],"tool_choice":null,"personality":"pragmatic","truncation":"disabled"}`)
 
 }
 
 func TestCountRequestOmitsUnsetOptions(t *testing.T) {
 	body, err := wire.EncodeInputTokenRequest(generation.InputTokenRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{}`)
 }
 

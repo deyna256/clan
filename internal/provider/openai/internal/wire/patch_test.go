@@ -2,12 +2,12 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodePatchHistory(t *testing.T) {
@@ -16,18 +16,14 @@ func TestEncodePatchHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":true,"tools":[{"type":"apply_patch","allowed_callers":["direct","programmatic"]}],"tool_choice":{"type":"apply_patch"},"input":[
 		{"type":"apply_patch_call","id":"ap_1","call_id":"call_1","status":"completed","operation":{"type":"create_file","path":"../client/файл.go","diff":"+package main\n"},"caller":{"type":"program","caller_id":"program_1"}},
 		{"type":"apply_patch_call","call_id":"call_2","status":"in_progress","operation":{"type":"update_file","path":"C:\\client\\main.go","diff":""}},
 		{"type":"apply_patch_call","call_id":"call_3","status":"completed","operation":{"type":"delete_file","path":"/client/old.go"}},
 		{"type":"apply_patch_call_output","id":"out_1","call_id":"call_1","status":"completed","output":"created","caller":{"type":"program","caller_id":"program_1"}}
 	]}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed patch data")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodePatchResultPresence(t *testing.T) {
@@ -46,9 +42,7 @@ func TestEncodePatchResultPresence(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"apply_patch_call_output","call_id":"call_1","status":"failed","caller":null`+tc.field+`}]}`)
 		})
 	}
@@ -69,9 +63,7 @@ func TestEncodePatchCallerSelection(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[],"tools":[{"type":"apply_patch"`+tc.field+`}]}`)
 		})
 	}

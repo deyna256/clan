@@ -1,14 +1,13 @@
 package openai_test
 
 import (
-	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateRejectsMissingOutputMessageStatus(t *testing.T) {
@@ -23,9 +22,9 @@ func TestGenerateRejectsMissingOutputMessageStatus(t *testing.T) {
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
 			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError || !reflect.DeepEqual(result.Response, generation.Response{}) {
-				t.Fatalf("Generate = %#v, %v; want protocol failure without output", result, err)
-			}
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, generation.ProtocolError, failure.Kind)
+			require.Equal(t, generation.Response{}, result.Response)
 			wantUsage := usage.Snapshot{Input: count(10), Output: count(2), Total: count(12)}
 			if result.Usage != wantUsage {
 				t.Fatalf("usage = %#v; want %#v", result.Usage, wantUsage)
@@ -51,9 +50,9 @@ func TestGenerateRetainsUsageOnInvalidUTF8(t *testing.T) {
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
 			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError || !reflect.DeepEqual(result.Response, generation.Response{}) {
-				t.Fatalf("Generate = %#v, %v; want protocol failure without repaired output", result, err)
-			}
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, generation.ProtocolError, failure.Kind)
+			require.Equal(t, generation.Response{}, result.Response)
 			wantUsage := usage.Snapshot{Input: count(10), Output: count(2), Total: count(12)}
 			if result.Usage != wantUsage || result.Identity != tc.wantIdentity {
 				t.Fatalf("Generate = %#v; want usage %#v and identity %#v", result, wantUsage, tc.wantIdentity)

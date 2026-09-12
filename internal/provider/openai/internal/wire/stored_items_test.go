@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStoredMessageContent(t *testing.T) {
@@ -27,9 +27,8 @@ func TestStoredMessageContent(t *testing.T) {
 
 	item, err := wire.DecodeStoredItem(raw, nil)
 
-	if err != nil || !reflect.DeepEqual(item, want) {
-		t.Fatalf("stored item = %#v, %v; want %#v", item, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, item)
 }
 
 func TestStoredMessageRolesAndOutput(t *testing.T) {
@@ -39,36 +38,26 @@ func TestStoredMessageRolesAndOutput(t *testing.T) {
 
 			item, err := wire.DecodeStoredItem(raw, nil)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := generation.Message{
 				ID: "msg_1", Role: role, Status: generation.ItemCompleted,
 				OpenAI: generation.OpenAIMessageData{Phase: generation.Null[string]()},
 				Parts:  []generation.Part{generation.Text{Text: "Done"}},
 			}
-			if !reflect.DeepEqual(item, want) {
-				t.Fatalf("stored message = %#v; want %#v", item, want)
-			}
+			require.Equal(t, want, item)
 		})
 	}
 }
 
 func TestStoredCallProvenanceAndReplay(t *testing.T) {
 	item, err := wire.DecodeStoredItem([]byte(`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{","status":"in_progress","created_by":"creator_1"}`), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "lookup", Arguments: "{", Status: generation.ItemInProgress, OpenAI: generation.OpenAIToolCallData{CreatedBy: generation.Some("creator_1")}}
-	if !reflect.DeepEqual(item, want) {
-		t.Fatalf("stored call = %#v; want %#v", item, want)
-	}
+	require.Equal(t, want, item)
 
 	body, err := wire.EncodeRequest(requestWith(item), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{","status":"in_progress"}]}`)
 }
 
@@ -127,9 +116,8 @@ func TestStoredCustomAndPatchProvenance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			item, err := wire.DecodeStoredItem([]byte(tc.raw), nil)
 
-			if err != nil || !reflect.DeepEqual(item, tc.want) {
-				t.Fatalf("stored item = %#v, %v; want %#v", item, err, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, item)
 		})
 	}
 }

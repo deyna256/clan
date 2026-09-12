@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeInputCacheBreakpoints(t *testing.T) {
@@ -17,9 +17,7 @@ func TestEncodeInputCacheBreakpoints(t *testing.T) {
 		generation.Text{Text: "uncached"},
 	))
 	body, err := wire.EncodeRequest(request, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"message","role":"user","content":[
 		{"type":"input_text","text":"prefix","prompt_cache_breakpoint":{"mode":"explicit"}},
 		{"type":"input_image","image_url":"https://example.com/image.png","detail":"original","prompt_cache_breakpoint":{"mode":"explicit"}},
@@ -50,14 +48,11 @@ func TestStoredMediaReplayPreservesPresence(t *testing.T) {
 	}
 
 	item, err := wire.DecodeStoredItem(raw, nil)
-	if err != nil || !reflect.DeepEqual(item, want) {
-		t.Fatalf("stored media = %#v, %v; want %#v", item, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, item)
 
 	body, err := wire.EncodeRequest(requestWith(item), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"message","id":"msg_1","role":"user","status":"completed","content":[
 		{"type":"input_image","detail":"original","file_id":null,"image_url":"https://example.com/image.png","prompt_cache_breakpoint":{"mode":"explicit"}},
 		{"type":"input_image","detail":"low","file_id":"file_image","image_url":null},

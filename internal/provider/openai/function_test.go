@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamFunctionNamespacesAndLateMetadata(t *testing.T) {
@@ -47,9 +47,9 @@ func TestStreamFunctionNamespacesAndLateMetadata(t *testing.T) {
 		}},
 	}
 	wantDeltas := []generation.ArgumentsDelta{{ItemIndex: 1, Fragment: "{"}, {ItemIndex: 0, Fragment: "{}"}, {ItemIndex: 1, Fragment: "}"}}
-	if !reflect.DeepEqual(calls, wantCalls) || !reflect.DeepEqual(deltas, wantDeltas) || logs.Len() != 0 {
-		t.Fatalf("calls = %#v; deltas = %#v; logs = %s; want %#v and %#v", calls, deltas, logs.String(), wantCalls, wantDeltas)
-	}
+	require.Equal(t, wantCalls, calls)
+	require.Equal(t, wantDeltas, deltas)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamFunctionRejectsChangedRoutingMetadata(t *testing.T) {
@@ -84,18 +84,15 @@ func TestGenerateFunctionResultWithoutCallID(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := generation.ToolResult{
 		ID: generation.Some("out_1"), Status: generation.Some(generation.ItemCompleted),
 		Output: generation.ToolPartsOutput{generation.OpenAIFunctionText{Text: "found"}, generation.OpenAIFunctionImage{FileID: generation.Some("file_1"), Detail: generation.Some("low")}},
 		Caller: generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"}),
 		OpenAI: generation.OpenAIToolResultData{Name: generation.Some("lookup"), Namespace: generation.Some("crm"), CreatedBy: generation.Some("actor_1")},
 	}
-	if !reflect.DeepEqual(result.Response.Output, []generation.Item{want}) || result.Response.Finish.Reason != "stop" {
-		t.Fatalf("response = %#v; want %#v with stop", result.Response, want)
-	}
+	require.Equal(t, []generation.Item{want}, result.Response.Output)
+	require.Equal(t, "stop", result.Response.Finish.Reason)
 }
 
 func TestStreamFunctionResultRetainsLateIdentity(t *testing.T) {
@@ -120,9 +117,7 @@ func TestStreamFunctionResultRetainsLateIdentity(t *testing.T) {
 		}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamFunctionResultRejectsChangedIdentity(t *testing.T) {
@@ -191,9 +186,7 @@ func TestStreamFunctionFinalWithoutID(t *testing.T) {
 	}
 	want := generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "lookup", Arguments: "{}", OpenAI: generation.OpenAIToolCallData{Namespace: generation.Some("crm")}}
 	ended := eventAt[generation.ItemEnded](t, events, len(events)-2).Item
-	if !reflect.DeepEqual(ended, want) {
-		t.Fatalf("ended = %#v; want %#v", ended, want)
-	}
+	require.Equal(t, want, ended)
 }
 
 func TestStreamFunctionPreservesJSONArgumentValues(t *testing.T) {

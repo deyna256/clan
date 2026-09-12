@@ -1,11 +1,11 @@
 package wire_test
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFunctionCallMetadataAndResultReplay(t *testing.T) {
@@ -33,20 +33,15 @@ func TestFunctionCallMetadataAndResultReplay(t *testing.T) {
 	}
 
 	envelope, err := wire.DecodeEnvelope(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	result, err := envelope.Result(nil)
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, want) {
-		t.Fatalf("Result = %#v, %v; want %#v", result.Response.Output, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, result.Response.Output)
 
 	body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed","async":false,"namespace":"crm","caller":{"type":"program","caller_id":"program_1"}},
 		{"type":"function_call_output","id":"out_1","status":"completed","output":[{"type":"input_text","text":"Found"},{"type":"input_image","file_id":"file_1"}],"name":"lookup","namespace":"crm","caller":null}
@@ -69,9 +64,7 @@ func TestEncodeFunctionResultPresence(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"function_call_output","output":""},
 		{"type":"function_call_output","id":null,"call_id":null,"status":null,"output":[],"caller":null,"name":null,"namespace":null},
@@ -81,16 +74,13 @@ func TestEncodeFunctionResultPresence(t *testing.T) {
 
 func TestDecodeFunctionCallWithoutOptionalID(t *testing.T) {
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}","caller":null}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []generation.Item{generation.ToolCall{CallID: "call_1", Name: "lookup", Arguments: "{}", OpenAI: generation.OpenAIToolCallData{Caller: generation.Null[generation.OpenAIToolCaller]()}}}
 
 	result, err := envelope.Result(nil)
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, want) {
-		t.Fatalf("Result = %#v, %v; want %#v", result.Response.Output, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, result.Response.Output)
 }
 
 func TestRejectInvalidFunctionMetadata(t *testing.T) {
@@ -140,9 +130,7 @@ func TestRejectMalformedToolReturnedMetadata(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + tc.raw + `]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 

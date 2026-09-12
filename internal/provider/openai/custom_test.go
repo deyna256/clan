@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateCustomCall(t *testing.T) {
@@ -23,15 +23,12 @@ func TestGenerateCustomCall(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := []generation.Item{generation.CustomToolCall{CallID: "call_1", Name: "execute", Input: input, OpenAI: generation.OpenAIToolCallData{
 				Async: generation.Some(false), Namespace: generation.Some("sandbox"), Caller: generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"}),
 			}}}
-			if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "tool_calls" {
-				t.Fatalf("response = %#v; want %#v and tool_calls", result.Response, want)
-			}
+			require.Equal(t, want, result.Response.Output)
+			require.Equal(t, "tool_calls", result.Response.Finish.Reason)
 		})
 	}
 }
@@ -62,13 +59,10 @@ func TestGenerateCustomOutputs(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := []generation.Item{generation.CustomToolResult{ID: "out_1", CallID: "call_1", Status: "completed", Output: tc.want, Caller: generation.Some(generation.OpenAIToolCaller{Type: "direct"})}}
-			if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-				t.Fatalf("response = %#v; want %#v and stop", result.Response, want)
-			}
+			require.Equal(t, want, result.Response.Output)
+			require.Equal(t, "stop", result.Response.Finish.Reason)
 		})
 	}
 }
@@ -106,9 +100,8 @@ func TestStreamCustomInterleavesAndRetainsLateMetadata(t *testing.T) {
 		generation.ItemEnded{Index: 1, Item: generation.ToolCall{ID: "fc_1", CallID: "call_2", Name: "execute", Arguments: "{}"}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamCustomFinalWithoutID(t *testing.T) {
@@ -135,9 +128,7 @@ func TestStreamCustomFinalWithoutID(t *testing.T) {
 				generation.ItemEnded{Index: 0, Item: generation.CustomToolCall{ID: id, CallID: "call_1", Name: "execute", Input: "SELECT 1"}},
 				generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 			}
-			if !reflect.DeepEqual(events, want) {
-				t.Fatalf("events = %#v; want %#v", events, want)
-			}
+			require.Equal(t, want, events)
 		})
 	}
 }
@@ -160,9 +151,7 @@ func TestStreamCustomIncomplete(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.CustomToolCall{ID: "ct_1", CallID: "call_1", Name: "execute", Input: "print("}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want incomplete call and usage %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestCustomProtocolErrorsPreserveUsage(t *testing.T) {
@@ -292,9 +281,7 @@ func TestStreamCustomResultSnapshots(t *testing.T) {
 				generation.ItemEnded{Index: 0, Item: generation.CustomToolResult{ID: "out_1", CallID: "call_1", Output: tc.want, Caller: caller}},
 				generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 			}
-			if !reflect.DeepEqual(events, want) {
-				t.Fatalf("events = %#v; want %#v", events, want)
-			}
+			require.Equal(t, want, events)
 		})
 	}
 }
@@ -334,9 +321,7 @@ func TestStreamCustomEmptyInput(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.CustomToolCall{ID: "ct_1", CallID: "call_1", Name: "execute"}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func customResultJSON(output, extra string) string {

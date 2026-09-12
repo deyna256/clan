@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeneratePreservesHostedSearchResults(t *testing.T) {
@@ -17,12 +17,8 @@ func TestGeneratePreservesHostedSearchResults(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(result.Response.Output, expectedSearchOutput()) {
-		t.Fatalf("output = %#v; want %#v", result.Response.Output, expectedSearchOutput())
-	}
+	require.NoError(t, err)
+	require.Equal(t, expectedSearchOutput(), result.Response.Output)
 	if result.Response.Finish.Reason != "stop" {
 		t.Fatalf("hosted search must not request client tool execution: %#v", result.Response.Finish)
 	}
@@ -49,9 +45,8 @@ func TestStreamPreservesSearchResultsAndIgnoresProgress(t *testing.T) {
 			items = append(items, ended.Item)
 		}
 	}
-	if !reflect.DeepEqual(items, expectedSearchOutput()) || logs.Len() != 0 {
-		t.Fatalf("items = %#v; logs = %s", items, logs.String())
-	}
+	require.Equal(t, expectedSearchOutput(), items)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestGenerateKeepsAnswerWhenOptionalSearchMetadataIsMalformed(t *testing.T) {
@@ -67,14 +62,11 @@ func TestGenerateKeepsAnswerWhenOptionalSearchMetadataIsMalformed(t *testing.T) 
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			text := result.Response.Output[2].(generation.Message).Parts[0].(generation.Text).Text
 			sources := result.Response.Output[1].(generation.OpenAIWebSearchCall).Action.(generation.WebSearch).Sources
-			if text != "Usable" || !reflect.DeepEqual(sources, []string{"https://example.com"}) {
-				t.Fatalf("text = %q; sources = %q", text, sources)
-			}
+			require.Equal(t, "Usable", text)
+			require.Equal(t, []string{"https://example.com"}, sources)
 			if !strings.Contains(logs.String(), "invalid_search_results") || !strings.Contains(logs.String(), "invalid_search_sources") || strings.Contains(logs.String(), "secret") {
 				t.Fatalf("logs = %s", logs.String())
 			}
@@ -100,9 +92,7 @@ func TestStreamRetainsSearchSourcesOmittedFromFinalSnapshot(t *testing.T) {
 		}
 	}
 	want := generation.WebSearch{Queries: []string{"q"}, Sources: []string{"https://example.com"}}
-	if !reflect.DeepEqual(action, want) {
-		t.Fatalf("action = %#v; want %#v", action, want)
-	}
+	require.Equal(t, want, action)
 }
 
 func searchResponse() string {

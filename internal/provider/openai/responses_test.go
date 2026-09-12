@@ -10,6 +10,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRetrieveResponsePreservesStoredState(t *testing.T) {
@@ -41,6 +42,8 @@ func TestStoredResponseValidatesTerminalContentAndIdentity(t *testing.T) {
 		{name: "missing tool identity", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","arguments":"{}"}]`, ""), kind: generation.ProtocolError},
 		{name: "invalid completed arguments", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{"}]`, ""), kind: generation.ProtocolError},
 		{name: "invalid error object", body: storedResponse("failed", `[]`, `,"error":{"code":"server_error"}`), kind: generation.ProtocolError},
+		{name: "null error code", body: storedResponse("failed", `[]`, `,"error":{"code":null,"message":"detail"}`), kind: generation.ProtocolError},
+		{name: "null error message", body: storedResponse("failed", `[]`, `,"error":{"code":"server_error","message":null}`), kind: generation.ProtocolError},
 		{name: "invalid incomplete reason", body: storedResponse("incomplete", `[]`, `,"incomplete_details":{"reason":null}`), kind: generation.ProtocolError},
 		{name: "unsupported second item", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"},{"type":"unknown"}]`, ""), kind: generation.Unsupported},
 	} {
@@ -88,9 +91,7 @@ func TestRetrieveResponseStreamIsBoundToRequestedResponse(t *testing.T) {
 				_, _ = io.WriteString(w, frame(created())+frame(`{"type":"response.completed","response":`+textResponse("Hello", `{"input_tokens":12,"output_tokens":3}`)+`}`))
 			}, io.Discard)
 			stream, err := client.RetrieveResponseStream(t.Context(), testAttempt(), id, openai.ResponseRetrieveOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			defer stream.Close()
 
 			ended := false
@@ -214,9 +215,8 @@ func TestListResponseInputItemsReturnsOnePage(t *testing.T) {
 	page, err := client.ListResponseInputItems(t.Context(), testAttempt(), "resp_1", openai.ItemListOptions{After: "item_1", Limit: generation.Some(int64(1)), Order: "asc"})
 
 	want := openai.ItemPage{Data: []generation.Item{generation.Message{ID: "msg_1", Role: generation.User, Parts: []generation.Part{generation.Text{Text: "Hello"}}}}, FirstID: "msg_1", LastID: "msg_1", HasMore: true}
-	if err != nil || !reflect.DeepEqual(page, want) {
-		t.Fatalf("page = %#v, %v; want %#v", page, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, page)
 }
 
 func TestResponseQueriesRejectInvalidInputBeforeDispatch(t *testing.T) {

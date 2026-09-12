@@ -3,12 +3,12 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeShellTools(t *testing.T) {
@@ -59,9 +59,7 @@ func TestEncodeShellTools(t *testing.T) {
 			request.Tools = []generation.Tool{tc.tool}
 			request.ToolChoice = tc.choice
 			body, err := wire.EncodeRequest(request, false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			var got struct {
 				Tools  []json.RawMessage `json:"tools"`
 				Choice json.RawMessage   `json:"tool_choice"`
@@ -102,9 +100,7 @@ func TestEncodeShellInputPresence(t *testing.T) {
 		generation.OpenAILocalShellResult{ID: "local_call", Output: "plain output", Status: generation.Null[string]()},
 	)
 	body, err := wire.EncodeRequest(request, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 	{"type":"shell_call","id":null,"call_id":"call_1","status":null,"action":{"commands":["echo x","echo y"],"timeout_ms":null,"max_output_length":0},"environment":{"type":"local","skills":[]},"caller":null},
 	{"type":"shell_call_output","call_id":"call_1","max_output_length":null,"output":[{"stdout":"","stderr":"","outcome":{"type":"exit","exit_code":0}},{"stdout":"partial","stderr":"timed out","outcome":{"type":"timeout"}}]},
@@ -119,9 +115,7 @@ func TestDecodeShellResponseAndReplay(t *testing.T) {
 	{"type":"shell_call_output","id":"out_1","call_id":"call_1","status":"completed","max_output_length":null,"output":[{"stdout":"привет","stderr":"","outcome":{"type":"exit","exit_code":0},"created_by":"actor"}],"caller":null,"created_by":"actor"}
 	]`
 	result, err := shellResponse(output)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Response.Finish.Reason != "stop" {
 		t.Fatalf("hosted finish = %s", result.Response.Finish.Reason)
 	}
@@ -157,13 +151,9 @@ func TestDecodeShellResponseAndReplay(t *testing.T) {
 	if !got.Caller.IsNull() || !got.MaxOutputLength.IsNull() {
 		t.Fatal("lost null output metadata")
 	}
-	if !reflect.DeepEqual(got.Output[0].Outcome, generation.ShellExit{ExitCode: 0}) {
-		t.Fatalf("outcome = %#v", got.Output[0].Outcome)
-	}
+	require.Equal(t, generation.ShellExit{ExitCode: 0}, got.Output[0].Outcome)
 	body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var replay struct {
 		Input json.RawMessage `json:"input"`
 	}
@@ -210,18 +200,15 @@ func TestDecodeShellClientHandoffs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := shellResponse(tc.raw)
 
-			if err != nil || !reflect.DeepEqual(result.Response.Output, tc.want) {
-				t.Fatalf("output = %#v, %v; want %#v", result.Response.Output, err, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, result.Response.Output)
 			if result.Response.Finish.Reason != "tool_calls" {
 				t.Fatalf("finish = %s; want tool_calls", result.Response.Finish.Reason)
 			}
 
 			body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":`+tc.raw+`}`)
 		})
 	}
@@ -327,9 +314,8 @@ func TestDecodeShellOutputs(t *testing.T) {
 		{Stdout: "partial", Stderr: "timeout", Outcome: generation.ShellTimeout{}, CreatedBy: generation.Some("actor")},
 	}
 	got, err := wire.DecodeShellOutputs(json.RawMessage(`[{"stdout":"","stderr":"","outcome":{"type":"exit","exit_code":0}},{"stdout":"partial","stderr":"timeout","outcome":{"type":"timeout"},"created_by":"actor"}]`))
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("DecodeShellOutputs = %#v, %v", got, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }
 
 func TestRejectMalformedShellOutputs(t *testing.T) {

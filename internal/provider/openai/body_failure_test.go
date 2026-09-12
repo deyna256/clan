@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateRetainsUsageAfterHTTPReadFailure(t *testing.T) {
@@ -24,9 +24,8 @@ func TestGenerateRetainsUsageAfterHTTPReadFailure(t *testing.T) {
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
 			assertFailureWithUsage(t, err, generation.TransportError, result.Usage)
-			if result.Identity != (generation.Identity{ID: "resp_1", Model: "test-model"}) || !reflect.DeepEqual(result.Response, generation.Response{}) {
-				t.Fatalf("result = %#v; want identity without successful content", result)
-			}
+			require.Equal(t, (generation.Identity{ID: "resp_1", Model: "test-model"}), result.Identity)
+			require.Equal(t, generation.Response{}, result.Response)
 		})
 	}
 }
@@ -55,16 +54,12 @@ func TestGenerateBoundsBodyBeforeExtractingUsage(t *testing.T) {
 	}, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}, slog.New(slog.DiscardHandler))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
 	assertProtocolError(t, err)
-	if !reflect.DeepEqual(result, generation.Result{}) {
-		t.Fatalf("oversized body produced a result: %#v", result)
-	}
+	require.Equal(t, generation.Result{}, result)
 }
 
 func TestRetrieveResponseRetainsUsageAfterBodyFailure(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamShellCommandsInterleaveAndRecoverSuffixes(t *testing.T) {
@@ -41,9 +41,8 @@ func TestStreamShellCommandsInterleaveAndRecoverSuffixes(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: shellCall("completed", "printf hello", "pwd")},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamShellOutputKeepsCommandAddressesAndFinalList(t *testing.T) {
@@ -77,9 +76,8 @@ func TestStreamShellOutputKeepsCommandAddressesAndFinalList(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: end},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamShellOutputSupportsSeveralChunksPerCommand(t *testing.T) {
@@ -99,9 +97,9 @@ func TestStreamShellOutputSupportsSeveralChunksPerCommand(t *testing.T) {
 	}
 	command := eventAt[generation.ShellOutputEnded](t, events, 4)
 	item := eventAt[generation.ItemEnded](t, events, 5).Item.(generation.OpenAIShellResult)
-	if command.CommandIndex != 2 || !reflect.DeepEqual(command.Output, want) || !reflect.DeepEqual(item.Output, want) {
-		t.Fatalf("command = %#v; item = %#v; want %#v", command, item, want)
-	}
+	require.Equal(t, 2, command.CommandIndex)
+	require.Equal(t, want, command.Output)
+	require.Equal(t, want, item.Output)
 }
 
 func TestStreamShellRejectsConflictingCommandsAndPreservesUsage(t *testing.T) {
@@ -171,9 +169,7 @@ func TestStreamShellFinalOnlyPreservesIncompleteCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := shellCall("incomplete", "printf '")
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("item = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
 		t.Fatalf("finish = %#v; want max_output_tokens", finish)
 	}
@@ -209,17 +205,14 @@ func TestGenerateShellVariants(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []generation.Item{
 		shellCall("completed", "pwd"),
 		generation.OpenAILocalShellCall{ID: "ls_1", CallID: "call_2", Status: "completed", Action: generation.LocalShellAction{Command: []string{"printf", "hello world"}, Env: map[string]string{"MODE": ""}, WorkingDirectory: generation.Null[string]()}},
 		generation.OpenAILocalShellResult{ID: "call_2", Output: "hello world", Status: generation.Null[string]()},
 	}
-	if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "tool_calls" {
-		t.Fatalf("response = %#v; want %#v and tool_calls", result.Response, want)
-	}
+	require.Equal(t, want, result.Response.Output)
+	require.Equal(t, "tool_calls", result.Response.Finish.Reason)
 }
 
 func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
@@ -227,9 +220,7 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 	final := strings.Replace(strings.Replace(initial, "in_progress", "completed", 1), `"hel"`, `"hello world"`, 1)
 	client := streamClient(t, io.Discard, created(), outputItemAdded(0, initial), `{"type":"response.completed","response":`+responseWithItems(final)+`}`)
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = stream.Close() })
 
 	var end generation.OpenAILocalShellCall
@@ -239,9 +230,7 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		switch value := event.(type) {
 		case generation.ItemStarted:
 			starts++
@@ -254,9 +243,8 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 	}
 
 	want := generation.OpenAILocalShellCall{ID: "ls_1", CallID: "call_2", Status: "completed", Action: generation.LocalShellAction{Command: []string{"printf", "hello world"}, Env: map[string]string{"MODE": ""}}}
-	if starts != 1 || !reflect.DeepEqual(end, want) {
-		t.Fatalf("starts = %d; end = %#v; want one mutated start and %#v", starts, end, want)
-	}
+	require.Equal(t, 1, starts)
+	require.Equal(t, want, end)
 }
 
 func TestStreamLocalShellRetainsOmittedResultStatus(t *testing.T) {
@@ -270,9 +258,7 @@ func TestStreamLocalShellRetainsOmittedResultStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.OpenAILocalShellResult{ID: "call_1", Output: "okay", Status: generation.Some("completed")}
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 }
 
 func TestStreamShellPreservesLateMetadata(t *testing.T) {
@@ -294,9 +280,7 @@ func TestStreamShellPreservesLateMetadata(t *testing.T) {
 	want.Action.TimeoutMs = generation.Some[int64](5000)
 	want.Caller = generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"})
 	want.CreatedBy = generation.Some("program_1")
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 }
 
 func TestStreamShellRetainsChunkCreator(t *testing.T) {

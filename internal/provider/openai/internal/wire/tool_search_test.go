@@ -3,11 +3,11 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeToolSearchDeclaration(t *testing.T) {
@@ -36,9 +36,7 @@ func TestEncodeToolSearchDeclaration(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[`+tc.want+`]}`)
 		})
 	}
@@ -61,9 +59,7 @@ func TestEncodeToolSearchInputPresence(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"tool_search_call","arguments":null},
 		{"type":"tool_search_call","id":null,"call_id":null,"status":null,"execution":"client","arguments":[9007199254740993]},
@@ -78,9 +74,7 @@ func TestToolSearchReturnedMetadataAndReplay(t *testing.T) {
 		{"type":"tool_search_output","id":"loaded_1","call_id":null,"execution":"server","status":"completed","tools":[],"created_by":"creator_2"},
 		{"type":"additional_tools","id":"extra_1","role":"developer","tools":[]}
 	]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []generation.Item{
 		generation.OpenAIToolSearchCall{
 			ID:        generation.Some("search_1"),
@@ -103,15 +97,12 @@ func TestToolSearchReturnedMetadataAndReplay(t *testing.T) {
 
 	result, err := envelope.Result(nil)
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, want) {
-		t.Fatalf("Result = %#v, %v; want %#v", result.Response.Output, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, result.Response.Output)
 
 	body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"tool_search_call","id":"search_1","call_id":null,"execution":"server","status":"completed","arguments":false},
 		{"type":"tool_search_output","id":"loaded_1","call_id":null,"execution":"server","status":"completed","tools":[]},
@@ -196,9 +187,7 @@ func TestRejectMalformedToolSearchReturnedItems(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + tc.raw + `]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 

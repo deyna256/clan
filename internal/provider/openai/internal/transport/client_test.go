@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/deyna256/clan/internal/provider/openai/internal/transport"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreatePreservesRequestAndErrorResponse(t *testing.T) {
@@ -35,9 +36,7 @@ func TestCreatePreservesRequestAndErrorResponse(t *testing.T) {
 	payload := []byte(`{"model":"test-model","input":"hello","stream":true}`)
 
 	response, err := client.Create(t.Context(), "key-a", payload, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	body := readBody(t, response)
 	got := <-captured
 
@@ -72,22 +71,16 @@ func TestCreateDoesNotFollowRedirectsOrShareCookies(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	base, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	jar.SetCookies(base, []*http.Cookie{{Name: "session", Value: "another-account"}})
 	original := server.Client()
 	original.Jar = jar
 	client := newClient(t, server.URL, original)
 
 	response, err := client.Create(t.Context(), "key-a", []byte(`{"input":"hello"}`), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	readBody(t, response)
 	got := <-headers
 
@@ -110,9 +103,7 @@ func TestCancellationControlsResponseBody(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	response, err := client.Create(ctx, "key-a", []byte(`{"input":"hello"}`), true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = response.Body.Close() })
 	if _, err := io.ReadFull(response.Body, make([]byte, 5)); err != nil {
 		t.Fatalf("body was not usable after Create: %v", err)
@@ -294,9 +285,7 @@ func TestCreateRejectsInvalidInputBeforeDispatch(t *testing.T) {
 func newClient(t *testing.T, root string, client *http.Client) *transport.Client {
 	t.Helper()
 	result, err := transport.New(root, client)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return result
 }
 
@@ -304,9 +293,7 @@ func readBody(t *testing.T, response *http.Response) string {
 	t.Helper()
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return string(body)
 }
 

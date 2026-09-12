@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToolOutputCacheBreakpointsAndReplay(t *testing.T) {
@@ -51,21 +51,16 @@ func TestToolOutputCacheBreakpointsAndReplay(t *testing.T) {
    ]`
 			itemJSON := `{"type":"` + tc.kind + `","id":"out_1","call_id":"call_1","status":"completed","output":` + content + `}`
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + itemJSON + `]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			result, err := envelope.Result(nil)
 
-			if err != nil || !reflect.DeepEqual(result.Response.Output, []generation.Item{tc.want}) {
-				t.Fatalf("output = %#v, %v; want %#v", result.Response.Output, err, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, []generation.Item{tc.want}, result.Response.Output)
 
 			body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			// Custom result status is returned metadata, absent from its input shape.
 			expected := `{"type":"` + tc.kind + `","id":"out_1","call_id":"call_1"` + tc.replayStatus + `,"output":` + content + `}`
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[`+expected+`]}`)
@@ -96,9 +91,7 @@ func TestToolOutputRejectsMalformedCacheBreakpoints(t *testing.T) {
 				t.Run(tc.kind+"/"+part.name+"/"+breakpoint.name, func(t *testing.T) {
 					item := `{"type":"` + tc.kind + `","id":"out_1","call_id":"call_1","status":"completed","output":[{` + part.raw + `,"prompt_cache_breakpoint":` + breakpoint.raw + `}]}`
 					envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + item + `]}`))
-					if err != nil {
-						t.Fatal(err)
-					}
+					require.NoError(t, err)
 					result, err := envelope.Result(nil)
 					var failure *generation.Failure
 					if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError || len(result.Response.Output) != 0 {

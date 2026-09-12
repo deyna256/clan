@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/deyna256/clan/internal/provider/openai/internal/transport"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResourceRoutePreservesRootAndEscapesIDs(t *testing.T) {
@@ -22,9 +23,7 @@ func TestResourceRoutePreservesRootAndEscapesIDs(t *testing.T) {
 
 	response, err := client.Do(t.Context(), "key-a", transport.Request{Method: http.MethodGet,
 		Path: []string{"responses", "resp?#%2F", "input_items"}, Query: url.Values{"after": {"cursor&part=2"}}, Accept: "application/json"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	body := readBody(t, response)
 	got := <-requests
 

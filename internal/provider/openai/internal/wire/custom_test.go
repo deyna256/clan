@@ -2,12 +2,12 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeCustomFormats(t *testing.T) {
@@ -30,9 +30,7 @@ func TestEncodeCustomFormats(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[{"type":"custom","name":"execute"`+tc.field+`}],"tool_choice":{"type":"custom","name":"execute"}}`)
 		})
 	}
@@ -44,18 +42,14 @@ func TestEncodeCustomOptionsAndHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":true,
 		"tools":[{"type":"custom","name":"execute","description":"Run text","async":false,"defer_loading":true,"allowed_callers":["direct","programmatic"]}],
 		"input":[
 			{"type":"custom_tool_call","id":"ct_1","call_id":"call_1","name":"execute","input":"print('Привет')\n","async":false,"namespace":"sandbox","caller":{"type":"program","caller_id":"program_1"}},
 			{"type":"custom_tool_call_output","id":"out_1","call_id":"call_1","output":[{"type":"input_text","text":"Привет"},{"type":"input_image","file_id":"file_image","detail":"high"},{"type":"input_file","file_data":"YQ==","filename":"result.txt","prompt_cache_breakpoint":{"mode":"explicit"}}],"caller":{"type":"program","caller_id":"program_1"}}
 		]}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed custom tool data")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeCustomEmptyValues(t *testing.T) {
@@ -68,9 +62,7 @@ func TestEncodeCustomEmptyValues(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"tools":[{"type":"custom","name":"execute","allowed_callers":[]}],"input":[
 		{"type":"custom_tool_call","call_id":"call_1","name":"execute","input":"","caller":null},
 		{"type":"custom_tool_call_output","call_id":"call_1","output":"","caller":{"type":"direct"}},

@@ -11,6 +11,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompactedMediaCanBeGenerated(t *testing.T) {
@@ -53,9 +54,7 @@ func TestCompactedMediaCanBeGenerated(t *testing.T) {
 		}
 	}, io.Discard)
 	compacted, err := client.Compact(t.Context(), testAttempt(), generation.CompactRequest{Model: generation.Some("test-model")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	result, err := client.Generate(t.Context(), testAttempt(), generation.Request{Model: "test-model", Input: compacted.Output})
 	if err != nil || len(result.Response.Output) != 1 || calls.Load() != 2 {
 		t.Fatalf("generate = %#v, %v, calls=%d", result, err, calls.Load())

@@ -3,13 +3,13 @@ package openai_test
 import (
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamRetainsUsageOnInvalidUTF8(t *testing.T) {
@@ -29,9 +29,7 @@ func TestStreamRetainsUsageOnInvalidUTF8(t *testing.T) {
 			events, err := readStream(t, client)
 
 			assertProtocolError(t, err)
-			if !reflect.DeepEqual(events, tc.want) {
-				t.Fatalf("events = %#v; want %#v without content", events, tc.want)
-			}
+			require.Equal(t, tc.want, events)
 		})
 	}
 }
@@ -54,9 +52,7 @@ func TestSessionRetainsUsageOnInvalidUTF8(t *testing.T) {
 			events, err := readSession(session)
 
 			assertProtocolError(t, err)
-			if !reflect.DeepEqual(events, tc.want) {
-				t.Fatalf("events = %#v; want %#v without content", events, tc.want)
-			}
+			require.Equal(t, tc.want, events)
 		})
 	}
 }

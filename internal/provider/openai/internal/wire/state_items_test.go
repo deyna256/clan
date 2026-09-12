@@ -3,11 +3,11 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeConversationStateItems(t *testing.T) {
@@ -24,9 +24,7 @@ func TestEncodeConversationStateItems(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"configuration_update"},
 		{"type":"configuration_update","id":null,"reasoning":{}},
@@ -41,22 +39,17 @@ func TestEncodeConversationStateItems(t *testing.T) {
 
 func TestCompactionResultReplay(t *testing.T) {
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"compaction","id":"cmp_1","encrypted_content":"opaque","created_by":"creator_1"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := generation.OpenAICompaction{ID: generation.Some("cmp_1"), EncryptedContent: generation.Some("opaque"), CreatedBy: generation.Some("creator_1")}
 
 	result, err := envelope.Result(nil)
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, []generation.Item{want}) {
-		t.Fatalf("Result = %#v, %v; want %#v", result.Response.Output, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, []generation.Item{want}, result.Response.Output)
 
 	body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"compaction","id":"cmp_1","encrypted_content":"opaque"}]}`)
 }
 
@@ -76,9 +69,8 @@ func TestDecodeStoredConfigurationUpdate(t *testing.T) {
 
 			item, err := wire.DecodeConfigurationUpdate(raw)
 
-			if err != nil || !reflect.DeepEqual(item, want) {
-				t.Fatalf("configuration = %#v, %v; want %#v", item, err, want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, want, item)
 		})
 	}
 }

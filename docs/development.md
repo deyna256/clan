@@ -174,6 +174,10 @@ scenarios. Failure messages should show the case, actual result and expected
 result. Use simple test doubles when a dependency needs to return a controlled
 response or failure.
 
+Use `testify/require` for repeated equality and error checks. Call it only from
+the test goroutine. JSON comparisons that need exact integers must use
+`json.Decoder.UseNumber`; `require.JSONEq` decodes numbers through `float64`.
+
 Use [Arrange, Act, Assert (AAA)](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-best-practices#arrange-your-tests):
 prepare the state, run the operation, then check the results.
 Separate the stages with blank lines and comments when helpful.

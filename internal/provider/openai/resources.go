@@ -75,18 +75,3 @@ func decodeResourcePage(body []byte, requestErr error) (resourcePage, error) {
 	}
 	return page, nil
 }
-
-// resourceRequired checks presence separately from zero values in typed replies.
-func resourceRequired(body []byte, fields ...string) error {
-	var object map[string]json.RawMessage
-	if json.Unmarshal(body, &object) != nil || object == nil {
-		return protocolError()
-	}
-	for _, field := range fields {
-		value := bytes.TrimSpace(object[field])
-		if len(value) == 0 || bytes.Equal(value, []byte("null")) {
-			return protocolError()
-		}
-	}
-	return nil
-}

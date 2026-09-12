@@ -3,12 +3,12 @@ package sse_test
 import (
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 	"testing/iotest"
 
 	"github.com/deyna256/clan/internal/provider/openai/internal/sse"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodeFrames(t *testing.T) {
@@ -65,9 +65,8 @@ func TestDecodeFrames(t *testing.T) {
 			if wantErr == nil {
 				wantErr = io.EOF
 			}
-			if !errors.Is(err, wantErr) || !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("events = %#v, %v; want %#v, %v", got, err, tt.want, wantErr)
-			}
+			require.ErrorIs(t, err, wantErr)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -93,9 +92,8 @@ func TestFrameLimit(t *testing.T) {
 
 			events, err := readEvents(decoder)
 
-			if !errors.Is(err, tt.want) || !reflect.DeepEqual(events, tt.events) {
-				t.Fatalf("events = %#v, %v; want %#v, %v", events, err, tt.events, tt.want)
-			}
+			require.ErrorIs(t, err, tt.want)
+			require.Equal(t, tt.events, events)
 		})
 	}
 }
@@ -167,9 +165,7 @@ func TestStopAbandonsUnreadEvents(t *testing.T) {
 func newDecoder(t *testing.T, reader io.Reader, limit int) *sse.Decoder {
 	t.Helper()
 	decoder, err := sse.New(reader, limit)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(decoder.Stop)
 	return decoder
 }

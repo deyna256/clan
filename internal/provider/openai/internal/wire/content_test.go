@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"math"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeFileSources(t *testing.T) {
@@ -19,9 +19,7 @@ func TestEncodeFileSources(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"message","role":"user","content":[
 		{"type":"input_text","text":"Read the files"},
 		{"type":"input_file","file_id":"file_1"},
@@ -36,16 +34,12 @@ func TestEncodeOutputTextMetadata(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"é",
 		"annotations":[{"type":"url_citation","url":"https://example.com","title":"Source","start_index":0,"end_index":1},{"type":"file_path","file_id":"file_1","index":0}],
 		"logprobs":[{"token":"é","bytes":[195,169],"logprob":-0.5,"top_logprobs":[{"token":"e","bytes":[101],"logprob":-2}]}]
 	}]}]}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed nested metadata")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeRejectsInvalidContent(t *testing.T) {
@@ -101,9 +95,7 @@ func TestEncodeEmptyLogprobCandidatesAsArray(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"x","annotations":[],"logprobs":[{"token":"x","bytes":[120],"logprob":0,"top_logprobs":[]}]}]}]}`)
 }
 

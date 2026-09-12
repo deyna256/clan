@@ -73,14 +73,14 @@ func (c *Client) RetrieveResponse(ctx context.Context, attempt Attempt, id strin
 		if string(r.Error) == "null" {
 			result.Error = generation.Null[StoredResponseError]()
 		} else {
-			if err := resourceRequired(r.Error, "code", "message"); err != nil {
-				return result, err
+			providerError, err := decodeResource[struct {
+				Code    *string `json:"code"`
+				Message *string `json:"message"`
+			}](r.Error, nil)
+			if err != nil || providerError.Code == nil || providerError.Message == nil {
+				return result, protocolError()
 			}
-			providerError, err := decodeResource[StoredResponseError](r.Error, nil)
-			if err != nil {
-				return result, err
-			}
-			result.Error = generation.Some(providerError)
+			result.Error = generation.Some(StoredResponseError{Code: *providerError.Code, Message: *providerError.Message})
 		}
 	}
 	var incomplete generation.Optional[struct {

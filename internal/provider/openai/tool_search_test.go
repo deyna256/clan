@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateToolSearchExecution(t *testing.T) {
@@ -23,9 +23,7 @@ func TestGenerateToolSearchExecution(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			got := result.Response.Output[0].(generation.OpenAIToolSearchCall)
 			if string(got.Arguments) != `{"limit":9007199254740993}` || result.Response.Finish.Reason != tc.reason {
 				t.Fatalf("call = %#v; finish = %#v; want exact arguments and %s", got, result.Response.Finish, tc.reason)
@@ -76,9 +74,9 @@ func TestStreamToolSearchMergesAtomicSnapshots(t *testing.T) {
 			generation.OpenAINamespaceTool{Name: "crm", Description: "Customers", Tools: []generation.Tool{generation.FunctionTool{Name: "lookup", Parameters: json.RawMessage(`{"const":9007199254740993}`)}}},
 		}},
 	}
-	if starts != 2 || !reflect.DeepEqual(ended, want) || logs.Len() != 0 {
-		t.Fatalf("starts = %d; ended = %#v; want two starts and %#v; logs = %s", starts, ended, want, logs.String())
-	}
+	require.Equal(t, 2, starts)
+	require.Equal(t, want, ended)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamToolSearchRejectsIdentityChanges(t *testing.T) {
@@ -152,9 +150,7 @@ func TestStreamAdditionalToolsPreservesRoleAndCatalog(t *testing.T) {
 	}
 	want := generation.OpenAIAdditionalTools{ID: generation.Some("added_1"), Role: "tool", Tools: []generation.Tool{generation.CustomTool{Name: "query"}}}
 	ended := eventAt[generation.ItemEnded](t, events, len(events)-2).Item
-	if !reflect.DeepEqual(ended, want) {
-		t.Fatalf("ended = %#v; want %#v", ended, want)
-	}
+	require.Equal(t, want, ended)
 }
 
 func TestStreamClientToolSearchNeedsActionableCallID(t *testing.T) {
@@ -182,9 +178,7 @@ func TestGenerateIncompleteToolSearchKeepsUnknownCallID(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	got := result.Response.Output[0].(generation.OpenAIToolSearchCall)
 	if !got.CallID.IsNull() || string(got.Arguments) != "null" || result.Response.Finish.Reason != "max_output_tokens" {
 		t.Fatalf("call = %#v; finish = %#v; want incomplete search with null ID and arguments", got, result.Response.Finish)

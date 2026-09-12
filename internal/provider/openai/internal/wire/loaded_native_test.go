@@ -3,12 +3,12 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadedNativeToolsAndReplay(t *testing.T) {
@@ -142,15 +142,11 @@ func TestLoadedNativeToolsAndReplay(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"additional_tools","id":"extra_1","role":"developer","tools":[` + tc.raw + `]}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			result, err := envelope.Result(nil)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(result.Response.Output) != 1 {
 				t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 			}
@@ -158,15 +154,11 @@ func TestLoadedNativeToolsAndReplay(t *testing.T) {
 			if !ok {
 				t.Fatalf("output[0] = %T; want generation.OpenAIAdditionalTools", result.Response.Output[0])
 			}
-			if !reflect.DeepEqual(loaded.Tools, []generation.Tool{tc.want}) {
-				t.Fatalf("tools = %#v; want %#v", loaded.Tools, tc.want)
-			}
+			require.Equal(t, []generation.Tool{tc.want}, loaded.Tools)
 
 			body, err := wire.EncodeRequest(requestWith(loaded), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"additional_tools","id":"extra_1","role":"developer","tools":[`+tc.raw+`]}]}`)
 			if strings.Contains(tc.raw, "9007199254740993") && !strings.Contains(string(body), "9007199254740993") {
 				t.Fatal("filter lost integer precision")
@@ -225,9 +217,7 @@ func TestRejectMalformedLoadedNativeTools(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"additional_tools","id":"extra_1","role":"developer","tools":[` + tc.raw + `]}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 
@@ -245,9 +235,7 @@ func TestRejectMalformedLoadedNativeTools(t *testing.T) {
 func TestLoadedFileFilterDepthBound(t *testing.T) {
 	filter := strings.Repeat(`{"type":"and","filters":[`, 64) + `{"type":"eq","key":"revision","value":1}` + strings.Repeat(`]}`, 64)
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"additional_tools","id":"extra_1","role":"developer","tools":[{"type":"file_search","vector_store_ids":["vs_1"],"filters":` + filter + `}]}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_, err = envelope.Result(nil)
 

@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProgramReplay(t *testing.T) {
@@ -14,9 +14,7 @@ func TestProgramReplay(t *testing.T) {
 		{"type":"program","id":"prog_1","call_id":"call_1","code":"text('Привет');\n","fingerprint":"opaque\u0000replay"},
 		{"type":"program_output","id":"out_1","call_id":"call_1","result":"9007199254740993\n","status":"incomplete"}
 	]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []generation.Item{
 		generation.OpenAIProgram{ID: "prog_1", CallID: "call_1", Code: "text('Привет');\n", Fingerprint: generation.Some("opaque\x00replay")},
 		generation.OpenAIProgramOutput{ID: "out_1", CallID: "call_1", Result: "9007199254740993\n", Status: generation.ItemIncomplete},
@@ -24,18 +22,16 @@ func TestProgramReplay(t *testing.T) {
 
 	result, err := envelope.Result(nil)
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-		t.Fatalf("Result = %#v, %v; want %#v with stop", result, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, result.Response.Output)
+	require.Equal(t, "stop", result.Response.Finish.Reason)
 	request := requestWith(result.Response.Output...)
 	request.Tools = []generation.Tool{generation.OpenAIProgrammaticToolCallingTool{}}
 	request.ToolChoice = generation.OpenAIProgrammaticToolCallingChoice{}
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"tools":[{"type":"programmatic_tool_calling"}],"tool_choice":{"type":"programmatic_tool_calling"},"input":[
 		{"type":"program","id":"prog_1","call_id":"call_1","code":"text('Привет');\n","fingerprint":"opaque\u0000replay"},
 		{"type":"program_output","id":"out_1","call_id":"call_1","result":"9007199254740993\n","status":"incomplete"}
@@ -50,9 +46,7 @@ func TestProgramEmptyPayloads(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"program","id":"prog_1","call_id":"call_1","code":"","fingerprint":""},
 		{"type":"program_output","id":"out_1","call_id":"call_1","result":"","status":"completed"}
@@ -97,9 +91,7 @@ func TestRejectMalformedProgramItems(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + tc.item + `]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 
@@ -113,15 +105,11 @@ func TestRejectMalformedProgramItems(t *testing.T) {
 
 func TestLoadedProgramTool(t *testing.T) {
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"s","call_id":null,"execution":"server","status":"completed","tools":[{"type":"programmatic_tool_calling"}]}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	result, err := envelope.Result(nil)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(result.Response.Output) != 1 {
 		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 	}
@@ -131,7 +119,5 @@ func TestLoadedProgramTool(t *testing.T) {
 	}
 	got := loaded.Tools
 	want := []generation.Tool{generation.OpenAIProgrammaticToolCallingTool{}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("tools = %#v; want %#v", got, want)
-	}
+	require.Equal(t, want, got)
 }

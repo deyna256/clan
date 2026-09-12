@@ -1,16 +1,16 @@
 package wire_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/deyna256/clan/internal/provider/openai/internal/testutil"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeImagesAndStructuredOutput(t *testing.T) {
@@ -19,9 +19,7 @@ func TestEncodeImagesAndStructuredOutput(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{
 		"model":"test-model","stream":true,
 		"input":[{"type":"message","role":"user","content":[
@@ -34,9 +32,7 @@ func TestEncodeImagesAndStructuredOutput(t *testing.T) {
 		"text":{"format":{"type":"json_schema","name":"comparison","strict":false,
 			"schema":{"type":"object","properties":{"id":{"type":"integer","const":9007199254740993}},"required":["id"],"additionalProperties":false,"x-note":"keep me"}}}
 	}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed the request or nested data")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeReasoningAndToolHistory(t *testing.T) {
@@ -44,9 +40,7 @@ func TestEncodeReasoningAndToolHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{
 		"model":"test-model","stream":false,
 		"input":[
@@ -84,9 +78,7 @@ func TestEncodeParameterPresence(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, tt.want)
 		})
 	}
@@ -159,9 +151,7 @@ func TestEncodePreservesIncompleteArgumentsAndEmptyReasoning(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque"},
 		{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"id\":","status":"incomplete"}
@@ -179,9 +169,7 @@ func TestEncodeToolResultPartsAndRefusal(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"function_call_output","call_id":"call_1","output":[
 			{"type":"input_text","text":"Screenshot"},
@@ -207,9 +195,7 @@ func TestEncodeOptions(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{
 		"model":"test-model","input":[],"stream":false,"instructions":"Be brief",
 		"max_output_tokens":200,"top_p":0.5,"tool_choice":"none",
@@ -263,9 +249,7 @@ func TestEncodeChoiceAndFormatVariants(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, tt.want)
 		})
 	}
@@ -319,20 +303,5 @@ func message(parts ...generation.Part) generation.Message {
 
 func assertJSON(t *testing.T, got []byte, want string) {
 	t.Helper()
-	decode := func(data []byte) any {
-		t.Helper()
-		if !json.Valid(data) {
-			t.Fatalf("invalid JSON document: %s", data)
-		}
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.UseNumber()
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			t.Fatal(err)
-		}
-		return value
-	}
-	if !reflect.DeepEqual(decode(got), decode([]byte(want))) {
-		t.Fatalf("JSON = %s\nwant %s", got, want)
-	}
+	testutil.EqualJSON(t, string(got), want)
 }

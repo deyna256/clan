@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateInterpreterResults(t *testing.T) {
@@ -30,13 +30,10 @@ func TestGenerateInterpreterResults(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := []generation.Item{generation.OpenAICodeInterpreterCall{ID: "ci_1", ContainerID: "cntr_1", Status: "completed", Code: tc.wantCode, Outputs: tc.wantOutputs}}
-			if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-				t.Fatalf("response = %#v; want output %#v and stop", result.Response, want)
-			}
+			require.Equal(t, want, result.Response.Output)
+			require.Equal(t, "stop", result.Response.Finish.Reason)
 		})
 	}
 }
@@ -72,9 +69,8 @@ func TestStreamInterpreterInterleavesAndRecoversCode(t *testing.T) {
 		generation.ItemEnded{Index: 1, Item: generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "save", Arguments: "{}"}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamInterpreterFinalOnly(t *testing.T) {
@@ -92,9 +88,7 @@ func TestStreamInterpreterFinalOnly(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.OpenAICodeInterpreterCall{ID: "ci_1", ContainerID: "cntr_1", Status: "completed", Code: generation.Some("pass"), Outputs: generation.Some([]generation.InterpreterOutput{})}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamInterpreterRetainsKnownCode(t *testing.T) {
@@ -205,9 +199,7 @@ func TestStreamInterpreterOutputSnapshots(t *testing.T) {
 				t.Fatal(err)
 			}
 			end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAICodeInterpreterCall)
-			if !reflect.DeepEqual(end.Outputs, tc.want) {
-				t.Fatalf("outputs = %#v; want %#v", end.Outputs, tc.want)
-			}
+			require.Equal(t, tc.want, end.Outputs)
 		})
 	}
 }
@@ -238,14 +230,10 @@ func TestGenerateSkipsMalformedOptionalInterpreterOutput(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	outputs, _ := result.Response.Output[0].(generation.OpenAICodeInterpreterCall).Outputs.Value()
 	want := []generation.InterpreterOutput{generation.InterpreterLogs{Logs: "valid"}}
-	if !reflect.DeepEqual(outputs, want) {
-		t.Fatalf("outputs = %#v; want %#v", outputs, want)
-	}
+	require.Equal(t, want, outputs)
 	if !strings.Contains(logs.String(), "invalid_interpreter_outputs") || strings.Contains(logs.String(), "private") {
 		t.Fatalf("logs = %s", logs.String())
 	}

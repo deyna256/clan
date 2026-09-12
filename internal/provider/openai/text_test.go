@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeneratePreservesCitationsAndTokenBytes(t *testing.T) {
@@ -16,13 +16,9 @@ func TestGeneratePreservesCitationsAndTokenBytes(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	text := result.Response.Output[0].(generation.Message).Parts[0].(generation.Text)
-	if !reflect.DeepEqual(text.OpenAI, expectedTextData()) {
-		t.Fatalf("metadata = %#v; want %#v", text.OpenAI, expectedTextData())
-	}
+	require.Equal(t, expectedTextData(), text.OpenAI)
 }
 
 func TestGenerateSkipsMalformedOptionalTextData(t *testing.T) {
@@ -32,14 +28,12 @@ func TestGenerateSkipsMalformedOptionalTextData(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	text := result.Response.Output[0].(generation.Message).Parts[0].(generation.Text)
 	want := []generation.Annotation{{Index: 2, Citation: generation.FilePath{FileID: "file_1", Index: 0}}}
-	if text.Text != "Usable" || !reflect.DeepEqual(text.OpenAI.Annotations, want) || len(text.OpenAI.Logprobs) != 0 {
-		t.Fatalf("text = %#v", text)
-	}
+	require.Equal(t, "Usable", text.Text)
+	require.Equal(t, want, text.OpenAI.Annotations)
+	require.Equal(t, 0, len(text.OpenAI.Logprobs))
 	if !strings.Contains(logs.String(), `"reason":"invalid_annotation"`) || !strings.Contains(logs.String(), `"reason":"invalid_logprobs"`) || strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "private") {
 		t.Fatalf("logs = %s", logs.String())
 	}
@@ -52,9 +46,7 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 		`{"type":"response.completed","response":`+metadataResponse()+`}`,
 	)
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer stream.Close()
 	var annotations, probabilities, partEnds int
 	var ended generation.Text
@@ -64,9 +56,7 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		switch e := event.(type) {
 		case generation.AnnotationAdded:
 			want := expectedTextData().Annotations
@@ -75,18 +65,15 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 			}
 			annotations++
 		case generation.LogprobsDelta:
-			if e.Address != (generation.PartAddress{Item: 0, Part: 0}) || !reflect.DeepEqual(e.Tokens, expectedTextData().Logprobs) {
-				t.Fatalf("probability event = %#v", e)
-			}
+			require.Equal(t, (generation.PartAddress{Item: 0, Part: 0}), e.Address)
+			require.Equal(t, expectedTextData().Logprobs, e.Tokens)
 			probabilities += len(e.Tokens)
 			e.Tokens[0].Bytes[0] = 0
 			e.Tokens[0].Top[0].Bytes[0] = 0
 		case generation.PartEnded:
 			partEnds++
 			text := e.Part.(generation.Text)
-			if !reflect.DeepEqual(text.OpenAI, expectedTextData()) {
-				t.Fatalf("part snapshot = %#v", text)
-			}
+			require.Equal(t, expectedTextData(), text.OpenAI)
 			text.OpenAI.Annotations[0].Citation = generation.FilePath{FileID: "changed"}
 			text.OpenAI.Logprobs[0].Bytes[0] = 0
 		case generation.ItemEnded:
@@ -94,9 +81,10 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 		}
 	}
 
-	if annotations != 4 || probabilities != 1 || partEnds != 1 || !reflect.DeepEqual(ended.OpenAI, expectedTextData()) {
-		t.Fatalf("annotations = %d; probabilities = %d; part ends = %d; final = %#v", annotations, probabilities, partEnds, ended.OpenAI)
-	}
+	require.Equal(t, 4, annotations)
+	require.Equal(t, 1, probabilities)
+	require.Equal(t, 1, partEnds)
+	require.Equal(t, expectedTextData(), ended.OpenAI)
 }
 
 func TestStreamSkipsInvalidOptionalAnnotationEvents(t *testing.T) {

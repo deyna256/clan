@@ -1,17 +1,16 @@
 package openai_test
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSSELibraryEOFStillRequiresTerminalResponse(t *testing.T) {
@@ -44,9 +43,8 @@ func TestSSELibraryEOFStillRequiresTerminalResponse(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			if !errors.Is(err, tc.endErr) || !reflect.DeepEqual(events, tc.want) {
-				t.Fatalf("stream = %#v, %v; want %#v, %v", events, err, tc.want, tc.endErr)
-			}
+			require.ErrorIs(t, err, tc.endErr)
+			require.Equal(t, tc.want, events)
 		})
 	}
 }
@@ -59,9 +57,7 @@ func TestSSEEventLimitIsProtocolErrorAndRetainsUsage(t *testing.T) {
 	}, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	events, err := readStream(t, client)
 
@@ -70,7 +66,5 @@ func TestSSEEventLimitIsProtocolErrorAndRetainsUsage(t *testing.T) {
 		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
 		generation.UsageUpdated{Usage: usage.Snapshot{Input: count(2)}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want start and known usage only", events)
-	}
+	require.Equal(t, want, events)
 }

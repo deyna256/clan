@@ -2,12 +2,12 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeImageTool(t *testing.T) {
@@ -16,13 +16,9 @@ func TestEncodeImageTool(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":true,"tools":[{"type":"image_generation","model":"image-alias","action":"edit","background":"transparent","output_format":"webp","quality":"max","size":"1536x864","input_fidelity":"high","moderation":"low","output_compression":0,"partial_images":0,"input_image_mask":{"file_id":"file_mask"}}],"tool_choice":{"type":"image_generation"}}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed image configuration")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeImageMaskSources(t *testing.T) {
@@ -49,9 +45,7 @@ func TestEncodeImageMaskSources(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[{"type":"image_generation"`+tc.want+`}]}`)
 		})
 	}
@@ -111,9 +105,7 @@ func TestEncodeImageHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[{"type":"image_generation_call","id":"ig_1","status":"completed","result":"aW1hZ2U=","action":"edit","background":null,"output_format":"png","quality":"xhigh","size":"1536x864","revised_prompt":"Revised"},{"type":"image_generation_call","id":"ig_2","status":"failed","result":null}],"stream":false}`)
 }
 

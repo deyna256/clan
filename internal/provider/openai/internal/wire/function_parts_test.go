@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFunctionContentPreservesNullableFieldsAndSources(t *testing.T) {
@@ -18,9 +18,7 @@ func TestFunctionContentPreservesNullableFieldsAndSources(t *testing.T) {
 		{"type":"input_file","detail":"high","file_id":"file_report","file_data":"aGk=","file_url":"https://example.com/a.pdf","filename":"a.pdf"}
 	]`
 	item, err := wire.DecodeItem([]byte(`{"type":"function_call_output","id":"out_1","status":"completed","output":`+content+`}`), true, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	parts := item.(generation.ToolResult).Output.(generation.ToolPartsOutput)
 	want := generation.ToolPartsOutput{
 		generation.OpenAIFunctionText{Text: "prefix", PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint]()},
@@ -45,14 +43,10 @@ func TestFunctionContentPreservesNullableFieldsAndSources(t *testing.T) {
 		},
 		generation.OpenAIFunctionFile{Detail: generation.Some("high"), FileID: generation.Some("file_report"), FileData: generation.Some("aGk="), FileURL: generation.Some("https://example.com/a.pdf"), Filename: generation.Some("a.pdf")},
 	}
-	if !reflect.DeepEqual(parts, want) {
-		t.Fatalf("decoded parts = %#v; want %#v", parts, want)
-	}
+	require.Equal(t, want, parts)
 
 	body, err := wire.EncodeRequest(requestWith(item), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"function_call_output","id":"out_1","status":"completed","output":`+content+`}]}`)
 }
 

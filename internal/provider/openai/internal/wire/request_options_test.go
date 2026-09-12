@@ -3,12 +3,12 @@ package wire_test
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeRequestOptions(t *testing.T) {
@@ -18,9 +18,7 @@ func TestEncodeRequestOptions(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":true,
 		"metadata":{"project":"clan"},"conversation":"conv_1","user":"user_1",
 		"prompt":{"id":"pmpt_1","version":"2","variables":{
@@ -39,9 +37,7 @@ func TestEncodeRequestOptions(t *testing.T) {
 		"reasoning":{"context":"all_turns","effort":"max","summary":"detailed","generate_summary":"auto","mode":"future_mode"},
 		"include":["reasoning.encrypted_content"]
 	}`)
-	if !reflect.DeepEqual(request.OpenAI, unchanged) {
-		t.Fatal("encoding changed request options or nested data")
-	}
+	require.Equal(t, unchanged, request.OpenAI)
 }
 
 func TestRequestOptionPresence(t *testing.T) {
@@ -84,9 +80,7 @@ func TestRequestOptionPresence(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, true)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":true`+tc.fields+`}`)
 		})
 	}
@@ -147,9 +141,7 @@ func TestNullableConversationDoesNotConflict(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,`+tc.fields+`}`)
 		})
 	}
@@ -161,9 +153,7 @@ func TestMetadataLimitsCountCharacters(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"metadata":{"`+strings.Repeat("界", 64)+`":"`+strings.Repeat("я", 512)+`"}}`)
 }
 

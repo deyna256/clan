@@ -6,13 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
+	"github.com/stretchr/testify/require"
 )
 
 type conversationRequest struct {
@@ -36,9 +36,8 @@ func TestConversationLifecycle(t *testing.T) {
 
 	created, err := client.CreateConversation(t.Context(), testAttempt(), openai.ConversationCreateOptions{Items: generation.Some([]generation.Item{generation.Message{Role: generation.User, Parts: []generation.Part{generation.Text{Text: "Hello"}}}}), Metadata: generation.Null[map[string]string]()})
 
-	if err != nil || !reflect.DeepEqual(created, want) {
-		t.Fatalf("CreateConversation = %#v, %v; want %#v", created, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, created)
 	request := <-requests
 	if request.Method != "POST" || request.Path != "/conversations" {
 		t.Fatalf("request = %#v", request)
@@ -47,9 +46,8 @@ func TestConversationLifecycle(t *testing.T) {
 
 	retrieved, err := client.RetrieveConversation(t.Context(), testAttempt(), "conv_1")
 
-	if err != nil || !reflect.DeepEqual(retrieved, want) {
-		t.Fatalf("RetrieveConversation = %#v, %v", retrieved, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, retrieved)
 	request = <-requests
 	if request.Method != "GET" || request.Path != "/conversations/conv_1" || request.Body != "" {
 		t.Fatalf("request = %#v", request)
@@ -57,9 +55,7 @@ func TestConversationLifecycle(t *testing.T) {
 
 	_, err = client.UpdateConversation(t.Context(), testAttempt(), "conv_1", openai.ConversationUpdateOptions{Metadata: generation.Some(map[string]string{})})
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	request = <-requests
 	if request.Method != "POST" || request.Path != "/conversations/conv_1" {
 		t.Fatalf("request = %#v", request)
@@ -98,9 +94,8 @@ func TestConversationItemOperations(t *testing.T) {
 
 	added, err := client.AddConversationItems(t.Context(), testAttempt(), "conv_1", openai.ConversationItemsCreateOptions{Items: []generation.Item{}, Include: []string{"reasoning.encrypted_content"}})
 
-	if err != nil || !reflect.DeepEqual(added, wantPage) {
-		t.Fatalf("AddConversationItems = %#v, %v", added, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, wantPage, added)
 	request := <-requests
 	if request.Method != "POST" || request.Path != "/conversations/conv_1/items" || request.Query.Get("include[]") != "reasoning.encrypted_content" {
 		t.Fatalf("request = %#v", request)
@@ -109,20 +104,18 @@ func TestConversationItemOperations(t *testing.T) {
 
 	listed, err := client.ListConversationItems(t.Context(), testAttempt(), "conv_1", openai.ItemListOptions{After: "msg_0", Limit: generation.Some(int64(1)), Order: "asc", Include: []string{"message.input_image.image_url", "message.output_text.logprobs"}})
 
-	if err != nil || !reflect.DeepEqual(listed, wantPage) {
-		t.Fatalf("ListConversationItems = %#v, %v", listed, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, wantPage, listed)
 	request = <-requests
 	wantQuery := url.Values{"after": {"msg_0"}, "limit": {"1"}, "order": {"asc"}, "include[]": {"message.input_image.image_url", "message.output_text.logprobs"}}
-	if request.Method != "GET" || request.Path != "/conversations/conv_1/items" || !reflect.DeepEqual(request.Query, wantQuery) {
-		t.Fatalf("request = %#v; want query %#v", request, wantQuery)
-	}
+	require.Equal(t, "GET", request.Method)
+	require.Equal(t, "/conversations/conv_1/items", request.Path)
+	require.Equal(t, wantQuery, request.Query)
 
 	item, err := client.RetrieveConversationItem(t.Context(), testAttempt(), "conv_1", "msg_1", nil)
 
-	if err != nil || !reflect.DeepEqual(item, wantMessage) {
-		t.Fatalf("RetrieveConversationItem = %#v, %v", item, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, wantMessage, item)
 	request = <-requests
 	if request.Method != "GET" || request.Path != "/conversations/conv_1/items/msg_1" {
 		t.Fatalf("request = %#v", request)
@@ -144,9 +137,8 @@ func TestConversationEmptyPage(t *testing.T) {
 
 	page, err := client.ListConversationItems(t.Context(), testAttempt(), "conv_1", openai.ItemListOptions{})
 
-	if err != nil || !reflect.DeepEqual(page, openai.ItemPage{Data: []generation.Item{}}) {
-		t.Fatalf("empty page = %#v, %v", page, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, openai.ItemPage{Data: []generation.Item{}}, page)
 }
 
 func TestConversationInputErrorsDoNotDispatch(t *testing.T) {

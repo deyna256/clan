@@ -7,6 +7,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeNamespaceAndFunctionOptions(t *testing.T) {
@@ -31,9 +32,7 @@ func TestEncodeNamespaceAndFunctionOptions(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[
 		{"type":"function","name":"lookup","parameters":null,"strict":null,"description":null,"async":false,"defer_loading":true,"allowed_callers":["direct","programmatic"],"output_schema":{"const":9007199254740993}},
 		{"type":"namespace","name":"crm","description":"Customer tools","tools":[
@@ -54,9 +53,7 @@ func TestEncodeEmptyNamespace(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[{"type":"namespace","name":"empty","description":"","tools":[]}]}`)
 }
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamRecoversTextAndReportsUnknownEventsOnce(t *testing.T) {
@@ -42,9 +42,8 @@ func TestStreamRecoversTextAndReportsUnknownEventsOnce(t *testing.T) {
 			ended = e.Item.(generation.Message)
 		}
 	}
-	if !reflect.DeepEqual(fragments, []string{"Hello", " world"}) || !reflect.DeepEqual(ended.Parts, []generation.Part{generation.Text{Text: "Hello world"}}) {
-		t.Fatalf("fragments = %q; final parts = %#v", fragments, ended.Parts)
-	}
+	require.Equal(t, []string{"Hello", " world"}, fragments)
+	require.Equal(t, []generation.Part{generation.Text{Text: "Hello world"}}, ended.Parts)
 	for _, want := range []string{`"reason":"unknown_event"`, `"count":2`, `"request_id":"request-1"`, `"attempt_id":"attempt-1"`, `"upstream_id":"upstream-1"`} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("logs do not contain %s: %s", want, logs.String())
@@ -110,9 +109,12 @@ func TestStreamInterleavedToolArguments(t *testing.T) {
 		}
 	}
 	want := []generation.ArgumentsDelta{{ItemIndex: 0, Fragment: `{"a":`}, {ItemIndex: 1, Fragment: `{"b":2}`}, {ItemIndex: 0, Fragment: `1}`}}
-	if !reflect.DeepEqual(deltas, want) || len(calls) != 2 || calls[0].Arguments != `{"a":1}` || calls[1].Arguments != `{"b":2}` || calls[0].CallID != "call_1" || calls[1].CallID != "call_2" {
-		t.Fatalf("deltas = %#v; calls = %#v", deltas, calls)
-	}
+	require.Equal(t, want, deltas)
+	require.Equal(t, 2, len(calls))
+	require.Equal(t, `{"a":1}`, calls[0].Arguments)
+	require.Equal(t, `{"b":2}`, calls[1].Arguments)
+	require.Equal(t, "call_1", calls[0].CallID)
+	require.Equal(t, "call_2", calls[1].CallID)
 }
 
 func TestStreamPreservesFailureUsageWithoutSuccessfulEnd(t *testing.T) {
@@ -152,9 +154,7 @@ func TestStreamWaitsForToolIdentity(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "weather", Arguments: `{"city":"Paris"}`}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamPreservesLateReasoningData(t *testing.T) {
@@ -181,9 +181,8 @@ func TestStreamPreservesLateReasoningData(t *testing.T) {
 			text += e.Text
 		}
 	}
-	if !reflect.DeepEqual(got, want) || text != "Considering options" {
-		t.Fatalf("ended = %#v; text = %q", got, text)
-	}
+	require.Equal(t, want, got)
+	require.Equal(t, "Considering options", text)
 }
 
 func TestStreamRejectsConflictingOrMissingCalls(t *testing.T) {
@@ -258,9 +257,7 @@ func TestStreamCancellationStopsBufferedContent(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	stream, err := client.GenerateStream(ctx, testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer stream.Close()
 	for _, want := range []generation.Event{
 		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
@@ -268,9 +265,8 @@ func TestStreamCancellationStopsBufferedContent(t *testing.T) {
 		generation.PartStarted{Address: generation.PartAddress{Item: 0, Part: 0}, Part: generation.Text{}},
 	} {
 		event, err := stream.Next()
-		if err != nil || !reflect.DeepEqual(event, want) {
-			t.Fatalf("Next = %#v, %v; want %#v before cancelling buffered text", event, err, want)
-		}
+		require.NoError(t, err)
+		require.Equal(t, want, event)
 	}
 
 	cancel()
@@ -288,9 +284,7 @@ func TestStreamCancellationPreservesBufferedUsage(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	stream, err := client.GenerateStream(ctx, testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer stream.Close()
 	if _, err := stream.Next(); err != nil {
 		t.Fatal(err)
@@ -315,9 +309,7 @@ func TestStreamCloseUnblocksBodyRead(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body}, nil
 	}))
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = stream.Close() })
 	finished := make(chan error, 1)
 	go func() { _, err := stream.Next(); finished <- err }()
@@ -329,9 +321,7 @@ func TestStreamCloseUnblocksBodyRead(t *testing.T) {
 
 	err = stream.Close()
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	select {
 	case err := <-finished:
 		if !errors.Is(err, context.Canceled) {
@@ -422,9 +412,7 @@ func TestStreamCloseInterruptsRead(t *testing.T) {
 		close(stopped)
 	}, io.Discard)
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = stream.Close() })
 	if _, err := stream.Next(); err != nil {
 		t.Fatal(err)
@@ -477,9 +465,7 @@ func messageAdded() string {
 func readStream(t *testing.T, client *openai.Client) ([]generation.Event, error) {
 	t.Helper()
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer stream.Close()
 	var events []generation.Event
 	for {

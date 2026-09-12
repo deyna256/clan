@@ -3,11 +3,11 @@ package openai_test
 import (
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamCompactionSnapshots(t *testing.T) {
@@ -25,9 +25,8 @@ func TestStreamCompactionSnapshots(t *testing.T) {
 
 	events, err := readStream(t, client)
 
-	if !errors.Is(err, io.EOF) || !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v, %v; want %#v", events, err, want)
-	}
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, want, events)
 }
 
 func TestStreamCompactionRejectsOpaqueChanges(t *testing.T) {
@@ -93,7 +92,7 @@ func TestGenerateCompactionEmptyContent(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil || !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-		t.Fatalf("Generate = %#v, %v; want %#v and stop", result.Response, err, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, result.Response.Output)
+	require.Equal(t, "stop", result.Response.Finish.Reason)
 }

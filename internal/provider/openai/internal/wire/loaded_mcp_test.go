@@ -2,12 +2,12 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadedMCPDeclarationsAndReplay(t *testing.T) {
@@ -45,15 +45,11 @@ func TestLoadedMCPDeclarationsAndReplay(t *testing.T) {
 		},
 	}
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":` + catalog + `}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	result, err := envelope.Result(nil)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(result.Response.Output) != 1 {
 		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 	}
@@ -61,15 +57,11 @@ func TestLoadedMCPDeclarationsAndReplay(t *testing.T) {
 	if !ok {
 		t.Fatalf("output[0] = %T; want generation.OpenAIToolSearchOutput", result.Response.Output[0])
 	}
-	if !reflect.DeepEqual(loaded.Tools, want) {
-		t.Fatalf("loaded tools = %#v; want %#v", loaded.Tools, want)
-	}
+	require.Equal(t, want, loaded.Tools)
 
 	body, err := wire.EncodeRequest(requestWith(loaded), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":`+catalog+`}]}`)
 }
 
@@ -94,9 +86,7 @@ func TestRejectMalformedLoadedMCPDeclarations(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":[{"type":"mcp","server_label":"crm"` + tc.fields + `}]}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 

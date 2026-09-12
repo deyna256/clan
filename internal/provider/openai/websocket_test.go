@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/deyna256/clan/internal/provider/openai"
 	"github.com/deyna256/clan/internal/retry"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSessionInterleavesLanesAndResetsResponseState(t *testing.T) {
@@ -59,17 +59,14 @@ func TestSessionInterleavesLanesAndResetsResponseState(t *testing.T) {
 			ends[event.ResponseID]++
 		}
 	}
-	if !reflect.DeepEqual(texts, map[string]string{"resp_1": "Alpha", "resp_2": "Beta"}) || !reflect.DeepEqual(ends, map[string]int{"resp_1": 1, "resp_2": 1, "resp_3": 1}) {
-		t.Fatalf("text/end snapshots = %#v / %#v", texts, ends)
-	}
+	require.Equal(t, map[string]string{"resp_1": "Alpha", "resp_2": "Beta"}, texts)
+	require.Equal(t, map[string]int{"resp_1": 1, "resp_2": 1, "resp_3": 1}, ends)
 	wantUsage := map[string]usage.Snapshot{
 		"resp_1": {Input: count(10), Output: count(2)},
 		"resp_2": {Input: count(3), Output: count(1)},
 		"resp_3": {Input: count(1), Output: count(0)},
 	}
-	if !reflect.DeepEqual(usages, wantUsage) {
-		t.Fatalf("usage = %#v; want %#v", usages, wantUsage)
-	}
+	require.Equal(t, wantUsage, usages)
 }
 
 func TestSessionRequestErrorDoesNotClaimActiveResponse(t *testing.T) {
@@ -142,9 +139,7 @@ func TestSessionRejectsUsageFromConflictingResponse(t *testing.T) {
 				{Lane: "a", ResponseID: "resp_1", Event: generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}}},
 				{Lane: "a", ResponseID: "resp_1", Event: generation.UsageUpdated{Usage: usage.Snapshot{Input: count(3)}}},
 			}
-			if !reflect.DeepEqual(events, want) {
-				t.Fatalf("events = %#v; want only the original response and its usage", events)
-			}
+			require.Equal(t, want, events)
 		})
 	}
 }
@@ -281,9 +276,7 @@ func TestSessionConcurrentSendsAndReads(t *testing.T) {
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	})
 	session, err := client.OpenSession(ctx, testAttempt())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	sent := make(chan error, 12)
 	var workers sync.WaitGroup
 	done := make(chan struct{})
@@ -334,9 +327,7 @@ func TestSessionReleasesCompletedResponseMemory(t *testing.T) {
 			ended = append(ended, event.ResponseID)
 		}
 	}
-	if !reflect.DeepEqual(ended, []string{"resp_1", "resp_2"}) {
-		t.Fatalf("ended = %v", ended)
-	}
+	require.Equal(t, []string{"resp_1", "resp_2"}, ended)
 }
 
 func TestSessionNormalCloseWithActiveResponseIsUnexpectedEOF(t *testing.T) {
@@ -393,9 +384,7 @@ func TestSessionCancellationInterruptsReadAndConcurrentClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	session, err := client.OpenSession(ctx, testAttempt())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	read := make(chan error, 1)
 	done := make(chan struct{})
 	var workers sync.WaitGroup
@@ -479,9 +468,7 @@ func sessionServer(t *testing.T, config openai.Config, logs io.Writer, serve fun
 		config.MaxEventBytes = 1 << 20
 	}
 	client, err := openai.New(config, server.Client(), slog.New(slog.NewJSONHandler(logs, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return client
 }
 
@@ -502,9 +489,7 @@ func openTestSession(t *testing.T, client *openai.Client) *openai.Session {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	session, err := client.OpenSession(ctx, testAttempt())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })
 	return session
 }

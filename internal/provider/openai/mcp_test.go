@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateMCPFailuresRemainToolData(t *testing.T) {
@@ -29,15 +29,13 @@ func TestGenerateMCPFailuresRemainToolData(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := mcpCall("{")
 			want.Status = generation.Some("failed")
 			want.Error = generation.Some(tc.want)
-			if !reflect.DeepEqual(result.Response.Output, []generation.Item{want}) || result.Response.Finish.Reason != "stop" || logs.Len() != 0 {
-				t.Fatalf("response = %#v; want %#v and stop; logs = %s", result.Response, want, logs.String())
-			}
+			require.Equal(t, []generation.Item{want}, result.Response.Output)
+			require.Equal(t, "stop", result.Response.Finish.Reason)
+			require.Equal(t, 0, logs.Len())
 		})
 	}
 }
@@ -81,9 +79,9 @@ func TestStreamMCPInterleavesArgumentsAndReportsToolFailure(t *testing.T) {
 	wantFirst, wantSecond := mcpCall(`{"q":`), mcpCall(`{"x":1}`)
 	wantFirst.Status, wantFirst.Error = generation.Some("failed"), generation.Some[generation.MCPCallError](generation.MCPHTTPError{Code: 502, Message: "retry later"})
 	wantSecond.ID, wantSecond.Status, wantSecond.Output = "mcp_2", generation.Some("completed"), generation.Some("ok")
-	if !reflect.DeepEqual(deltas, wantDeltas) || !reflect.DeepEqual(progress, wantProgress) || !reflect.DeepEqual(calls, []generation.OpenAIMCPCall{wantFirst, wantSecond}) {
-		t.Fatalf("deltas = %#v; progress = %#v; calls = %#v", deltas, progress, calls)
-	}
+	require.Equal(t, wantDeltas, deltas)
+	require.Equal(t, wantProgress, progress)
+	require.Equal(t, []generation.OpenAIMCPCall{wantFirst, wantSecond}, calls)
 	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Reason != "stop" || logs.Len() != 0 {
 		t.Fatalf("finish = %#v; logs = %s; want stop without warnings", finish, logs.String())
 	}
@@ -103,9 +101,7 @@ func TestStreamMCPListFailureDoesNotEndGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.OpenAIMCPListTools{ID: "list_1", ServerLabel: "server", Tools: []generation.MCPListedTool{}, Error: generation.Some("server unavailable")}
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 	if progress := eventAt[generation.MCPProgress](t, events, 3); progress.Status != "failed" || progress.ItemIndex != 0 {
 		t.Fatalf("progress = %#v; want failed at item 0", progress)
 	}
@@ -126,9 +122,7 @@ func TestStreamMCPUsesLatestCatalogAndRetainsOmittedMetadata(t *testing.T) {
 		{Name: "new", InputSchema: json.RawMessage(`null`), Annotations: generation.Null[json.RawMessage]()},
 	}
 	end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIMCPListTools)
-	if !reflect.DeepEqual(end.Tools, want) {
-		t.Fatalf("tools = %#v; want %#v", end.Tools, want)
-	}
+	require.Equal(t, want, end.Tools)
 }
 
 func TestStreamMCPApprovalRetainsExplicitDenial(t *testing.T) {
@@ -151,9 +145,7 @@ func TestStreamMCPApprovalRetainsExplicitDenial(t *testing.T) {
 			ended = append(ended, end.Item)
 		}
 	}
-	if !reflect.DeepEqual(ended, []generation.Item{wantRequest, wantResponse}) {
-		t.Fatalf("ended = %#v; want explicit request and denial", ended)
-	}
+	require.Equal(t, []generation.Item{wantRequest, wantResponse}, ended)
 }
 
 func TestStreamMCPRejectsConflictsAndPreservesUsage(t *testing.T) {
@@ -205,9 +197,7 @@ func TestStreamMCPRetainedMetadataIsIndependentOfCaller(t *testing.T) {
 	finalList := mcpListJSON(`[{"name":"lookup","input_schema":{"maximum":9007199254740993}}]`, "")
 	client := streamClient(t, io.Discard, created(), outputItemAdded(0, list), outputItemAdded(1, call), `{"type":"response.completed","response":`+responseWithItems(finalList+","+mcpCallJSON("{}", ""))+`}`)
 	stream, err := client.GenerateStream(t.Context(), testAttempt(), textRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = stream.Close() })
 
 	var ends []generation.Item
@@ -217,9 +207,7 @@ func TestStreamMCPRetainedMetadataIsIndependentOfCaller(t *testing.T) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		switch value := event.(type) {
 		case generation.ItemStarted:
 			switch item := value.Item.(type) {
@@ -292,9 +280,7 @@ func TestStreamMCPFinalOnlyIncomplete(t *testing.T) {
 	}
 	want := mcpCall(`{"q":`)
 	want.Status = generation.Some("incomplete")
-	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("end = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, eventAt[generation.ItemEnded](t, events, len(events)-2).Item)
 	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
 		t.Fatalf("finish = %#v; want incomplete due to max_output_tokens", finish)
 	}

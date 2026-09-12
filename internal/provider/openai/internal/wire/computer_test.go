@@ -3,12 +3,12 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestComputerTools(t *testing.T) {
@@ -33,9 +33,7 @@ func TestComputerTools(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[],"tools":[`+tc.want+`],"tool_choice":{"type":"`+string(tc.choice)+`"}}`)
 		})
 	}
@@ -67,19 +65,13 @@ func TestComputerActions(t *testing.T) {
 
 			body, err := wire.EncodeRequest(requestWith(call), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[`+want+`]}`)
 
 			result, err := computerResponse("[" + want + "]")
 
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(result.Response.Output, []generation.Item{call}) {
-				t.Fatalf("decoded call = %#v; want %#v", result.Response.Output, call)
-			}
+			require.NoError(t, err)
+			require.Equal(t, []generation.Item{call}, result.Response.Output)
 			if result.Response.Finish.Reason != "tool_calls" {
 				t.Fatalf("finish = %s", result.Response.Finish.Reason)
 			}
@@ -104,9 +96,7 @@ func TestComputerActionPresenceAndSafetyChecks(t *testing.T) {
 
 			result, err := computerResponse(output)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(result.Response.Output) != 1 {
 				t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 			}
@@ -114,21 +104,16 @@ func TestComputerActionPresenceAndSafetyChecks(t *testing.T) {
 			if !ok {
 				t.Fatalf("output[0] = %T; want generation.OpenAIComputerCall", result.Response.Output[0])
 			}
-			if !reflect.DeepEqual(call.Action, tc.action) || !reflect.DeepEqual(call.Actions, tc.actions) {
-				t.Fatalf("actions = %#v / %#v; want %#v / %#v", call.Action, call.Actions, tc.action, tc.actions)
-			}
+			require.Equal(t, tc.action, call.Action)
+			require.Equal(t, tc.actions, call.Actions)
 			wantChecks := []generation.ComputerSafetyCheck{
 				{ID: "check_1", Code: generation.Null[string](), Message: generation.Some("Confirm")},
 				{ID: "check_2", Code: generation.Some("sensitive"), Message: generation.Null[string]()},
 				{ID: "check_3"},
 			}
-			if !reflect.DeepEqual(call.PendingSafetyChecks, wantChecks) {
-				t.Fatalf("safety checks = %#v; want %#v", call.PendingSafetyChecks, wantChecks)
-			}
+			require.Equal(t, wantChecks, call.PendingSafetyChecks)
 			body, err := wire.EncodeRequest(requestWith(call), false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			var replay struct {
 				Input json.RawMessage `json:"input"`
 			}
@@ -180,9 +165,7 @@ func TestComputerScreenshotInputPresence(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := wire.EncodeRequest(requestWith(tc.result), false)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"computer_call_output","call_id":"call_1","output":`+tc.screenshot+tc.fields+`}]}`)
 		})
 	}
@@ -191,9 +174,7 @@ func TestComputerScreenshotInputPresence(t *testing.T) {
 func TestComputerResultMetadataAndReplay(t *testing.T) {
 	output := `[{"type":"computer_call_output","id":"out_1","call_id":"call_1","status":"completed","output":{"type":"computer_screenshot","file_id":"file_1","detail":"original"},"acknowledged_safety_checks":[{"id":"check_1","code":null,"message":"Confirmed"}],"created_by":"actor"}]`
 	result, err := computerResponse(output)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(result.Response.Output) != 1 {
 		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 	}
@@ -212,15 +193,11 @@ func TestComputerResultMetadataAndReplay(t *testing.T) {
 		t.Fatalf("checks = %#v", checks)
 	}
 	body, err := wire.EncodeRequest(requestWith(got), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"computer_call_output","id":"out_1","call_id":"call_1","status":"completed","output":{"type":"computer_screenshot","file_id":"file_1","detail":"original"},"acknowledged_safety_checks":[{"id":"check_1","code":null,"message":"Confirmed"}]}]}`)
 
 	failed, err := computerResponse(strings.Replace(output, `"status":"completed"`, `"status":"failed"`, 1))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if _, err := wire.EncodeRequest(requestWith(failed.Response.Output...), false); err == nil {
 		t.Fatal("failed output status is not a supported input status")
 	}

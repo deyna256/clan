@@ -10,14 +10,15 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/account"
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai"
+	"github.com/deyna256/clan/internal/provider/openai/internal/testutil"
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeneratePreservesOutputAndUsage(t *testing.T) {
@@ -30,9 +31,7 @@ func TestGeneratePreservesOutputAndUsage(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := generation.Result{
 		Identity: generation.Identity{ID: "resp_1", Model: "test-model"},
 		Response: generation.Response{Output: []generation.Item{generation.Message{
@@ -41,9 +40,7 @@ func TestGeneratePreservesOutputAndUsage(t *testing.T) {
 		}}, Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 		Usage: usage.Snapshot{Input: count(10), Output: count(5), Total: count(15), CacheRead: count(4), Reasoning: count(2)},
 	}
-	if !reflect.DeepEqual(result, want) {
-		t.Fatalf("result = %#v; want %#v", result, want)
-	}
+	require.Equal(t, want, result)
 	var sent struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
@@ -69,9 +66,11 @@ func TestGenerateRetainsUsageOnContentFailure(t *testing.T) {
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
 			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != tc.kind || !reflect.DeepEqual(result.Response, generation.Response{}) || result.Usage.Input != count(12) || result.Usage.Output != count(3) {
-				t.Fatalf("result = %#v, %v; want %s with usage without response", result, err, tc.kind)
-			}
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, tc.kind, failure.Kind)
+			require.Equal(t, generation.Response{}, result.Response)
+			require.Equal(t, count(12), result.Usage.Input)
+			require.Equal(t, count(3), result.Usage.Output)
 		})
 	}
 }
@@ -128,9 +127,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 func clientWithTransport(t *testing.T, transport http.RoundTripper) *openai.Client {
 	t.Helper()
 	client, err := openai.New(openai.Config{BaseURL: "https://example.invalid/v1", MaxResponseBytes: 1 << 20, MaxEventBytes: 1 << 20}, &http.Client{Transport: transport}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return client
 }
 
@@ -220,9 +217,7 @@ func testClient(t *testing.T, handler http.HandlerFunc, logs io.Writer) *openai.
 	client, err := openai.New(openai.Config{
 		BaseURL: server.URL, UpstreamID: "upstream-1", MaxResponseBytes: 1 << 20, MaxEventBytes: 1 << 20,
 	}, server.Client(), slog.New(slog.NewJSONHandler(logs, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return client
 }
 
@@ -250,20 +245,5 @@ func count(tokens int64) usage.Counter { return usage.Counter{Tokens: tokens, Kn
 
 func assertRequestJSON(t *testing.T, got, want string) {
 	t.Helper()
-	decode := func(raw string) any {
-		t.Helper()
-		if !json.Valid([]byte(raw)) {
-			t.Fatalf("invalid JSON: %s", raw)
-		}
-		decoder := json.NewDecoder(strings.NewReader(raw))
-		decoder.UseNumber()
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			t.Fatal(err)
-		}
-		return value
-	}
-	if !reflect.DeepEqual(decode(got), decode(want)) {
-		t.Fatalf("JSON = %s; want %s", got, want)
-	}
+	testutil.EqualJSON(t, got, want)
 }

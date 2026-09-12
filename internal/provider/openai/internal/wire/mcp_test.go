@@ -3,12 +3,12 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMCPToolConfiguration(t *testing.T) {
@@ -28,9 +28,7 @@ func TestMCPToolConfiguration(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":true,"input":[],"tools":[{"type":"mcp","server_label":"docs","server_url":"https://example.org/mcp","authorization":"private-token","server_description":"Search documents","headers":{"X-Project":"private-project"},"allowed_callers":["direct","programmatic"],"allowed_tools":{"read_only":false,"tool_names":["search","write"]},"require_approval":{"always":{"tool_names":["write"]},"never":{"read_only":true}},"defer_loading":false}],"tool_choice":{"type":"mcp","server_label":"docs","name":"search"}}`)
 }
 
@@ -102,9 +100,7 @@ func TestMCPToolVariantsAndPresence(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[],"tools":[`+tc.want+`],"tool_choice":{"type":"mcp","server_label":"`+tc.tool.ServerLabel+`","name":null}}`)
 		})
 	}
@@ -120,9 +116,7 @@ func TestMCPItemsPreserveRawValuesAndApprovalDenial(t *testing.T) {
 
 	result, err := mcpResponse(output)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if result.Response.Finish.Reason != "tool_calls" {
 		t.Fatalf("approval finish = %s", result.Response.Finish.Reason)
 	}
@@ -152,9 +146,7 @@ func TestMCPItemsPreserveRawValuesAndApprovalDenial(t *testing.T) {
 
 	body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var replay struct {
 		Input json.RawMessage `json:"input"`
 	}
@@ -179,9 +171,7 @@ func TestMCPErrorsRemainItemData(t *testing.T) {
 
 			result, err := mcpResponse(output)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			if len(result.Response.Output) != 1 {
 				t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 			}
@@ -190,9 +180,8 @@ func TestMCPErrorsRemainItemData(t *testing.T) {
 				t.Fatalf("output[0] = %T; want generation.OpenAIMCPCall", result.Response.Output[0])
 			}
 			got, ok := call.Error.Value()
-			if !ok || !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("error = %#v; want %#v", got, tc.want)
-			}
+			require.True(t, ok)
+			require.Equal(t, tc.want, got)
 			if result.Response.Finish.Reason != "stop" {
 				t.Fatalf("hosted error finish = %s", result.Response.Finish.Reason)
 			}
@@ -202,9 +191,7 @@ func TestMCPErrorsRemainItemData(t *testing.T) {
 
 			body, err := wire.EncodeRequest(requestWith(call), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":`+output+`}`)
 		})
 	}
@@ -215,9 +202,7 @@ func TestMCPListFailureRemainsItemData(t *testing.T) {
 
 	result, err := mcpResponse(output)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(result.Response.Output) != 1 {
 		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 	}
@@ -234,9 +219,7 @@ func TestMCPListFailureRemainsItemData(t *testing.T) {
 
 	body, err := wire.EncodeRequest(requestWith(list), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":`+output+`}`)
 }
 
@@ -255,9 +238,7 @@ func TestMCPApprovalResponseInputPresence(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"mcp_approval_response","approval_request_id":"approve_1","approve":false`+tc.fields+`}]}`)
 		})
 	}

@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReturnedToolProvenance(t *testing.T) {
@@ -35,24 +35,16 @@ func TestReturnedToolProvenance(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + tc.raw + `,"created_by":"actor_1"}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			result, err := envelope.Result(nil)
 
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(result.Response.Output, []generation.Item{tc.want}) {
-				t.Fatalf("output=%#v", result.Response.Output)
-			}
+			require.NoError(t, err)
+			require.Equal(t, []generation.Item{tc.want}, result.Response.Output)
 
 			body, err := wire.EncodeRequest(requestWith(result.Response.Output...), false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[`+tc.replay+`],"stream":false}`)
 		})
 	}
@@ -70,9 +62,7 @@ func TestRejectMalformedToolProvenance(t *testing.T) {
 		} {
 			t.Run(tc.name+"/"+invalid.name, func(t *testing.T) {
 				envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[` + tc.raw + `,"created_by":` + invalid.raw + `}]}`))
-				if err != nil {
-					t.Fatal(err)
-				}
+				require.NoError(t, err)
 
 				result, err := envelope.Result(nil)
 

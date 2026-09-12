@@ -2,11 +2,11 @@ package wire_test
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeSearchTools(t *testing.T) {
@@ -15,16 +15,12 @@ func TestEncodeSearchTools(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":true,"top_logprobs":0,"tools":[
 		{"type":"web_search","external_web_access":false,"filters":{"allowed_domains":["example.com"]},"user_location":{"type":"approximate","country":"GB","city":null},"search_context_size":"high"},
 		{"type":"file_search","vector_store_ids":["vs_1"],"max_num_results":50,"filters":{"type":"and","filters":[{"type":"eq","key":"active","value":false},{"type":"in","key":"revision","value":[9007199254740993,"latest"]}]},"ranking_options":{"ranker":"auto","score_threshold":0,"hybrid_search":{"embedding_weight":0,"text_weight":1}}}
 	],"tool_choice":{"type":"file_search"}}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed search configuration")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeSearchHistory(t *testing.T) {
@@ -46,9 +42,7 @@ func TestEncodeSearchHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"old","queries":["new"],"sources":[{"type":"url","url":"https://example.com"}]}},
 		{"type":"web_search_call","id":"ws_2","status":"completed","action":{"type":"open_page","url":null}},
@@ -65,6 +59,11 @@ func TestRejectInvalidAndCyclicFilters(t *testing.T) {
 	}{
 		{name: "object value", filter: generation.SearchComparison{Operator: "eq", Key: "k", Value: json.RawMessage(`{"anything":1}`)}},
 		{name: "invalid membership", filter: generation.SearchComparison{Operator: "in", Key: "k", Value: json.RawMessage(`[true]`)}},
+		{name: "null scalar", filter: generation.SearchComparison{Operator: "eq", Key: "k", Value: json.RawMessage(`null`)}},
+		{name: "null membership", filter: generation.SearchComparison{Operator: "in", Key: "k", Value: json.RawMessage(`[1,null]`)}},
+		{name: "nested membership", filter: generation.SearchComparison{Operator: "in", Key: "k", Value: json.RawMessage(`[[1]]`)}},
+		{name: "trailing JSON", filter: generation.SearchComparison{Operator: "eq", Key: "k", Value: json.RawMessage(`1 true`)}},
+		{name: "invalid UTF-8", filter: generation.SearchComparison{Operator: "eq", Key: "k", Value: json.RawMessage{'"', 0xff, '"'}}},
 		{name: "unknown operator", filter: generation.SearchComparison{Operator: "other", Key: "k", Value: json.RawMessage(`1`)}},
 		{name: "empty compound", filter: generation.SearchCompound{Operator: "and"}},
 		{name: "cycle", filter: cycle[0]},

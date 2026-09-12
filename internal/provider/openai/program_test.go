@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamProgramAndNestedFunction(t *testing.T) {
@@ -38,9 +38,7 @@ func TestStreamProgramAndNestedFunction(t *testing.T) {
 		generation.ItemEnded{Index: 1, Item: wantCall},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamProgramOutputSnapshots(t *testing.T) {
@@ -63,9 +61,7 @@ func TestStreamProgramOutputSnapshots(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.OpenAIProgramOutput{ID: "out_1", CallID: "call_prog", Result: "partial result", Status: generation.ItemIncomplete}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamProgramFingerprintPresence(t *testing.T) {
@@ -86,9 +82,7 @@ func TestStreamProgramFingerprintPresence(t *testing.T) {
 			}
 			got := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIProgram)
 			want := generation.OpenAIProgram{ID: "prog_1", CallID: "call_prog", Fingerprint: generation.Some(fingerprint)}
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("program = %#v; want %#v", got, want)
-			}
+			require.Equal(t, want, got)
 		})
 	}
 }

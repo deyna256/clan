@@ -2,12 +2,12 @@ package wire_test
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncodeInterpreterTool(t *testing.T) {
@@ -16,13 +16,9 @@ func TestEncodeInterpreterTool(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, true)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":true,"tools":[{"type":"code_interpreter","container":{"type":"auto","file_ids":["file_1"],"memory_limit":"4g","network_policy":{"type":"allowlist","allowed_domains":["example.com"],"domain_secrets":[{"domain":"example.com","name":"token","value":"secret-value"}]}},"allowed_callers":["direct","programmatic"]}],"tool_choice":{"type":"code_interpreter"}}`)
-	if !reflect.DeepEqual(request, unchanged) {
-		t.Fatal("encoding changed interpreter configuration")
-	}
+	require.Equal(t, unchanged, request)
 }
 
 func TestEncodeInterpreterContainerModes(t *testing.T) {
@@ -46,9 +42,7 @@ func TestEncodeInterpreterContainerModes(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[{"type":"code_interpreter","container":`+tc.want+`}]}`)
 		})
 	}
@@ -69,9 +63,7 @@ func TestEncodeInterpreterHistory(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[
 		{"type":"code_interpreter_call","id":"ci_1","container_id":"cntr_1","status":"completed","code":"print(1)","outputs":[{"type":"logs","logs":"1\n"},{"type":"image","url":"https://example.com/plot.png"}]},
 		{"type":"code_interpreter_call","id":"ci_2","container_id":"cntr_1","status":"failed","code":null,"outputs":null},
@@ -88,9 +80,7 @@ func TestEncodeInterpreterExplicitEmptyLists(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tools":[{"type":"code_interpreter","container":{"type":"auto","file_ids":[],"network_policy":{"type":"allowlist","allowed_domains":[],"domain_secrets":[]}},"allowed_callers":[]}]}`)
 }
 

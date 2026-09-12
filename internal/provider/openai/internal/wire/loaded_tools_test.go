@@ -3,12 +3,12 @@ package wire_test
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadedToolDeclarationsAndReplay(t *testing.T) {
@@ -45,15 +45,11 @@ func TestLoadedToolDeclarationsAndReplay(t *testing.T) {
 		generation.OpenAIToolSearchTool{Description: generation.Null[string](), Execution: generation.Some("client"), Parameters: json.RawMessage(`[9007199254740993]`)},
 	}
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":` + catalog + `}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	result, err := envelope.Result(nil)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	if len(result.Response.Output) != 1 {
 		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
 	}
@@ -61,15 +57,11 @@ func TestLoadedToolDeclarationsAndReplay(t *testing.T) {
 	if !ok {
 		t.Fatalf("output[0] = %T; want generation.OpenAIToolSearchOutput", result.Response.Output[0])
 	}
-	if !reflect.DeepEqual(loaded.Tools, want) {
-		t.Fatalf("loaded tools = %#v; want %#v", loaded.Tools, want)
-	}
+	require.Equal(t, want, loaded.Tools)
 
 	body, err := wire.EncodeRequest(requestWith(loaded), false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","stream":false,"input":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":`+catalog+`}]}`)
 	if !strings.Contains(string(body), `"const":9007199254740995`) || !strings.Contains(string(body), `"const":9007199254740993`) {
 		t.Fatal("loaded schemas lost integer precision on replay")
@@ -100,9 +92,7 @@ func TestRejectMalformedLoadedToolDeclarations(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":[` + tc.raw + `]}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
 			_, err = envelope.Result(nil)
 

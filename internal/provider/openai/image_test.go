@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateImagePreservesPayloadAndOptionalMetadata(t *testing.T) {
@@ -19,13 +19,10 @@ func TestGenerateImagePreservesPayloadAndOptionalMetadata(t *testing.T) {
 
 	result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := []generation.Item{generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: generation.Some("aW1hZ2U="), Metadata: generation.ImageGenerationMetadata{Action: generation.Some("edit"), Background: generation.Null[string](), OutputFormat: generation.Some("png"), Size: generation.Some("1536x864"), RevisedPrompt: generation.Some("Revised")}}}
-	if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-		t.Fatalf("response = %#v; want %#v with stop", result.Response, want)
-	}
+	require.Equal(t, want, result.Response.Output)
+	require.Equal(t, "stop", result.Response.Finish.Reason)
 	if !strings.Contains(logs.String(), "invalid_image_metadata") || strings.Contains(logs.String(), "private") || strings.Contains(logs.String(), "aW1hZ2U=") {
 		t.Fatalf("logs = %s", logs.String())
 	}
@@ -83,9 +80,9 @@ func TestStreamImagePreviewsInterleaveWithoutBecomingFinalResults(t *testing.T) 
 		generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: generation.Some("ZmluYWwx")},
 		generation.OpenAIImageGenerationCall{ID: "ig_2", Status: "completed", Result: generation.Some("ZmluYWwy")},
 	}
-	if !reflect.DeepEqual(previews, wantPreviews) || !reflect.DeepEqual(images, wantImages) || logs.Len() != 0 {
-		t.Fatalf("previews = %#v; images = %#v; logs = %s", previews, images, logs.String())
-	}
+	require.Equal(t, wantPreviews, previews)
+	require.Equal(t, wantImages, images)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamImageRecoversEarlierResultAndLateMetadata(t *testing.T) {
@@ -103,9 +100,7 @@ func TestStreamImageRecoversEarlierResultAndLateMetadata(t *testing.T) {
 	}
 	end := eventAt[generation.ItemEnded](t, events, len(events)-2)
 	want := generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: generation.Some("aW1hZ2U="), Metadata: generation.ImageGenerationMetadata{OutputFormat: generation.Some("png"), Quality: generation.Null[string](), RevisedPrompt: generation.Some("Revised")}}
-	if !reflect.DeepEqual(end.Item, want) {
-		t.Fatalf("image = %#v; want %#v", end.Item, want)
-	}
+	require.Equal(t, want, end.Item)
 }
 
 func TestStreamImagePreviewDoesNotSatisfyCompletion(t *testing.T) {

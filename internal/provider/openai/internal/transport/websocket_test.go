@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/deyna256/clan/internal/provider/openai/internal/transport"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebSocketHandshakeUsesConfiguredRootWithoutCookiesOrRedirects(t *testing.T) {
@@ -22,13 +23,9 @@ func TestWebSocketHandshakeUsesConfiguredRootWithoutCookiesOrRedirects(t *testin
 	}))
 	t.Cleanup(server.Close)
 	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	base, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	jar.SetCookies(base, []*http.Cookie{{Name: "session", Value: "another-account"}})
 	original := server.Client()
 	original.Jar = jar

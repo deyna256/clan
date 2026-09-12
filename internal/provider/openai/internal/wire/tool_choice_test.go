@@ -6,6 +6,7 @@ import (
 
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAllowedToolsChoice(t *testing.T) {
@@ -20,9 +21,7 @@ func TestAllowedToolsChoice(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tool_choice":{"type":"allowed_tools","mode":"`+string(mode)+`","tools":[{"type":"function","name":"get_weather"},{"type":"custom","name":"execute"},{"type":"mcp","server_label":"deepwiki"},{"type":"image_generation"},{"type":"computer_use"}]}}`)
 		})
 	}
@@ -34,9 +33,7 @@ func TestAllowedToolsEmptySelection(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[]}}`)
 }
 
@@ -72,8 +69,6 @@ func TestComputerUseChoice(t *testing.T) {
 
 	body, err := wire.EncodeRequest(request, false)
 
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	assertJSON(t, body, `{"model":"test-model","input":[],"stream":false,"tool_choice":{"type":"computer_use"}}`)
 }

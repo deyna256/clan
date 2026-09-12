@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGeneratePatchCalls(t *testing.T) {
@@ -28,13 +28,10 @@ func TestGeneratePatchCalls(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := []generation.Item{generation.OpenAIApplyPatchCall{ID: "ap_1", CallID: "call_1", Status: "completed", Operation: tc.want, Caller: generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"})}}
-			if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "tool_calls" {
-				t.Fatalf("response = %#v; want %#v and tool_calls", result.Response, want)
-			}
+			require.Equal(t, want, result.Response.Output)
+			require.Equal(t, "tool_calls", result.Response.Finish.Reason)
 		})
 	}
 }
@@ -55,13 +52,10 @@ func TestGeneratePatchResults(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			want := []generation.Item{generation.OpenAIApplyPatchResult{ID: "out_1", CallID: "call_1", Status: "failed", Output: tc.output, Caller: generation.Null[generation.OpenAIToolCaller]()}}
-			if !reflect.DeepEqual(result.Response.Output, want) || result.Response.Finish.Reason != "stop" {
-				t.Fatalf("response = %#v; want %#v and stop", result.Response, want)
-			}
+			require.Equal(t, want, result.Response.Output)
+			require.Equal(t, "stop", result.Response.Finish.Reason)
 		})
 	}
 }
@@ -91,9 +85,8 @@ func TestStreamPatchInterleavesAndRecoversDiff(t *testing.T) {
 		generation.ItemEnded{Index: 1, Item: generation.OpenAIApplyPatchCall{ID: "ap_2", CallID: "call_2", Status: "completed", Operation: generation.PatchDeleteFile{Path: "old.go"}}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "tool_calls"}},
 	}
-	if !reflect.DeepEqual(events, want) || logs.Len() != 0 {
-		t.Fatalf("events = %#v; want %#v; logs = %s", events, want, logs.String())
-	}
+	require.Equal(t, want, events)
+	require.Equal(t, 0, logs.Len())
 }
 
 func TestStreamPatchFinalOnlyIncomplete(t *testing.T) {
@@ -112,9 +105,7 @@ func TestStreamPatchFinalOnlyIncomplete(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.OpenAIApplyPatchCall{ID: "ap_1", CallID: "call_1", Status: "in_progress", Operation: generation.PatchUpdateFile{Path: "main.go", Diff: "@@\n-"}}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamPatchResultRetainsOutputAndCaller(t *testing.T) {
@@ -135,9 +126,7 @@ func TestStreamPatchResultRetainsOutputAndCaller(t *testing.T) {
 		generation.ItemEnded{Index: 0, Item: generation.OpenAIApplyPatchResult{ID: "out_1", CallID: "call_1", Status: "failed", Output: generation.Some("not found"), Caller: caller}},
 		generation.ResponseEnded{Finish: generation.Finish{Status: "completed", Reason: "stop"}},
 	}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %#v; want %#v", events, want)
-	}
+	require.Equal(t, want, events)
 }
 
 func TestStreamPatchConflictsPreserveUsage(t *testing.T) {
