@@ -1,6 +1,7 @@
 package transport_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,15 +31,15 @@ func TestResourceRoutePreservesRootAndEscapesIDs(t *testing.T) {
 	if got.URL.EscapedPath() != "/proxy%20root/v1/files/file%3F%23%252F/content" || got.URL.Query().Get("after") != "cursor&part=2" {
 		t.Fatalf("resource URL = %s", got.URL)
 	}
-	if body != "file bytes" || got.Method != http.MethodGet || got.Header.Get("Authorization") != "Bearer key-a" || got.Header.Get("Content-Type") != "" {
+	if body != "file bytes" || got.Method != http.MethodGet || got.Header.Get("Authorization") != "Bearer key-a" || got.Header.Get("Content-Type") != "" || got.Header.Get("Accept") != "application/octet-stream" {
 		t.Fatalf("request = %v, headers = %v, body = %q", got.Method, got.Header, body)
 	}
 }
 
 func TestResourceRouteRejectsTraversalBeforeDispatch(t *testing.T) {
 	client := newClient(t, "https://example.invalid/v1", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		t.Fatal("invalid path reached transport")
-		return nil, nil
+		t.Error("invalid path reached transport")
+		return nil, errors.New("unexpected dispatch")
 	})})
 	for _, id := range []string{"", ".", "..", "../files", "a/b", "a\\b", "a\r\nb"} {
 		t.Run(id, func(t *testing.T) {

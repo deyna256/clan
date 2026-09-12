@@ -65,7 +65,7 @@ for the database contract and tests.
 
 ## Remaining integration work
 
-The entry point is empty. Management HTTP routes, complete provider adapters,
+The entry point is empty. Management HTTP routes, remaining provider adapters,
 OAuth renewal, model discovery and request history remain to be built.
 The web panel belongs in a separate repository.
 

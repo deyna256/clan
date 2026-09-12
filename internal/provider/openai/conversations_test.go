@@ -43,7 +43,7 @@ func TestConversationLifecycle(t *testing.T) {
 	if request.Method != "POST" || request.Path != "/conversations" {
 		t.Fatalf("request = %#v", request)
 	}
-	assertConversationJSON(t, request.Body, `{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}],"metadata":null}`)
+	assertRequestJSON(t, request.Body, `{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}],"metadata":null}`)
 
 	retrieved, err := client.RetrieveConversation(t.Context(), testAttempt(), "conv_1")
 
@@ -64,7 +64,7 @@ func TestConversationLifecycle(t *testing.T) {
 	if request.Method != "POST" || request.Path != "/conversations/conv_1" {
 		t.Fatalf("request = %#v", request)
 	}
-	assertConversationJSON(t, request.Body, `{"metadata":{}}`)
+	assertRequestJSON(t, request.Body, `{"metadata":{}}`)
 
 	deleted, err := client.DeleteConversation(t.Context(), testAttempt(), "conv_1")
 
@@ -105,7 +105,7 @@ func TestConversationItemOperations(t *testing.T) {
 	if request.Method != "POST" || request.Path != "/conversations/conv_1/items" || request.Query.Get("include[]") != "reasoning.encrypted_content" {
 		t.Fatalf("request = %#v", request)
 	}
-	assertConversationJSON(t, request.Body, `{"items":[]}`)
+	assertRequestJSON(t, request.Body, `{"items":[]}`)
 
 	listed, err := client.ListConversationItems(t.Context(), testAttempt(), "conv_1", openai.ItemListOptions{After: "msg_0", Limit: generation.Some(int64(1)), Order: "asc", Include: []string{"message.input_image.image_url", "message.output_text.logprobs"}})
 
@@ -198,39 +198,37 @@ func TestConversationInputErrorsDoNotDispatch(t *testing.T) {
 
 func TestConversationMalformedReplies(t *testing.T) {
 	for _, tc := range []struct {
-		name, body string
-		page       bool
+		name, body  string
+		page        bool
+		unsupported bool
 	}{
 		{name: "missing metadata", body: `{"object":"conversation","id":"conv_1","created_at":0}`},
 		{name: "null time", body: `{"object":"conversation","id":"conv_1","created_at":null,"metadata":{}}`},
 		{name: "wrong object", body: `{"object":"file","id":"conv_1","created_at":0,"metadata":{}}`},
 		{name: "page missing has_more", body: `{"object":"list","data":[],"first_id":"","last_id":""}`, page: true},
 		{name: "page null data", body: `{"object":"list","data":null,"first_id":"","last_id":"","has_more":false}`, page: true},
-		{name: "unknown item", body: `{"object":"list","data":[{"id":"x","type":"future"}],"first_id":"x","last_id":"x","has_more":false}`, page: true},
+		{name: "unknown item after valid item", body: `{"object":"list","data":[{"id":"msg_1","type":"message","role":"user","content":[]},{"id":"x","type":"future"}],"first_id":"msg_1","last_id":"x","has_more":false}`, page: true, unsupported: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := testClient(t, staticJSON(tc.body), io.Discard)
 			var err error
+			var page openai.ItemPage
 
 			if tc.page {
-				_, err = client.ListConversationItems(t.Context(), testAttempt(), "conv_1", openai.ItemListOptions{})
+				page, err = client.ListConversationItems(t.Context(), testAttempt(), "conv_1", openai.ItemListOptions{})
 			} else {
 				_, err = client.RetrieveConversation(t.Context(), testAttempt(), "conv_1")
 			}
 
 			var failure *generation.Failure
-			if !errors.As(err, &failure) {
-				t.Fatalf("reply error = %v; want generation failure", err)
+			wantKind := generation.ProtocolError
+			if tc.unsupported {
+				wantKind = generation.Unsupported
+			}
+			if !errors.As(err, &failure) || failure.Kind != wantKind || page.Data != nil {
+				t.Fatalf("reply = %#v, %v; want %s without partial page", page, err, wantKind)
 			}
 		})
-	}
-}
-
-func assertConversationJSON(t *testing.T, got, want string) {
-	t.Helper()
-	var actual, expected any
-	if json.Unmarshal([]byte(got), &actual) != nil || json.Unmarshal([]byte(want), &expected) != nil || !reflect.DeepEqual(actual, expected) {
-		t.Fatalf("JSON = %s; want %s", got, want)
 	}
 }
 

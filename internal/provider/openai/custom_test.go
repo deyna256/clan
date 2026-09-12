@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/deyna256/clan/internal/usage"
 )
 
 func TestGenerateCustomCall(t *testing.T) {
@@ -151,10 +152,16 @@ func TestStreamCustomIncomplete(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	end := events[len(events)-2].(generation.ItemEnded).Item.(generation.CustomToolCall)
-	finish := events[len(events)-1].(generation.ResponseEnded).Finish
-	if end.Input != "print(" || finish != (generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}) {
-		t.Fatalf("call = %#v, finish = %#v", end, finish)
+	want := []generation.Event{
+		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
+		generation.UsageUpdated{Usage: usage.Snapshot{Output: count(3)}},
+		generation.ItemStarted{Index: 0, Item: generation.CustomToolCall{ID: "ct_1", CallID: "call_1", Name: "execute"}},
+		generation.ToolInputDelta{ItemIndex: 0, Fragment: "print("},
+		generation.ItemEnded{Index: 0, Item: generation.CustomToolCall{ID: "ct_1", CallID: "call_1", Name: "execute", Input: "print("}},
+		generation.ResponseEnded{Finish: generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}},
+	}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("events = %#v; want incomplete call and usage %#v", events, want)
 	}
 }
 
@@ -199,8 +206,8 @@ func TestStreamCustomConflictsPreserveUsage(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("events = %#v; want retained usage", events)
 			}
 		})

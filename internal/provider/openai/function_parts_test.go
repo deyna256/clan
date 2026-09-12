@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
@@ -17,9 +18,9 @@ func TestFunctionContentMissingSourcesNeverDispatch(t *testing.T) {
 		`{"type":"input_file","file_id":null,"file_url":null,"file_data":null,"filename":null}`,
 	} {
 		t.Run(content, func(t *testing.T) {
-			calls := 0
+			var calls atomic.Int32
 			client := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
-				calls++
+				calls.Add(1)
 				_, _ = io.WriteString(w, responseWithItems(functionResultJSON("["+content+"]", "")))
 			}, io.Discard)
 
@@ -31,8 +32,8 @@ func TestFunctionContentMissingSourcesNeverDispatch(t *testing.T) {
 			_, err = client.Generate(t.Context(), testAttempt(), generation.Request{Model: "test-model", Input: result.Response.Output})
 
 			var input *openai.InputError
-			if !errors.As(err, &input) || calls != 1 {
-				t.Fatalf("replay error = %v, dispatches = %d", err, calls)
+			if !errors.As(err, &input) || calls.Load() != 1 {
+				t.Fatalf("replay error = %v, dispatches = %d", err, calls.Load())
 			}
 		})
 	}

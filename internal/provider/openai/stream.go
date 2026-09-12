@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/deyna256/clan/internal/generation"
@@ -28,7 +27,6 @@ type Stream struct {
 	state     streamState
 	queue     []generation.Event
 	terminal  error
-	stopped   atomic.Bool
 	closeOnce sync.Once
 	closeErr  error
 	sequence  *int64
@@ -57,11 +55,11 @@ func (c *Client) openStream(streamCtx context.Context, cancel context.CancelFunc
 		defer cancel()
 		defer response.Body.Close()
 		defer diagnostics.finish()
-		body, err := readBounded(response.Body, c.config.MaxResponseBytes)
-		if err != nil {
-			return nil, transportFailure(err)
-		}
+		body, readErr := readBounded(response.Body, c.config.MaxResponseBytes)
 		result, err := decodeHTTPFailure(response, body, diagnostics)
+		if readErr != nil {
+			err = transportFailure(readErr)
+		}
 		return nil, &StartupError{Result: result, Cause: err}
 	}
 	contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
@@ -96,15 +94,11 @@ func (s *Stream) Next() (generation.Event, error) {
 		if s.terminal != nil && len(s.queue) == 0 {
 			return nil, s.terminal
 		}
-		if s.terminal == nil && (s.stopped.Load() || s.ctx.Err() != nil) {
+		if err := s.ctx.Err(); s.terminal == nil && err != nil {
 			s.queue = slices.DeleteFunc(s.queue, func(event generation.Event) bool {
 				_, usage := event.(generation.UsageUpdated)
 				return !usage
 			})
-			err := s.ctx.Err()
-			if err == nil {
-				err = context.Canceled
-			}
 			s.finish(err)
 			continue
 		}
@@ -155,7 +149,6 @@ func (s *Stream) Next() (generation.Event, error) {
 }
 
 func (s *Stream) Close() error {
-	s.stopped.Store(true)
 	err := s.closeBody()
 	s.state.diagnostics.finish()
 	return err

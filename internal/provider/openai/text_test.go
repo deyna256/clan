@@ -56,7 +56,7 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stream.Close()
-	var annotations, probabilities int
+	var annotations, probabilities, partEnds int
 	var ended generation.Text
 
 	for {
@@ -82,6 +82,7 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 			e.Tokens[0].Bytes[0] = 0
 			e.Tokens[0].Top[0].Bytes[0] = 0
 		case generation.PartEnded:
+			partEnds++
 			text := e.Part.(generation.Text)
 			if !reflect.DeepEqual(text.OpenAI, expectedTextData()) {
 				t.Fatalf("part snapshot = %#v", text)
@@ -93,8 +94,8 @@ func TestStreamMergesTextMetadataWithoutAliasing(t *testing.T) {
 		}
 	}
 
-	if annotations != 4 || probabilities != 1 || !reflect.DeepEqual(ended.OpenAI, expectedTextData()) {
-		t.Fatalf("annotations = %d; probabilities = %d; final = %#v", annotations, probabilities, ended.OpenAI)
+	if annotations != 4 || probabilities != 1 || partEnds != 1 || !reflect.DeepEqual(ended.OpenAI, expectedTextData()) {
+		t.Fatalf("annotations = %d; probabilities = %d; part ends = %d; final = %#v", annotations, probabilities, partEnds, ended.OpenAI)
 	}
 }
 

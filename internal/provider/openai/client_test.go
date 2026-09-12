@@ -54,14 +54,23 @@ func TestGeneratePreservesOutputAndUsage(t *testing.T) {
 }
 
 func TestGenerateRetainsUsageOnContentFailure(t *testing.T) {
-	for _, output := range []string{`[{"type":"new_content","id":"new_1"}]`, `"malformed output"`, `[{"type":"message","id":"msg_1","role":"assistant"}]`, `null`} {
-		t.Run(output, func(t *testing.T) {
-			client := testClient(t, staticJSON(`{"id":"resp_1","model":"test-model","status":"completed","output":`+output+`,"usage":{"input_tokens":12,"output_tokens":3}}`), io.Discard)
+	for _, tc := range []struct {
+		name, output string
+		kind         generation.FailureKind
+	}{
+		{name: "unsupported item", output: `[{"type":"new_content","id":"new_1"}]`, kind: generation.Unsupported},
+		{name: "non-array output", output: `"malformed output"`, kind: generation.ProtocolError},
+		{name: "missing message content", output: `[{"type":"message","id":"msg_1","role":"assistant","status":"completed"}]`, kind: generation.ProtocolError},
+		{name: "null output", output: `null`, kind: generation.ProtocolError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := testClient(t, staticJSON(`{"id":"resp_1","model":"test-model","status":"completed","output":`+tc.output+`,"usage":{"input_tokens":12,"output_tokens":3}}`), io.Discard)
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			if err == nil || !reflect.DeepEqual(result.Response, generation.Response{}) || result.Usage.Input != count(12) || result.Usage.Output != count(3) {
-				t.Fatalf("result = %#v, %v; want usage without response", result, err)
+			var failure *generation.Failure
+			if !errors.As(err, &failure) || failure.Kind != tc.kind || !reflect.DeepEqual(result.Response, generation.Response{}) || result.Usage.Input != count(12) || result.Usage.Output != count(3) {
+				t.Fatalf("result = %#v, %v; want %s with usage without response", result, err, tc.kind)
 			}
 		})
 	}
@@ -238,3 +247,23 @@ func textResponse(text, usage string) string {
 }
 
 func count(tokens int64) usage.Counter { return usage.Counter{Tokens: tokens, Known: true} }
+
+func assertRequestJSON(t *testing.T, got, want string) {
+	t.Helper()
+	decode := func(raw string) any {
+		t.Helper()
+		if !json.Valid([]byte(raw)) {
+			t.Fatalf("invalid JSON: %s", raw)
+		}
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	if !reflect.DeepEqual(decode(got), decode(want)) {
+		t.Fatalf("JSON = %s; want %s", got, want)
+	}
+}

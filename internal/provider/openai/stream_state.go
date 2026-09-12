@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/deyna256/clan/internal/generation"
@@ -249,7 +250,7 @@ func (s *streamState) mergeItem(index int, value generation.Item) ([]generation.
 		item = &streamItem{item: value, parts: make(map[partKey]*streamPart)}
 		s.items[index] = item
 		s.order = append(s.order, index)
-	} else if itemID(item.item) != itemID(value) || itemKind(item.item) != itemKind(value) {
+	} else if itemID(item.item) != itemID(value) || reflect.TypeOf(item.item) != reflect.TypeOf(value) {
 		return nil, protocolError()
 	}
 	switch call := value.(type) {
@@ -540,69 +541,6 @@ func itemID(item generation.Item) string {
 		return value.ID
 	case generation.OpenAIFileSearchCall:
 		return value.ID
-	default:
-		return ""
-	}
-}
-
-func itemKind(item generation.Item) string {
-	switch item.(type) {
-	case generation.OpenAICompaction:
-		return "compaction"
-	case generation.OpenAIProgram:
-		return "program"
-	case generation.OpenAIProgramOutput:
-		return "program_output"
-	case generation.OpenAIToolSearchCall:
-		return "tool_search_call"
-	case generation.OpenAIToolSearchOutput:
-		return "tool_search_output"
-	case generation.OpenAIAdditionalTools:
-		return "additional_tools"
-	case generation.OpenAIMCPCall:
-		return "mcp_call"
-	case generation.OpenAIMCPListTools:
-		return "mcp_list"
-	case generation.OpenAIMCPApprovalRequest:
-		return "mcp_approval_request"
-	case generation.OpenAIMCPApprovalResponse:
-		return "mcp_approval_response"
-	case generation.OpenAIComputerCall:
-		return "computer_call"
-	case generation.OpenAIComputerResult:
-		return "computer_result"
-	case generation.OpenAIShellCall:
-		return "shell_call"
-	case generation.OpenAIShellResult:
-		return "shell_result"
-	case generation.OpenAILocalShellCall:
-		return "local_shell_call"
-	case generation.OpenAILocalShellResult:
-		return "local_shell_result"
-	case generation.OpenAIApplyPatchCall:
-		return "patch_call"
-	case generation.OpenAIApplyPatchResult:
-		return "patch_result"
-	case generation.CustomToolCall:
-		return "custom_call"
-	case generation.CustomToolResult:
-		return "custom_result"
-	case generation.OpenAIImageGenerationCall:
-		return "image_generation"
-	case generation.OpenAICodeInterpreterCall:
-		return "code_interpreter"
-	case generation.Message:
-		return "message"
-	case generation.Reasoning:
-		return "reasoning"
-	case generation.ToolCall:
-		return "call"
-	case generation.ToolResult:
-		return "call_result"
-	case generation.OpenAIWebSearchCall:
-		return "web_search"
-	case generation.OpenAIFileSearchCall:
-		return "file_search"
 	default:
 		return ""
 	}

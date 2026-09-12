@@ -2,7 +2,7 @@
 
 Status: Accepted. Recorded: 2026-09-08.
 Decision owner: project maintainer. Implementation: shared request, result and event
-types with an initial OpenAI JSON/SSE adapter; full feature coverage is unfinished.
+types with the [OpenAI provider adapter](../openai-adapter.md).
 
 ## Decision
 
@@ -75,6 +75,7 @@ MCP schemas, annotations and execution-error content keep their JSON values.
 An MCP tool failure does not by itself fail the generation.
 Tool namespaces remain separate from names; function/custom calls share routing
 metadata while preserving their different argument formats.
-Remaining native tools, resource operations and WebSocket contracts still need work.
+The adapter guide lists implemented operations and their boundaries. Other provider
+adapters and client protocol conversion remain to be implemented.
 Revisit if supported operations cannot fit the shared types without adding
 protocol-specific parsing to execution logic.

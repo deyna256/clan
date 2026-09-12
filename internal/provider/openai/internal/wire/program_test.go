@@ -78,7 +78,7 @@ func TestRejectInvalidProgramReplay(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }
@@ -122,7 +122,14 @@ func TestLoadedProgramTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := result.Response.Output[0].(generation.OpenAIToolSearchOutput).Tools
+	if len(result.Response.Output) != 1 {
+		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+	}
+	loaded, ok := result.Response.Output[0].(generation.OpenAIToolSearchOutput)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIToolSearchOutput", result.Response.Output[0])
+	}
+	got := loaded.Tools
 	want := []generation.Tool{generation.OpenAIProgrammaticToolCallingTool{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tools = %#v; want %#v", got, want)

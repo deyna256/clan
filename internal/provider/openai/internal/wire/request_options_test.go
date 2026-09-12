@@ -106,9 +106,18 @@ func TestRequestConversationAndStreamingConstraints(t *testing.T) {
 		{name: "null user", options: generation.OpenAIOptions{User: generation.Null[string]()}, field: "user"},
 		{name: "invalid user UTF-8", options: generation.OpenAIOptions{User: generation.Some("secret\xff")}, field: "user"},
 		{name: "null cache options", options: generation.OpenAIOptions{PromptCacheOptions: generation.Null[generation.OpenAIPromptCacheOptions]()}, field: "prompt_cache_options"},
-		{name: "null cache mode", options: generation.OpenAIOptions{PromptCacheOptions: generation.Some(generation.OpenAIPromptCacheOptions{Mode: generation.Null[string]()})}, field: "prompt_cache_options.mode"},
+		{
+			name:    "null cache mode",
+			options: generation.OpenAIOptions{PromptCacheOptions: generation.Some(generation.OpenAIPromptCacheOptions{Mode: generation.Null[string]()})},
+			field:   "prompt_cache_options.mode",
+		},
 		{name: "invalid cache TTL", options: generation.OpenAIOptions{PromptCacheOptions: generation.Some(generation.OpenAIPromptCacheOptions{TTL: generation.Some("24h")})}, field: "prompt_cache_options.ttl"},
-		{name: "null obfuscation", options: generation.OpenAIOptions{StreamOptions: generation.Some(generation.OpenAIStreamOptions{IncludeObfuscation: generation.Null[bool]()})}, streaming: true, field: "stream_options.include_obfuscation"},
+		{
+			name:      "null obfuscation",
+			options:   generation.OpenAIOptions{StreamOptions: generation.Some(generation.OpenAIStreamOptions{IncludeObfuscation: generation.Null[bool]()})},
+			streaming: true,
+			field:     "stream_options.include_obfuscation",
+		},
 		{name: "unknown context entry", options: generation.OpenAIOptions{ContextManagement: generation.Some([]generation.OpenAIContextManagement{{Type: "secret"}})}, field: "context_management[0].type"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,8 +229,16 @@ func TestRejectInvalidReasoningAndModeration(t *testing.T) {
 		{name: "unknown summary", options: generation.OpenAIOptions{Reasoning: generation.Some(generation.ReasoningOptions{GenerateSummary: generation.Some("secret")})}, field: "reasoning.generate_summary"},
 		{name: "null mode", options: generation.OpenAIOptions{Reasoning: generation.Some(generation.ReasoningOptions{Mode: generation.Null[string]()})}, field: "reasoning.mode"},
 		{name: "missing moderation model", options: generation.OpenAIOptions{Moderation: generation.Some(generation.OpenAIModerationOptions{})}, field: "moderation.model"},
-		{name: "missing moderation mode", options: generation.OpenAIOptions{Moderation: generation.Some(generation.OpenAIModerationOptions{Model: "m", Policy: generation.Some(generation.OpenAIModerationPolicy{Input: generation.Some(generation.OpenAIModerationRule{})})})}, field: "moderation.policy.input.mode"},
-		{name: "invalid moderation mode", options: generation.OpenAIOptions{Moderation: generation.Some(generation.OpenAIModerationOptions{Model: "m", Policy: generation.Some(generation.OpenAIModerationPolicy{Output: generation.Some(generation.OpenAIModerationRule{Mode: "secret"})})})}, field: "moderation.policy.output.mode"},
+		{
+			name:    "missing moderation mode",
+			options: generation.OpenAIOptions{Moderation: generation.Some(generation.OpenAIModerationOptions{Model: "m", Policy: generation.Some(generation.OpenAIModerationPolicy{Input: generation.Some(generation.OpenAIModerationRule{})})})},
+			field:   "moderation.policy.input.mode",
+		},
+		{
+			name:    "invalid moderation mode",
+			options: generation.OpenAIOptions{Moderation: generation.Some(generation.OpenAIModerationOptions{Model: "m", Policy: generation.Some(generation.OpenAIModerationPolicy{Output: generation.Some(generation.OpenAIModerationRule{Mode: "secret"})})})},
+			field:   "moderation.policy.output.mode",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()

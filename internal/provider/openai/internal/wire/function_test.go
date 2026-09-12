@@ -15,8 +15,21 @@ func TestFunctionCallMetadataAndResultReplay(t *testing.T) {
 	]}`)
 	caller := generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"})
 	want := []generation.Item{
-		generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "lookup", Arguments: "{}", Status: generation.ItemCompleted, OpenAI: generation.OpenAIToolCallData{Async: generation.Some(false), Namespace: generation.Some("crm"), Caller: caller}},
-		generation.ToolResult{ID: generation.Some("out_1"), Status: generation.Some(generation.ItemCompleted), Output: generation.ToolPartsOutput{generation.OpenAIFunctionText{Text: "Found"}, generation.OpenAIFunctionImage{FileID: generation.Some("file_1")}}, Caller: generation.Null[generation.OpenAIToolCaller](), OpenAI: generation.OpenAIToolResultData{Name: generation.Some("lookup"), Namespace: generation.Some("crm"), CreatedBy: generation.Some("program_1")}},
+		generation.ToolCall{
+			ID:        "fc_1",
+			CallID:    "call_1",
+			Name:      "lookup",
+			Arguments: "{}",
+			Status:    generation.ItemCompleted,
+			OpenAI:    generation.OpenAIToolCallData{Async: generation.Some(false), Namespace: generation.Some("crm"), Caller: caller},
+		},
+		generation.ToolResult{
+			ID:     generation.Some("out_1"),
+			Status: generation.Some(generation.ItemCompleted),
+			Output: generation.ToolPartsOutput{generation.OpenAIFunctionText{Text: "Found"}, generation.OpenAIFunctionImage{FileID: generation.Some("file_1")}},
+			Caller: generation.Null[generation.OpenAIToolCaller](),
+			OpenAI: generation.OpenAIToolResultData{Name: generation.Some("lookup"), Namespace: generation.Some("crm"), CreatedBy: generation.Some("program_1")},
+		},
 	}
 
 	envelope, err := wire.DecodeEnvelope(raw)
@@ -43,7 +56,14 @@ func TestFunctionCallMetadataAndResultReplay(t *testing.T) {
 func TestEncodeFunctionResultPresence(t *testing.T) {
 	request := requestWith(
 		generation.ToolResult{Output: generation.ToolTextOutput("")},
-		generation.ToolResult{ID: generation.Null[string](), CallID: generation.Null[string](), Status: generation.Null[generation.ItemStatus](), Output: generation.ToolPartsOutput{}, Caller: generation.Null[generation.OpenAIToolCaller](), OpenAI: generation.OpenAIToolResultData{Name: generation.Null[string](), Namespace: generation.Null[string]()}},
+		generation.ToolResult{
+			ID:     generation.Null[string](),
+			CallID: generation.Null[string](),
+			Status: generation.Null[generation.ItemStatus](),
+			Output: generation.ToolPartsOutput{},
+			Caller: generation.Null[generation.OpenAIToolCaller](),
+			OpenAI: generation.OpenAIToolResultData{Name: generation.Null[string](), Namespace: generation.Null[string]()},
+		},
 		generation.ToolResult{CallID: generation.Some("call_1"), Output: generation.ToolTextOutput("done"), Caller: generation.Some(generation.OpenAIToolCaller{Type: "direct"})},
 	)
 
@@ -90,7 +110,7 @@ func TestRejectInvalidFunctionMetadata(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }

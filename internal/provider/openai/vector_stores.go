@@ -213,18 +213,9 @@ func (c *Client) ListVectorStoreFiles(ctx context.Context, attempt Attempt, stor
 	if err != nil {
 		return VectorStoreFilePage{}, err
 	}
-	page, err := decodeResource[struct {
-		Data    []json.RawMessage `json:"data"`
-		Object  string            `json:"object"`
-		FirstID *string           `json:"first_id"`
-		LastID  *string           `json:"last_id"`
-		HasMore *bool             `json:"has_more"`
-	}](c.resourceJSON(ctx, attempt, http.MethodGet, []string{"vector_stores", storeID, "files"}, query, nil))
+	page, err := decodeResourcePage(c.resourceJSON(ctx, attempt, http.MethodGet, []string{"vector_stores", storeID, "files"}, query, nil))
 	if err != nil {
 		return VectorStoreFilePage{}, err
-	}
-	if page.Data == nil || page.Object != "list" || page.FirstID == nil || page.LastID == nil || page.HasMore == nil {
-		return VectorStoreFilePage{}, protocolError()
 	}
 	files := make([]VectorStoreFile, 0, len(page.Data))
 	for _, raw := range page.Data {

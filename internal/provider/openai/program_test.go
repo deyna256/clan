@@ -84,7 +84,7 @@ func TestStreamProgramFingerprintPresence(t *testing.T) {
 			if !errors.Is(err, io.EOF) {
 				t.Fatal(err)
 			}
-			got := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAIProgram)
+			got := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIProgram)
 			want := generation.OpenAIProgram{ID: "prog_1", CallID: "call_prog", Fingerprint: generation.Some(fingerprint)}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("program = %#v; want %#v", got, want)
@@ -113,8 +113,8 @@ func TestStreamProgramRejectsConflicts(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("last event = %#v; want output usage 8", events[len(events)-1])
 			}
 		})
@@ -163,7 +163,7 @@ func TestStreamProgramDoesNotAccumulateRepeatedSnapshots(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	got := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAIProgram)
+	got := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIProgram)
 	if got.Code != code {
 		t.Fatalf("code length = %d; want unchanged %d-byte code", len(got.Code), len(code))
 	}

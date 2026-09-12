@@ -42,6 +42,9 @@ func TestUploadFileMultipartAndExpiry(t *testing.T) {
 			if part.FormName() == "file" && part.FileName() != "input.txt" {
 				t.Errorf("filename = %q", part.FileName())
 			}
+			if _, exists := got[part.FormName()]; exists {
+				t.Errorf("duplicate multipart field %q", part.FormName())
+			}
 			got[part.FormName()] = string(body)
 		}
 		want := map[string]string{"file": "hello\x00world", "purpose": "evals", "expires_after[anchor]": "created_at", "expires_after[seconds]": "3600"}
@@ -50,10 +53,12 @@ func TestUploadFileMultipartAndExpiry(t *testing.T) {
 		}
 		_, _ = io.WriteString(w, uploadedFile)
 	}, io.Discard)
+
 	file, err := client.UploadFile(t.Context(), testAttempt(), openai.FileUpload{
 		Filename: "input.txt", Purpose: "evals", Content: io.NopCloser(strings.NewReader("hello\x00world")),
 		ExpiresAfter: generation.Some(openai.FileExpiration{Anchor: "created_at", Seconds: 3600}),
 	})
+
 	if err != nil || file.ID != "file_1" || !file.Status.IsZero() || file.Bytes != 0 {
 		t.Fatalf("file = %#v, %v", file, err)
 	}
@@ -73,7 +78,9 @@ func TestFileRetrieveAndDelete(t *testing.T) {
 			t.Errorf("method = %s", r.Method)
 		}
 	}, io.Discard)
+
 	file, err := client.RetrieveFile(t.Context(), testAttempt(), "file_1")
+
 	if err != nil || file.Status != generation.Some("error") || file.ExpiresAt != generation.Some(int64(0)) {
 		t.Fatalf("file = %#v, %v", file, err)
 	}
@@ -84,18 +91,24 @@ func TestFileRetrieveAndDelete(t *testing.T) {
 }
 
 func TestFilesRejectMalformedSuccess(t *testing.T) {
-	for _, body := range []string{
-		`null`, `{}`, `[]`, uploadedFile + `{}`, strings.Replace(uploadedFile, `"bytes":0,`, "", 1),
-		strings.Replace(uploadedFile, `"created_at":0`, `"created_at":null`, 1),
-		strings.Replace(uploadedFile, `"bytes":0`, `"bytes":-1`, 1),
-		strings.Replace(uploadedFile, `"filename":"input.txt"`, `"filename":null`, 1),
-		strings.Replace(uploadedFile, `"id":"file_1"`, `"id":"other"`, 1),
-		strings.TrimSuffix(uploadedFile, "}") + `,"expires_at":null}`,
-		strings.TrimSuffix(uploadedFile, "}") + `,"status":null}`,
+	for _, tc := range []struct{ name, body string }{
+		{name: "null object", body: `null`},
+		{name: "empty object", body: `{}`},
+		{name: "array", body: `[]`},
+		{name: "trailing object", body: uploadedFile + `{}`},
+		{name: "missing bytes", body: strings.Replace(uploadedFile, `"bytes":0,`, "", 1)},
+		{name: "null creation time", body: strings.Replace(uploadedFile, `"created_at":0`, `"created_at":null`, 1)},
+		{name: "negative bytes", body: strings.Replace(uploadedFile, `"bytes":0`, `"bytes":-1`, 1)},
+		{name: "null filename", body: strings.Replace(uploadedFile, `"filename":"input.txt"`, `"filename":null`, 1)},
+		{name: "wrong identity", body: strings.Replace(uploadedFile, `"id":"file_1"`, `"id":"other"`, 1)},
+		{name: "null expiry", body: strings.TrimSuffix(uploadedFile, "}") + `,"expires_at":null}`},
+		{name: "null status", body: strings.TrimSuffix(uploadedFile, "}") + `,"status":null}`},
 	} {
-		t.Run(body, func(t *testing.T) {
-			client := testClient(t, staticJSON(body), io.Discard)
+		t.Run(tc.name, func(t *testing.T) {
+			client := testClient(t, staticJSON(tc.body), io.Discard)
+
 			file, err := client.RetrieveFile(t.Context(), testAttempt(), "file_1")
+
 			var failure *generation.Failure
 			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError || file.ID != "" {
 				t.Fatalf("file = %#v, %v", file, err)
@@ -103,26 +116,33 @@ func TestFilesRejectMalformedSuccess(t *testing.T) {
 		})
 	}
 	client := testClient(t, staticJSON(`{"id":"file_1","object":"file"}`), io.Discard)
-	if _, err := client.DeleteFile(t.Context(), testAttempt(), "file_1"); err == nil {
-		t.Fatal("accepted missing deleted flag")
-	}
+
+	_, err := client.DeleteFile(t.Context(), testAttempt(), "file_1")
+
+	assertProtocolError(t, err)
 }
 
 func TestFileUploadValidatesBeforeDispatch(t *testing.T) {
 	client := testClient(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid upload dispatched") }, io.Discard)
-	for _, upload := range []openai.FileUpload{
-		{Filename: "input", Purpose: "assistants_output", Content: io.NopCloser(strings.NewReader(""))},
-		{Filename: "input", Purpose: "user_data"},
-		{Filename: "bad\nname", Purpose: "user_data", Content: io.NopCloser(strings.NewReader(""))},
-		{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Null[openai.FileExpiration]()},
-		{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Some(openai.FileExpiration{Anchor: "created_at", Seconds: 3599})},
-		{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Some(openai.FileExpiration{Anchor: "created_at", Seconds: 2592001})},
+	for _, tc := range []struct {
+		name   string
+		upload openai.FileUpload
+	}{
+		{name: "output-only purpose", upload: openai.FileUpload{Filename: "input", Purpose: "assistants_output", Content: io.NopCloser(strings.NewReader(""))}},
+		{name: "missing content", upload: openai.FileUpload{Filename: "input", Purpose: "user_data"}},
+		{name: "invalid filename", upload: openai.FileUpload{Filename: "bad\nname", Purpose: "user_data", Content: io.NopCloser(strings.NewReader(""))}},
+		{name: "null expiry", upload: openai.FileUpload{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Null[openai.FileExpiration]()}},
+		{name: "expiry below minimum", upload: openai.FileUpload{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Some(openai.FileExpiration{Anchor: "created_at", Seconds: 3599})}},
+		{name: "expiry above maximum", upload: openai.FileUpload{Filename: "input", Purpose: "user_data", Content: io.NopCloser(strings.NewReader("")), ExpiresAfter: generation.Some(openai.FileExpiration{Anchor: "created_at", Seconds: 2592001})}},
 	} {
-		_, err := client.UploadFile(t.Context(), testAttempt(), upload)
-		var input *openai.InputError
-		if !errors.As(err, &input) {
-			t.Fatalf("error = %v", err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := client.UploadFile(t.Context(), testAttempt(), tc.upload)
+
+			var input *openai.InputError
+			if !errors.As(err, &input) {
+				t.Fatalf("error = %v; want input error", err)
+			}
+		})
 	}
 }
 

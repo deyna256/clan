@@ -67,25 +67,22 @@ func (c *Client) Generate(ctx context.Context, attempt Attempt, request generati
 		return generation.Result{}, transportFailure(err)
 	}
 	defer response.Body.Close()
-	body, err := readBounded(response.Body, c.config.MaxResponseBytes)
-	if err != nil {
-		return generation.Result{}, transportFailure(err)
-	}
+	body, readErr := readBounded(response.Body, c.config.MaxResponseBytes)
 	diagnostics := c.diagnostics(attempt)
 	defer diagnostics.finish()
+	envelope, decodeErr := wire.DecodeEnvelope(body)
+	metadata := responseMetadata(envelope, diagnostics)
+	if readErr != nil {
+		return metadata, transportFailure(readErr)
+	}
 	if response.StatusCode != http.StatusOK {
-		return decodeHTTPFailure(response, body, diagnostics)
+		return metadata, classifyHTTPFailure(response.StatusCode, response.Header, envelope.Error)
 	}
-	envelope, err := wire.DecodeEnvelope(body)
-	state, invalid := wire.NormalizeUsage(envelope.Usage, usage.State{})
-	if invalid {
-		diagnostics.warn("invalid_usage", "response", "kept_valid_counters")
-	}
-	if err != nil {
-		return generation.Result{Identity: generation.Identity{ID: envelope.ID, Model: envelope.Model}, Usage: state.Usage}, err
+	if decodeErr != nil {
+		return metadata, decodeErr
 	}
 	result, err := envelope.Result(diagnostics.report)
-	result.Usage = state.Usage
+	result.Usage = metadata.Usage
 	if err != nil {
 		return result, err
 	}
@@ -114,12 +111,15 @@ func (e *HTTPError) Unwrap() error { return e.Failure }
 
 func decodeHTTPFailure(response *http.Response, body []byte, diagnostics *diagnostics) (generation.Result, error) {
 	envelope, _ := wire.DecodeEnvelope(body)
+	return responseMetadata(envelope, diagnostics), classifyHTTPFailure(response.StatusCode, response.Header, envelope.Error)
+}
+
+func responseMetadata(envelope wire.ResponseEnvelope, diagnostics *diagnostics) generation.Result {
 	state, invalid := wire.NormalizeUsage(envelope.Usage, usage.State{})
 	if invalid {
 		diagnostics.warn("invalid_usage", "response", "kept_valid_counters")
 	}
-	result := generation.Result{Identity: generation.Identity{ID: envelope.ID, Model: envelope.Model}, Usage: state.Usage}
-	return result, classifyHTTPFailure(response.StatusCode, response.Header, envelope.Error)
+	return generation.Result{Identity: generation.Identity{ID: envelope.ID, Model: envelope.Model}, Usage: state.Usage}
 }
 
 func classifyHTTPFailure(status int, headers http.Header, providerError wire.ProviderError) *HTTPError {
@@ -138,13 +138,10 @@ func classifyHTTPFailure(status int, headers http.Header, providerError wire.Pro
 
 func readBounded(reader io.Reader, limit int64) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if err != nil {
-		return nil, err
-	}
 	if int64(len(body)) > limit {
 		return nil, &generation.Failure{Kind: generation.ProtocolError, OutcomeUnknown: true}
 	}
-	return body, nil
+	return body, err
 }
 
 func transportFailure(err error) error {

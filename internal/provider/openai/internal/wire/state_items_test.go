@@ -103,36 +103,41 @@ func TestRejectInvalidStateInput(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }
 
-func TestRejectMalformedStateItems(t *testing.T) {
-	for _, tc := range []struct {
-		name, raw     string
-		configuration bool
-	}{
-		{name: "configuration missing ID", raw: `{"type":"configuration_update"}`, configuration: true},
-		{name: "configuration null ID", raw: `{"type":"configuration_update","id":null}`, configuration: true},
-		{name: "configuration null reasoning", raw: `{"type":"configuration_update","id":"c","reasoning":null}`, configuration: true},
-		{name: "configuration effort", raw: `{"type":"configuration_update","id":"c","reasoning":{"effort":"invalid"}}`, configuration: true},
-		{name: "compaction null content", raw: `{"type":"compaction","id":"c","encrypted_content":null}`},
-		{name: "compaction missing ID", raw: `{"type":"compaction","encrypted_content":"opaque"}`},
-		{name: "compaction null creator", raw: `{"type":"compaction","id":"c","encrypted_content":"opaque","created_by":null}`},
+func TestRejectMalformedConfigurationUpdates(t *testing.T) {
+	for _, tc := range []struct{ name, raw string }{
+		{name: "missing ID", raw: `{"type":"configuration_update"}`},
+		{name: "null ID", raw: `{"type":"configuration_update","id":null}`},
+		{name: "null reasoning", raw: `{"type":"configuration_update","id":"c","reasoning":null}`},
+		{name: "invalid effort", raw: `{"type":"configuration_update","id":"c","reasoning":{"effort":"invalid"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var err error
-
-			if tc.configuration {
-				_, err = wire.DecodeConfigurationUpdate(json.RawMessage(tc.raw))
-			} else {
-				_, err = wire.DecodeItem([]byte(tc.raw), true, nil)
-			}
+			_, err := wire.DecodeConfigurationUpdate(json.RawMessage(tc.raw))
 
 			var failure *generation.Failure
 			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
 				t.Fatalf("decode error = %v; want protocol error", err)
+			}
+		})
+	}
+}
+
+func TestRejectMalformedCompactionItems(t *testing.T) {
+	for _, tc := range []struct{ name, raw string }{
+		{name: "null content", raw: `{"type":"compaction","id":"c","encrypted_content":null}`},
+		{name: "missing ID", raw: `{"type":"compaction","encrypted_content":"opaque"}`},
+		{name: "null creator", raw: `{"type":"compaction","id":"c","encrypted_content":"opaque","created_by":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item, err := wire.DecodeItem([]byte(tc.raw), true, nil)
+
+			var failure *generation.Failure
+			if item != nil || !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
+				t.Fatalf("item = %#v, %v; want no item and protocol error", item, err)
 			}
 		})
 	}

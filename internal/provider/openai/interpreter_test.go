@@ -18,9 +18,12 @@ func TestGenerateInterpreterResults(t *testing.T) {
 		wantCode            generation.Optional[string]
 		wantOutputs         generation.Optional[[]generation.InterpreterOutput]
 	}{
-		{"logs and image", `"print(1)"`, `[{"type":"logs","logs":""},{"type":"image","url":"https://example.com/plot.png"}]`, generation.Some("print(1)"), generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{}, generation.InterpreterImage{URL: "https://example.com/plot.png"}})},
-		{"unavailable", `null`, `null`, generation.Null[string](), generation.Null[[]generation.InterpreterOutput]()},
-		{"empty", `""`, `[]`, generation.Some(""), generation.Some([]generation.InterpreterOutput{})},
+		{
+			name: "logs and image", code: `"print(1)"`, outputs: `[{"type":"logs","logs":""},{"type":"image","url":"https://example.com/plot.png"}]`,
+			wantCode: generation.Some("print(1)"), wantOutputs: generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{}, generation.InterpreterImage{URL: "https://example.com/plot.png"}}),
+		},
+		{name: "unavailable", code: `null`, outputs: `null`, wantCode: generation.Null[string](), wantOutputs: generation.Null[[]generation.InterpreterOutput]()},
+		{name: "empty", code: `""`, outputs: `[]`, wantCode: generation.Some(""), wantOutputs: generation.Some([]generation.InterpreterOutput{})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := testClient(t, staticJSON(responseWithItems(interpreterCallJSON(tc.code, tc.outputs))), io.Discard)
@@ -110,7 +113,7 @@ func TestStreamInterpreterRetainsKnownCode(t *testing.T) {
 			if !errors.Is(err, io.EOF) {
 				t.Fatal(err)
 			}
-			end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAICodeInterpreterCall)
+			end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAICodeInterpreterCall)
 			if code, known := end.Code.Value(); !known || code != "pass" {
 				t.Fatalf("final code = %q, known=%v", code, known)
 			}
@@ -126,10 +129,7 @@ func TestGenerateRequiresTerminalInterpreterContainer(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
+			assertProtocolError(t, err)
 			if result.Usage.Output != count(8) {
 				t.Fatalf("usage = %#v; want 8 output tokens", result.Usage)
 			}
@@ -148,7 +148,7 @@ func TestStreamInterpreterAcceptsEmptyCodeDone(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAICodeInterpreterCall)
+	end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAICodeInterpreterCall)
 	if code, known := end.Code.Value(); !known || code != "" {
 		t.Fatalf("final code = %q, known=%v", code, known)
 	}
@@ -161,8 +161,8 @@ func TestStreamInterpreterAcceptsEmptyCodeDone(t *testing.T) {
 
 func TestStreamInterpreterConflictPreservesUsage(t *testing.T) {
 	for _, tc := range []struct{ name, call string }{
-		{"code", interpreterCallJSON(`"different"`, `null`)},
-		{"container", strings.Replace(interpreterCallJSON(`"pass"`, `null`), "cntr_1", "cntr_other", 1)},
+		{name: "code", call: interpreterCallJSON(`"different"`, `null`)},
+		{name: "container", call: strings.Replace(interpreterCallJSON(`"pass"`, `null`), "cntr_1", "cntr_other", 1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := streamClient(t, io.Discard, created(), interpreterAdded(),
@@ -172,12 +172,9 @@ func TestStreamInterpreterConflictPreservesUsage(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			assertProtocolError(t, err)
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("last = %#v; want known usage", events[len(events)-1])
 			}
 			assertNoResponseEnd(t, events)
@@ -190,9 +187,9 @@ func TestStreamInterpreterOutputSnapshots(t *testing.T) {
 		name, field string
 		want        generation.Optional[[]generation.InterpreterOutput]
 	}{
-		{"omitted", "", generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{Logs: "1"}, generation.InterpreterImage{URL: "https://example.com/plot.png"}})},
-		{"unavailable", `,"outputs":null`, generation.Null[[]generation.InterpreterOutput]()},
-		{"empty", `,"outputs":[]`, generation.Some([]generation.InterpreterOutput{})},
+		{name: "omitted", want: generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{Logs: "1"}, generation.InterpreterImage{URL: "https://example.com/plot.png"}})},
+		{name: "unavailable", field: `,"outputs":null`, want: generation.Null[[]generation.InterpreterOutput]()},
+		{name: "empty", field: `,"outputs":[]`, want: generation.Some([]generation.InterpreterOutput{})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			call := interpreterCallJSON(`"pass"`, `[{"type":"logs","logs":"1"},{"type":"image","url":"https://example.com/plot.png"}]`)
@@ -207,7 +204,7 @@ func TestStreamInterpreterOutputSnapshots(t *testing.T) {
 			if !errors.Is(err, io.EOF) {
 				t.Fatal(err)
 			}
-			end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAICodeInterpreterCall)
+			end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAICodeInterpreterCall)
 			if !reflect.DeepEqual(end.Outputs, tc.want) {
 				t.Fatalf("outputs = %#v; want %#v", end.Outputs, tc.want)
 			}
@@ -228,10 +225,7 @@ func TestStreamInterpreterRejectsMalformedCodeEvents(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
+			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
 		})
 	}
@@ -260,8 +254,8 @@ func TestGenerateSkipsMalformedOptionalInterpreterOutput(t *testing.T) {
 func TestStreamInterpreterBoundsRetainedCodeAndOutputs(t *testing.T) {
 	large := strings.Repeat("x", 600_000)
 	for _, tc := range []struct{ name, second string }{
-		{"code", fmt.Sprintf(`{"type":"response.code_interpreter_call_code.delta","output_index":0,"delta":%q}`, large)},
-		{"output", `{"type":"response.output_item.done","output_index":0,"item":` + interpreterCallJSON(`null`, fmt.Sprintf(`[{"type":"logs","logs":%q}]`, large)) + `}`},
+		{name: "code", second: fmt.Sprintf(`{"type":"response.code_interpreter_call_code.delta","output_index":0,"delta":%q}`, large)},
+		{name: "output", second: `{"type":"response.output_item.done","output_index":0,"item":` + interpreterCallJSON(`null`, fmt.Sprintf(`[{"type":"logs","logs":%q}]`, large)) + `}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := streamClient(t, io.Discard, created(), interpreterAdded(),
@@ -269,10 +263,7 @@ func TestStreamInterpreterBoundsRetainedCodeAndOutputs(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want cumulative size rejection", err)
-			}
+			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
 		})
 	}

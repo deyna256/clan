@@ -1,8 +1,9 @@
 # ADR 0003: Separate request execution from protocol adapters
 
 Status: Accepted. Recorded: 2026-09-08.
-Decision owner: project maintainer. Implementation: initial OpenAI JSON/SSE provider
-adapter; inbound adapters and centralized execution are not implemented.
+Decision owner: project maintainer. Implementation: the
+[OpenAI provider adapter](../openai-adapter.md); inbound adapters and centralized
+execution are not implemented.
 
 ## Decision
 

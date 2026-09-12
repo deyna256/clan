@@ -94,11 +94,11 @@ func TestStreamShellOutputSupportsSeveralChunksPerCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []generation.ShellOutput{{Stdout: "a", Outcome: generation.ShellExit{ExitCode: 0}}, {Stdout: "b", Outcome: generation.ShellExit{ExitCode: 1}}}
-	if delta, ok := events[3].(generation.ShellOutputDelta); !ok || delta.CommandIndex != 2 || delta.Stdout != "b" {
+	if delta := eventAt[generation.ShellOutputDelta](t, events, 3); delta.CommandIndex != 2 || delta.Stdout != "b" {
 		t.Fatalf("recovered delta = %#v; want command 2 suffix b", events[3])
 	}
-	command := events[4].(generation.ShellOutputEnded)
-	item := events[5].(generation.ItemEnded).Item.(generation.OpenAIShellResult)
+	command := eventAt[generation.ShellOutputEnded](t, events, 4)
+	item := eventAt[generation.ItemEnded](t, events, 5).Item.(generation.OpenAIShellResult)
 	if command.CommandIndex != 2 || !reflect.DeepEqual(command.Output, want) || !reflect.DeepEqual(item.Output, want) {
 		t.Fatalf("command = %#v; item = %#v; want %#v", command, item, want)
 	}
@@ -119,8 +119,8 @@ func TestStreamShellRejectsConflictingCommandsAndPreservesUsage(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("events = %#v; want preserved usage", events)
 			}
 		})
@@ -171,10 +171,10 @@ func TestStreamShellFinalOnlyPreservesIncompleteCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := shellCall("incomplete", "printf '")
-	if end := events[len(events)-2].(generation.ItemEnded); !reflect.DeepEqual(end.Item, want) {
+	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("item = %#v; want %#v", end.Item, want)
 	}
-	if finish := events[len(events)-1].(generation.ResponseEnded).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
+	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
 		t.Fatalf("finish = %#v; want max_output_tokens", finish)
 	}
 }
@@ -233,6 +233,7 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 	t.Cleanup(func() { _ = stream.Close() })
 
 	var end generation.OpenAILocalShellCall
+	starts := 0
 	for {
 		event, err := stream.Next()
 		if errors.Is(err, io.EOF) {
@@ -243,6 +244,7 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 		}
 		switch value := event.(type) {
 		case generation.ItemStarted:
+			starts++
 			call := value.Item.(generation.OpenAILocalShellCall)
 			call.Action.Command[0] = "mutated"
 			call.Action.Env["MODE"] = "mutated"
@@ -252,8 +254,8 @@ func TestStreamLocalShellPreservesArgumentsAndSnapshotOwnership(t *testing.T) {
 	}
 
 	want := generation.OpenAILocalShellCall{ID: "ls_1", CallID: "call_2", Status: "completed", Action: generation.LocalShellAction{Command: []string{"printf", "hello world"}, Env: map[string]string{"MODE": ""}}}
-	if !reflect.DeepEqual(end, want) {
-		t.Fatalf("end = %#v; want %#v", end, want)
+	if starts != 1 || !reflect.DeepEqual(end, want) {
+		t.Fatalf("starts = %d; end = %#v; want one mutated start and %#v", starts, end, want)
 	}
 }
 
@@ -268,7 +270,7 @@ func TestStreamLocalShellRetainsOmittedResultStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.OpenAILocalShellResult{ID: "call_1", Output: "okay", Status: generation.Some("completed")}
-	if end := events[len(events)-2].(generation.ItemEnded); !reflect.DeepEqual(end.Item, want) {
+	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("end = %#v; want %#v", end.Item, want)
 	}
 }
@@ -292,7 +294,7 @@ func TestStreamShellPreservesLateMetadata(t *testing.T) {
 	want.Action.TimeoutMs = generation.Some[int64](5000)
 	want.Caller = generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"})
 	want.CreatedBy = generation.Some("program_1")
-	if end := events[len(events)-2].(generation.ItemEnded); !reflect.DeepEqual(end.Item, want) {
+	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("end = %#v; want %#v", end.Item, want)
 	}
 }
@@ -318,7 +320,7 @@ func TestStreamShellRetainsChunkCreator(t *testing.T) {
 			}
 		}
 	}
-	end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAIShellResult)
+	end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIShellResult)
 	if ends != 1 || end.Output[0].CreatedBy != generation.Some("program_1") {
 		t.Fatalf("command ends = %d; item output = %#v; want one end and preserved creator", ends, end.Output)
 	}

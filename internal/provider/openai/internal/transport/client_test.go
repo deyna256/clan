@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestCancellationControlsResponseBody(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := newClient(t, server.URL, server.Client())
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	t.Cleanup(cancel)
 	response, err := client.Create(ctx, "key-a", []byte(`{"input":"hello"}`), true)
 	if err != nil {
@@ -116,18 +117,28 @@ func TestCancellationControlsResponseBody(t *testing.T) {
 	if _, err := io.ReadFull(response.Body, make([]byte, 5)); err != nil {
 		t.Fatalf("body was not usable after Create: %v", err)
 	}
-	finished := make(chan error, 1)
+	finished := make(chan struct{})
+	var readErr error
+	t.Cleanup(func() {
+		cancel()
+		_ = response.Body.Close()
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Error("response reader did not stop")
+		}
+	})
 	go func() {
-		_, err := io.ReadAll(response.Body)
-		finished <- err
+		_, readErr = io.ReadAll(response.Body)
+		close(finished)
 	}()
 
 	cancel()
 
 	select {
-	case err := <-finished:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("body error = %v; want context cancellation", err)
+	case <-finished:
+		if !errors.Is(readErr, context.Canceled) {
+			t.Fatalf("body error = %v; want context cancellation", readErr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation did not interrupt body reading")
@@ -135,34 +146,56 @@ func TestCancellationControlsResponseBody(t *testing.T) {
 }
 
 func TestConcurrentRequestsKeepCredentialsSeparate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	keys := []string{"key-a", "key-b", "key-c", "key-d"}
 	captured := make(chan requestCapture, len(keys))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		captured <- requestCapture{header: r.Header.Clone(), body: string(body), err: err}
+		select {
+		case captured <- requestCapture{header: r.Header.Clone(), body: string(body), err: err}:
+		case <-ctx.Done():
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
 	client := newClient(t, server.URL, server.Client())
 	finished := make(chan error, len(keys))
+	var workers sync.WaitGroup
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("request workers did not stop")
+		}
+	})
 
 	for _, key := range keys {
-		go func() {
+		workers.Go(func() {
 			payload, err := json.Marshal(key)
 			if err != nil {
 				finished <- err
 				return
 			}
-			response, err := client.Create(t.Context(), key, payload, false)
+			response, err := client.Create(ctx, key, payload, false)
 			if err == nil {
 				err = response.Body.Close()
 			}
 			finished <- err
-		}()
+		})
 	}
+	go func() { workers.Wait(); close(finished); close(done) }()
 
-	for range keys {
-		if err := <-finished; err != nil {
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("concurrent requests did not finish")
+	}
+	for err := range finished {
+		if err != nil {
 			t.Errorf("Create: %v", err)
 		}
 	}
@@ -171,7 +204,12 @@ func TestConcurrentRequestsKeepCredentialsSeparate(t *testing.T) {
 	}
 	seen := make(map[string]bool)
 	for range keys {
-		got := <-captured
+		var got requestCapture
+		select {
+		case got = <-captured:
+		case <-ctx.Done():
+			t.Fatal("request succeeded without a captured request")
+		}
 		var key string
 		if err := json.Unmarshal([]byte(got.body), &key); err != nil {
 			t.Fatalf("request body: %v", err)

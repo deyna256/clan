@@ -98,7 +98,7 @@ func TestRejectInvalidCustomTools(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }
@@ -114,7 +114,10 @@ func TestRejectInvalidCustomHistory(t *testing.T) {
 		{name: "name", item: generation.CustomToolCall{CallID: "call_1"}},
 		{name: "input UTF-8", item: generation.CustomToolCall{CallID: "call_1", Name: "execute", Input: "private\xff"}},
 		{name: "missing program ID", item: generation.CustomToolResult{CallID: "call_1", Output: generation.ToolTextOutput(""), Caller: generation.Some(generation.OpenAIToolCaller{Type: "program"})}},
-		{name: "direct with program ID", item: generation.CustomToolResult{CallID: "call_1", Output: generation.ToolTextOutput(""), Caller: generation.Some(generation.OpenAIToolCaller{Type: "direct", CallerID: "private"})}},
+		{
+			name: "direct with program ID",
+			item: generation.CustomToolResult{CallID: "call_1", Output: generation.ToolTextOutput(""), Caller: generation.Some(generation.OpenAIToolCaller{Type: "direct", CallerID: "private"})},
+		},
 		{name: "missing output", item: generation.CustomToolResult{CallID: "call_1"}},
 		{name: "output UTF-8", item: generation.CustomToolResult{CallID: "call_1", Output: generation.ToolTextOutput("private\xff")}},
 		{name: "output part", item: generation.CustomToolResult{CallID: "call_1", Output: generation.ToolPartsOutput{generation.Refusal{Text: "private"}}}},
@@ -124,15 +127,16 @@ func TestRejectInvalidCustomHistory(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }
 
-func assertCustomInputError(t *testing.T, body []byte, err error) {
+func assertInputError(t *testing.T, body []byte, err error) {
 	t.Helper()
 	var inputError *wire.InputError
-	if body != nil || !errors.As(err, &inputError) {
+	var failure *generation.Failure
+	if body != nil || !errors.As(err, &inputError) || !errors.As(err, &failure) || failure.Kind != generation.InvalidRequest {
 		t.Fatalf("EncodeRequest = %s, %v; want input error", body, err)
 	}
 	if strings.Contains(err.Error(), "private") {
@@ -143,12 +147,23 @@ func assertCustomInputError(t *testing.T, body []byte, err error) {
 func customRequest() generation.Request {
 	caller := generation.Some(generation.OpenAIToolCaller{Type: "program", CallerID: "program_1"})
 	request := requestWith(
-		generation.CustomToolCall{ID: "ct_1", CallID: "call_1", Name: "execute", Input: "print('Привет')\n", Status: "completed", OpenAI: generation.OpenAIToolCallData{Async: generation.Some(false), Namespace: generation.Some("sandbox"), Caller: caller}},
+		generation.CustomToolCall{
+			ID:     "ct_1",
+			CallID: "call_1",
+			Name:   "execute",
+			Input:  "print('Привет')\n",
+			Status: "completed",
+			OpenAI: generation.OpenAIToolCallData{Async: generation.Some(false), Namespace: generation.Some("sandbox"), Caller: caller},
+		},
 		generation.CustomToolResult{ID: "out_1", CallID: "call_1", Status: "completed", Caller: caller, Output: generation.ToolPartsOutput{
 			generation.Text{Text: "Привет"}, generation.ImageFile{FileID: "file_image", Detail: "high"},
 			generation.FileData{Data: "YQ==", Options: generation.FileOptions{Filename: generation.Some("result.txt"), OpenAI: generation.OpenAIFileOptions{PromptCacheBreakpoint: true}}},
 		}},
 	)
-	request.Tools = []generation.Tool{generation.CustomTool{Name: "execute", Description: generation.Some("Run text"), OpenAI: generation.OpenAICustomToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(true), AllowedCallers: generation.Some([]string{"direct", "programmatic"})}}}
+	request.Tools = []generation.Tool{generation.CustomTool{
+		Name:        "execute",
+		Description: generation.Some("Run text"),
+		OpenAI:      generation.OpenAICustomToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(true), AllowedCallers: generation.Some([]string{"direct", "programmatic"})},
+	}}
 	return request
 }

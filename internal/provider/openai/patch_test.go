@@ -159,8 +159,8 @@ func TestStreamPatchConflictsPreserveUsage(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("events = %#v; want preserved usage", events)
 			}
 		})
@@ -227,7 +227,7 @@ func TestStreamPatchResultUpdates(t *testing.T) {
 			if !errors.Is(err, io.EOF) {
 				t.Fatal(err)
 			}
-			end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAIApplyPatchResult)
+			end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIApplyPatchResult)
 			if end.Output != generation.Some("not found: main.go") || end.Status != "failed" {
 				t.Fatalf("result = %#v; want extended failure output", end)
 			}

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
@@ -54,7 +53,6 @@ type Session struct {
 	queue       []SessionEvent
 	limit, size int64
 	terminal    error
-	stopped     atomic.Bool
 	closeOnce   sync.Once
 	closeErr    error
 }
@@ -87,10 +85,10 @@ func (c *Client) OpenSession(ctx context.Context, attempt Attempt) (*Session, er
 			reader = response.Body
 		}
 		body, readErr := readBounded(reader, c.config.MaxResponseBytes)
-		if readErr != nil {
-			return nil, transportFailure(readErr)
-		}
 		result, cause := decodeHTTPFailure(response, body, diagnostics)
+		if readErr != nil {
+			cause = transportFailure(readErr)
+		}
 		return nil, &StartupError{Result: result, Cause: cause}
 	}
 	conn.SetReadLimit(int64(c.config.MaxEventBytes))
@@ -107,7 +105,7 @@ func (s *Session) SendCreate(ctx context.Context, request generation.Request, op
 		_ = s.Close()
 		return err
 	}
-	if s.stopped.Load() || s.ctx.Err() != nil {
+	if s.ctx.Err() != nil {
 		return context.Canceled
 	}
 	payload, err := wire.EncodeWebSocketCreate(request, options.Lane, options.Generate)
@@ -133,15 +131,11 @@ func (s *Session) Next() (SessionEvent, error) {
 		if s.terminal != nil && len(s.queue) == 0 {
 			return SessionEvent{}, s.terminal
 		}
-		if s.terminal == nil && (s.stopped.Load() || s.ctx.Err() != nil) {
+		if err := s.ctx.Err(); s.terminal == nil && err != nil {
 			s.queue = slices.DeleteFunc(s.queue, func(event SessionEvent) bool {
 				_, keep := event.Event.(generation.UsageUpdated)
 				return !keep
 			})
-			err := s.ctx.Err()
-			if err == nil {
-				err = context.Canceled
-			}
 			s.finish(err)
 		}
 		if len(s.queue) != 0 {
@@ -330,7 +324,6 @@ func (s *Session) readFailure(err error) error {
 }
 
 func (s *Session) Close() error {
-	s.stopped.Store(true)
 	s.closeOnce.Do(func() {
 		s.cancel()
 		if err := s.conn.CloseNow(); err != nil && !errors.Is(err, net.ErrClosed) {

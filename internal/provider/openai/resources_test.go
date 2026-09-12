@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -125,7 +126,10 @@ func TestResourceUploadCleanupPreservesOriginalError(t *testing.T) {
 }
 
 func TestFileUploadClosesSourceBeforeValidationReturn(t *testing.T) {
-	client := clientWithTransport(t, roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("invalid purpose dispatched"); return nil, nil }))
+	client := clientWithTransport(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("invalid purpose dispatched")
+		return nil, errors.New("unexpected dispatch")
+	}))
 	source := &failingCloseUpload{Reader: strings.NewReader("content")}
 
 	_, err := client.UploadFile(t.Context(), testAttempt(), openai.FileUpload{Purpose: "invalid", Content: source})
@@ -154,18 +158,37 @@ func TestResourceUploadClosesBlockedRead(t *testing.T) {
 				label = "cancellation"
 			}
 			t.Run(name+"/"+label, func(t *testing.T) {
+				deadline, stop := context.WithTimeout(t.Context(), 5*time.Second)
+				ctx, cancel := context.WithCancel(deadline)
 				source := &controlledUploadReader{entered: make(chan struct{}), closed: make(chan struct{})}
 				readingDone := make(chan struct{})
+				var workers sync.WaitGroup
+				t.Cleanup(func() {
+					cancel()
+					stop()
+					_ = source.Close()
+					done := make(chan struct{})
+					go func() { workers.Wait(); close(done) }()
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						t.Error("upload workers did not stop")
+					}
+				})
 				responseJSON := uploadedFile
 				if name == "container" {
 					responseJSON = containerFileJSON
 				}
 				client := clientWithTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
-					go func() {
+					workers.Go(func() {
 						defer close(readingDone)
 						_, _ = io.Copy(io.Discard, r.Body)
-					}()
-					<-source.entered
+					})
+					select {
+					case <-source.entered:
+					case <-r.Context().Done():
+						return nil, r.Context().Err()
+					}
 					if cancelRequest {
 						<-r.Context().Done()
 						_ = r.Body.Close()
@@ -173,28 +196,44 @@ func TestResourceUploadClosesBlockedRead(t *testing.T) {
 					}
 					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(responseJSON))}, nil
 				}))
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				finished := make(chan error, 1)
+				finished := make(chan struct{})
+				var uploadErr error
 
-				go func() { finished <- upload(ctx, client, "input.txt", source) }()
-				<-source.entered
+				workers.Go(func() {
+					uploadErr = upload(ctx, client, "input.txt", source)
+					close(finished)
+				})
+				select {
+				case <-source.entered:
+				case <-finished:
+					select {
+					case <-source.entered:
+					default:
+						t.Fatalf("upload finished before reading its source: %v", uploadErr)
+					}
+				case <-deadline.Done():
+					t.Fatal("upload did not start reading its source")
+				}
 				if cancelRequest {
 					cancel()
 				}
 
 				select {
-				case err := <-finished:
-					if cancelRequest && !errors.Is(err, context.Canceled) {
-						t.Fatalf("cancellation error = %v", err)
+				case <-finished:
+					if cancelRequest && !errors.Is(uploadErr, context.Canceled) {
+						t.Fatalf("cancellation error = %v", uploadErr)
 					}
-					if !cancelRequest && err != nil {
-						t.Fatal(err)
+					if !cancelRequest && uploadErr != nil {
+						t.Fatal(uploadErr)
 					}
-				case <-time.After(5 * time.Second):
+				case <-deadline.Done():
 					t.Fatal("upload did not close the blocked source")
 				}
-				<-readingDone
+				select {
+				case <-readingDone:
+				case <-deadline.Done():
+					t.Fatal("upload source read did not finish")
+				}
 				if source.closes.Load() != 1 {
 					t.Fatalf("source closed %d times", source.closes.Load())
 				}
@@ -239,23 +278,34 @@ func TestResourceContentCancellationAfterOpen(t *testing.T) {
 				<-r.Context().Done()
 				close(stopped)
 			}, io.Discard)
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
+
 			body, err := open(ctx, client)
+
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = body.Close() })
-			finished := make(chan error, 1)
+			finished := make(chan struct{})
+			var readErr error
+			t.Cleanup(func() {
+				cancel()
+				_ = body.Close()
+				select {
+				case <-finished:
+				case <-time.After(5 * time.Second):
+					t.Error("content reader did not stop")
+				}
+			})
 			go func() {
-				_, err := io.ReadAll(body)
-				finished <- err
+				_, readErr = io.ReadAll(body)
+				close(finished)
 			}()
 			cancel()
 			select {
-			case err := <-finished:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("body read = %v", err)
+			case <-finished:
+				if !errors.Is(readErr, context.Canceled) {
+					t.Fatalf("body read = %v", readErr)
 				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("cancellation did not interrupt content read")

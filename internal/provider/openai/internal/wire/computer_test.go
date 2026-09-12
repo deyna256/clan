@@ -19,7 +19,12 @@ func TestComputerTools(t *testing.T) {
 		want   string
 	}{
 		{name: "computer", tool: generation.OpenAIComputerTool{}, choice: "computer", want: `{"type":"computer"}`},
-		{name: "preview", tool: generation.OpenAIComputerPreviewTool{DisplayWidth: 1920, DisplayHeight: 1080, Environment: "browser"}, choice: "computer_use_preview", want: `{"type":"computer_use_preview","display_width":1920,"display_height":1080,"environment":"browser"}`},
+		{
+			name:   "preview",
+			tool:   generation.OpenAIComputerPreviewTool{DisplayWidth: 1920, DisplayHeight: 1080, Environment: "browser"},
+			choice: "computer_use_preview",
+			want:   `{"type":"computer_use_preview","display_width":1920,"display_height":1080,"environment":"browser"}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -44,7 +49,11 @@ func TestComputerActions(t *testing.T) {
 	}{
 		{name: "click", action: generation.ComputerClick{X: 0, Y: -5, Button: "left", Keys: generation.Null[[]string]()}, raw: `{"type":"click","x":0,"y":-5,"button":"left","keys":null}`},
 		{name: "double click", action: generation.ComputerDoubleClick{X: 4, Y: 8, Keys: generation.Null[[]string]()}, raw: `{"type":"double_click","x":4,"y":8,"keys":null}`},
-		{name: "drag", action: generation.ComputerDrag{Path: []generation.ComputerPoint{{X: 0, Y: 0}, {X: 40, Y: 50}}, Keys: generation.Some([]string{"SHIFT"})}, raw: `{"type":"drag","path":[{"x":0,"y":0},{"x":40,"y":50}],"keys":["SHIFT"]}`},
+		{
+			name:   "drag",
+			action: generation.ComputerDrag{Path: []generation.ComputerPoint{{X: 0, Y: 0}, {X: 40, Y: 50}}, Keys: generation.Some([]string{"SHIFT"})},
+			raw:    `{"type":"drag","path":[{"x":0,"y":0},{"x":40,"y":50}],"keys":["SHIFT"]}`,
+		},
 		{name: "keypress", action: generation.ComputerKeypress{Keys: []string{"CTRL", "C"}}, raw: `{"type":"keypress","keys":["CTRL","C"]}`},
 		{name: "move", action: generation.ComputerMove{X: 1, Y: 2, Keys: generation.Some([]string{})}, raw: `{"type":"move","x":1,"y":2,"keys":[]}`},
 		{name: "screenshot", action: generation.ComputerScreenshot{}, raw: `{"type":"screenshot"}`},
@@ -68,8 +77,8 @@ func TestComputerActions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(result.Response.Output[0], call) {
-				t.Fatalf("decoded call = %#v; want %#v", result.Response.Output[0], call)
+			if !reflect.DeepEqual(result.Response.Output, []generation.Item{call}) {
+				t.Fatalf("decoded call = %#v; want %#v", result.Response.Output, call)
 			}
 			if result.Response.Finish.Reason != "tool_calls" {
 				t.Fatalf("finish = %s", result.Response.Finish.Reason)
@@ -98,12 +107,23 @@ func TestComputerActionPresenceAndSafetyChecks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := result.Response.Output[0].(generation.OpenAIComputerCall)
+			if len(result.Response.Output) != 1 {
+				t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+			}
+			call, ok := result.Response.Output[0].(generation.OpenAIComputerCall)
+			if !ok {
+				t.Fatalf("output[0] = %T; want generation.OpenAIComputerCall", result.Response.Output[0])
+			}
 			if !reflect.DeepEqual(call.Action, tc.action) || !reflect.DeepEqual(call.Actions, tc.actions) {
 				t.Fatalf("actions = %#v / %#v; want %#v / %#v", call.Action, call.Actions, tc.action, tc.actions)
 			}
-			if !call.PendingSafetyChecks[0].Code.IsNull() || !call.PendingSafetyChecks[1].Message.IsNull() || !call.PendingSafetyChecks[2].Code.IsZero() {
-				t.Fatal("lost safety check presence")
+			wantChecks := []generation.ComputerSafetyCheck{
+				{ID: "check_1", Code: generation.Null[string](), Message: generation.Some("Confirm")},
+				{ID: "check_2", Code: generation.Some("sensitive"), Message: generation.Null[string]()},
+				{ID: "check_3"},
+			}
+			if !reflect.DeepEqual(call.PendingSafetyChecks, wantChecks) {
+				t.Fatalf("safety checks = %#v; want %#v", call.PendingSafetyChecks, wantChecks)
 			}
 			body, err := wire.EncodeRequest(requestWith(call), false)
 			if err != nil {
@@ -131,9 +151,32 @@ func TestComputerScreenshotInputPresence(t *testing.T) {
 		screenshot string
 	}{
 		{name: "omitted", result: generation.OpenAIComputerResult{CallID: "call_1"}, screenshot: `{"type":"computer_screenshot"}`},
-		{name: "null metadata", result: generation.OpenAIComputerResult{CallID: "call_1", ID: generation.Null[string](), Status: generation.Null[string](), AcknowledgedSafetyChecks: generation.Null[[]generation.ComputerSafetyCheck]()}, fields: `,"id":null,"status":null,"acknowledged_safety_checks":null`, screenshot: `{"type":"computer_screenshot"}`},
-		{name: "data image", result: generation.OpenAIComputerResult{CallID: "call_1", Output: generation.ComputerScreenshotOutput{ImageURL: generation.Some("data:image/png;base64,UEs="), Detail: generation.Some("original")}, AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{})}, fields: `,"acknowledged_safety_checks":[]`, screenshot: `{"type":"computer_screenshot","image_url":"data:image/png;base64,UEs=","detail":"original"}`},
-		{name: "both references", result: generation.OpenAIComputerResult{CallID: "call_1", Output: generation.ComputerScreenshotOutput{FileID: generation.Some("file_1"), ImageURL: generation.Some("https://example.org/screenshot.png")}, AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{ID: "check_1", Code: generation.Null[string](), Message: generation.Some("")}})}, fields: `,"acknowledged_safety_checks":[{"id":"check_1","code":null,"message":""}]`, screenshot: `{"type":"computer_screenshot","file_id":"file_1","image_url":"https://example.org/screenshot.png"}`},
+		{
+			name:       "null metadata",
+			result:     generation.OpenAIComputerResult{CallID: "call_1", ID: generation.Null[string](), Status: generation.Null[string](), AcknowledgedSafetyChecks: generation.Null[[]generation.ComputerSafetyCheck]()},
+			fields:     `,"id":null,"status":null,"acknowledged_safety_checks":null`,
+			screenshot: `{"type":"computer_screenshot"}`,
+		},
+		{
+			name: "data image",
+			result: generation.OpenAIComputerResult{
+				CallID:                   "call_1",
+				Output:                   generation.ComputerScreenshotOutput{ImageURL: generation.Some("data:image/png;base64,UEs="), Detail: generation.Some("original")},
+				AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{}),
+			},
+			fields:     `,"acknowledged_safety_checks":[]`,
+			screenshot: `{"type":"computer_screenshot","image_url":"data:image/png;base64,UEs=","detail":"original"}`,
+		},
+		{
+			name: "both references",
+			result: generation.OpenAIComputerResult{
+				CallID:                   "call_1",
+				Output:                   generation.ComputerScreenshotOutput{FileID: generation.Some("file_1"), ImageURL: generation.Some("https://example.org/screenshot.png")},
+				AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{ID: "check_1", Code: generation.Null[string](), Message: generation.Some("")}}),
+			},
+			fields:     `,"acknowledged_safety_checks":[{"id":"check_1","code":null,"message":""}]`,
+			screenshot: `{"type":"computer_screenshot","file_id":"file_1","image_url":"https://example.org/screenshot.png"}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := wire.EncodeRequest(requestWith(tc.result), false)
@@ -151,7 +194,13 @@ func TestComputerResultMetadataAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := result.Response.Output[0].(generation.OpenAIComputerResult)
+	if len(result.Response.Output) != 1 {
+		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+	}
+	got, ok := result.Response.Output[0].(generation.OpenAIComputerResult)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIComputerResult", result.Response.Output[0])
+	}
 	if actor, _ := got.CreatedBy.Value(); actor != "actor" {
 		t.Fatalf("creator = %q", actor)
 	}
@@ -198,7 +247,10 @@ func TestRejectMalformedComputerResponses(t *testing.T) {
 		{name: "null screenshot ref", raw: strings.Replace(result, `"computer_screenshot"`, `"computer_screenshot","file_id":null`, 1)},
 		{name: "invalid screenshot URL", raw: strings.Replace(result, `"computer_screenshot"`, `"computer_screenshot","image_url":"file:///private"`, 1)},
 		{name: "null acknowledged checks", raw: strings.Replace(result, `"status":"completed"`, `"status":"completed","acknowledged_safety_checks":null`, 1)},
-		{name: "duplicate acknowledged checks", raw: strings.Replace(result, `"status":"completed"`, `"status":"completed","acknowledged_safety_checks":[{"id":"check_1","code":"altered"},{"id":"check_1","code":"original"}]`, 1)},
+		{
+			name: "duplicate acknowledged checks",
+			raw:  strings.Replace(result, `"status":"completed"`, `"status":"completed","acknowledged_safety_checks":[{"id":"check_1","code":"altered"},{"id":"check_1","code":"original"}]`, 1),
+		},
 		{name: "missing result status", raw: strings.Replace(result, `"status":"completed",`, "", 1)},
 		{name: "null result id", raw: strings.Replace(result, `"id":"out_1"`, `"id":null`, 1)},
 	} {
@@ -213,19 +265,25 @@ func TestRejectMalformedComputerResponses(t *testing.T) {
 }
 
 func TestRejectMalformedComputerActions(t *testing.T) {
-	for _, raw := range []string{
-		`{"type":"double_click","x":0,"y":0}`,
-		`{"type":"drag","path":[{"x":0}]}`,
-		`{"type":"drag","path":null}`,
-		`{"type":"keypress","keys":null}`,
-		`{"type":"keypress","keys":[null]}`,
-		`{"type":"scroll","x":0,"y":0,"scroll_x":0}`,
-		`{"type":"type","text":null}`,
+	for _, tc := range []struct{ name, raw string }{
+		{name: "double click missing keys", raw: `{"type":"double_click","x":0,"y":0}`},
+		{name: "drag missing y", raw: `{"type":"drag","path":[{"x":0}]}`},
+		{name: "null drag path", raw: `{"type":"drag","path":null}`},
+		{name: "null keys", raw: `{"type":"keypress","keys":null}`},
+		{name: "null key entry", raw: `{"type":"keypress","keys":[null]}`},
+		{name: "scroll missing y", raw: `{"type":"scroll","x":0,"y":0,"scroll_x":0}`},
+		{name: "null typed text", raw: `{"type":"type","text":null}`},
 	} {
-		output := `[{"type":"computer_call","id":"cu_1","call_id":"call_1","status":"completed","pending_safety_checks":[],"actions":[` + raw + `]}]`
-		if _, err := computerResponse(output); err == nil {
-			t.Fatalf("accepted malformed action %s", raw)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			output := `[{"type":"computer_call","id":"cu_1","call_id":"call_1","status":"completed","pending_safety_checks":[],"actions":[` + tc.raw + `]}]`
+
+			result, err := computerResponse(output)
+
+			var failure *generation.Failure
+			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError || len(result.Response.Output) != 0 {
+				t.Fatalf("result = %#v, %v; want no output and protocol error", result, err)
+			}
+		})
 	}
 }
 
@@ -242,11 +300,17 @@ func TestRejectInvalidComputerInput(t *testing.T) {
 		{name: "text UTF-8", item: generation.OpenAIComputerCall{ID: "cu", CallID: "c", Status: "completed", Action: generation.ComputerType{Text: "private\xff"}}},
 		{name: "double click missing keys", item: generation.OpenAIComputerCall{ID: "cu", CallID: "c", Status: "completed", Action: generation.ComputerDoubleClick{}}},
 		{name: "check id", item: generation.OpenAIComputerCall{ID: "cu", CallID: "c", Status: "completed", PendingSafetyChecks: []generation.ComputerSafetyCheck{{}}}},
-		{name: "duplicate pending IDs", item: generation.OpenAIComputerCall{ID: "cu", CallID: "c", Status: "completed", PendingSafetyChecks: []generation.ComputerSafetyCheck{{ID: "check_1"}, {ID: "check_1", Code: generation.Some("altered")}}}},
+		{
+			name: "duplicate pending IDs",
+			item: generation.OpenAIComputerCall{ID: "cu", CallID: "c", Status: "completed", PendingSafetyChecks: []generation.ComputerSafetyCheck{{ID: "check_1"}, {ID: "check_1", Code: generation.Some("altered")}}},
+		},
 		{name: "screenshot null", item: generation.OpenAIComputerResult{CallID: "c", Output: generation.ComputerScreenshotOutput{ImageURL: generation.Null[string]()}}},
 		{name: "screenshot detail", item: generation.OpenAIComputerResult{CallID: "c", Output: generation.ComputerScreenshotOutput{Detail: generation.Some("huge")}}},
 		{name: "acknowledgment id", item: generation.OpenAIComputerResult{CallID: "c", AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{}})}},
-		{name: "duplicate acknowledged IDs", item: generation.OpenAIComputerResult{CallID: "c", AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{ID: "check_1"}, {ID: "check_1", Code: generation.Some("altered")}})}},
+		{
+			name: "duplicate acknowledged IDs",
+			item: generation.OpenAIComputerResult{CallID: "c", AcknowledgedSafetyChecks: generation.Some([]generation.ComputerSafetyCheck{{ID: "check_1"}, {ID: "check_1", Code: generation.Some("altered")}})},
+		},
 		{name: "preview dimensions", tool: generation.OpenAIComputerPreviewTool{DisplayWidth: 1920, Environment: "browser"}},
 		{name: "preview environment", tool: generation.OpenAIComputerPreviewTool{DisplayWidth: 1920, DisplayHeight: 1080, Environment: "phone"}},
 		{name: "choice", choice: generation.OpenAIComputerChoice("desktop")},

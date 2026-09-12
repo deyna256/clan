@@ -279,18 +279,9 @@ func decodeConversation(body []byte, requestErr error, expectedID string) (Conve
 }
 
 func decodeItemPage(body []byte, requestErr error, warn func(string)) (ItemPage, error) {
-	value, err := decodeResource[struct {
-		Data    []json.RawMessage `json:"data"`
-		FirstID *string           `json:"first_id"`
-		LastID  *string           `json:"last_id"`
-		HasMore *bool             `json:"has_more"`
-		Object  string            `json:"object"`
-	}](body, requestErr)
+	value, err := decodeResourcePage(body, requestErr)
 	if err != nil {
 		return ItemPage{}, err
-	}
-	if value.Data == nil || value.FirstID == nil || value.LastID == nil || value.HasMore == nil || value.Object != "list" {
-		return ItemPage{}, protocolError()
 	}
 	items := make([]generation.Item, 0, len(value.Data))
 	for _, raw := range value.Data {

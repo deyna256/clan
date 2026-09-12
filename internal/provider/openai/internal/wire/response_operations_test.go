@@ -40,7 +40,10 @@ func TestCountRequestPreservesIndependentOptions(t *testing.T) {
 	}
 	assertJSON(t, body, `{"model":null,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}],"parallel_tool_calls":false,"reasoning":null,"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}},"verbosity":"low"},"tools":[],"tool_choice":null,"personality":"pragmatic","truncation":"disabled"}`)
 
-	body, err = wire.EncodeInputTokenRequest(generation.InputTokenRequest{})
+}
+
+func TestCountRequestOmitsUnsetOptions(t *testing.T) {
+	body, err := wire.EncodeInputTokenRequest(generation.InputTokenRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,17 +63,21 @@ func TestResourceGenerationValidation(t *testing.T) {
 		{name: "nil choice is not explicit null", request: generation.InputTokenRequest{ToolChoice: generation.Some[generation.ToolChoice](nil)}, field: "tool_choice"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := wire.EncodeInputTokenRequest(tc.request)
+			body, err := wire.EncodeInputTokenRequest(tc.request)
 
 			var input *wire.InputError
-			if !errors.As(err, &input) || input.Field != tc.field {
+			if body != nil || !errors.As(err, &input) || input.Field != tc.field {
 				t.Fatalf("error = %v; want input field %s", err, tc.field)
 			}
 		})
 	}
-	_, err := wire.EncodeCompact(generation.CompactRequest{})
+}
+
+func TestCompactRequestRequiresModel(t *testing.T) {
+	body, err := wire.EncodeCompact(generation.CompactRequest{})
+
 	var input *wire.InputError
-	if !errors.As(err, &input) || input.Field != "model" {
+	if body != nil || !errors.As(err, &input) || input.Field != "model" {
 		t.Fatalf("missing compact model = %v", err)
 	}
 }

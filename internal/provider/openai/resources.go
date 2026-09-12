@@ -42,7 +42,7 @@ func (c *Client) resourceBody(attempt Attempt, response *http.Response, err erro
 	defer response.Body.Close()
 	body, err := readBounded(response.Body, c.config.MaxResponseBytes)
 	if err != nil {
-		return nil, transportFailure(err)
+		return body, transportFailure(err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		diagnostics := c.diagnostics(attempt)
@@ -121,10 +121,29 @@ func decodeResource[T any](body []byte, requestErr error) (T, error) {
 		return value, requestErr
 	}
 	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 || trimmed[0] != '{' || !utf8.Valid(trimmed) || json.Unmarshal(trimmed, &value) != nil {
+	if len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &value) != nil || !utf8.Valid(trimmed) {
 		return value, protocolError()
 	}
 	return value, nil
+}
+
+type resourcePage struct {
+	Data    []json.RawMessage `json:"data"`
+	FirstID *string           `json:"first_id"`
+	LastID  *string           `json:"last_id"`
+	HasMore *bool             `json:"has_more"`
+	Object  string            `json:"object"`
+}
+
+func decodeResourcePage(body []byte, requestErr error) (resourcePage, error) {
+	page, err := decodeResource[resourcePage](body, requestErr)
+	if err != nil {
+		return resourcePage{}, err
+	}
+	if page.Data == nil || page.FirstID == nil || page.LastID == nil || page.HasMore == nil || page.Object != "list" {
+		return resourcePage{}, protocolError()
+	}
+	return page, nil
 }
 
 // resourceRequired checks presence separately from zero values in typed replies.

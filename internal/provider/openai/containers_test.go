@@ -1,7 +1,6 @@
 package openai_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,31 +25,27 @@ func TestContainerAndToolOptionsUseSameSchema(t *testing.T) {
 	const wantSkills = `[{"type":"inline","name":"demo","description":"","source":{"type":"base64","media_type":"application/zip","data":"UEs="}}]`
 	check := func(t *testing.T, raw []byte, withSkills bool) {
 		t.Helper()
-		var got, want struct {
+		var got struct {
 			NetworkPolicy json.RawMessage `json:"network_policy"`
 			Skills        json.RawMessage `json:"skills"`
 		}
 		if err := json.Unmarshal(raw, &got); err != nil {
 			t.Fatal(err)
 		}
-		expected := `{"network_policy":` + wantPolicy + `}`
+		assertRequestJSON(t, string(got.NetworkPolicy), wantPolicy)
 		if withSkills {
-			expected = `{"network_policy":` + wantPolicy + `,"skills":` + wantSkills + `}`
-		}
-		if err := json.Unmarshal([]byte(expected), &want); err != nil {
-			t.Fatal(err)
-		}
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, got.NetworkPolicy); err != nil {
-			t.Fatal(err)
-		}
-		if compact.String() != string(want.NetworkPolicy) || string(got.Skills) != string(want.Skills) {
-			t.Fatalf("options=%s; want %s", raw, expected)
+			assertRequestJSON(t, string(got.Skills), wantSkills)
+		} else if got.Skills != nil {
+			t.Fatalf("unexpected skills: %s", got.Skills)
 		}
 	}
+	var containerBody []byte
 	client := clientWithTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		raw, _ := io.ReadAll(r.Body)
-		check(t, raw, true)
+		var err error
+		containerBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(containerJSON))}, nil
 	}))
 
@@ -59,6 +54,7 @@ func TestContainerAndToolOptionsUseSameSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	check(t, containerBody, true)
 	for _, tool := range []generation.Tool{
 		generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{NetworkPolicy: policy}},
 		generation.OpenAIShellTool{Environment: generation.Some[generation.ShellEnvironment](generation.ShellAutoContainer{NetworkPolicy: policy, Skills: skills})},
@@ -72,6 +68,9 @@ func TestContainerAndToolOptionsUseSameSchema(t *testing.T) {
 		}
 		if err := json.Unmarshal(body, &request); err != nil {
 			t.Fatal(err)
+		}
+		if len(request.Tools) != 1 {
+			t.Fatalf("tools = %#v; want one declaration", request.Tools)
 		}
 		if request.Tools[0].Container != nil {
 			check(t, request.Tools[0].Container, false)
@@ -216,28 +215,39 @@ func TestContainerRetrieveDeleteAndContentPaths(t *testing.T) {
 }
 
 func TestContainerRejectsMalformedSuccess(t *testing.T) {
-	for _, body := range []string{
-		`null`, `{}`, strings.Replace(containerJSON, `"created_at":0,`, "", 1),
-		strings.Replace(containerJSON, `"name":"work"`, `"name":null`, 1),
-		strings.Replace(containerJSON, `"id":"cntr_1"`, `"id":"cntr_other"`, 1),
-		strings.TrimSuffix(containerJSON, "}") + `,"memory_limit":null}`,
-		strings.TrimSuffix(containerJSON, "}") + `,"expires_after":{"anchor":null}}`,
-		strings.TrimSuffix(containerJSON, "}") + `,"network_policy":{"type":"allowlist","allowed_domains":[null]}}`,
+	for _, tc := range []struct{ name, body string }{
+		{name: "null object", body: `null`},
+		{name: "empty object", body: `{}`},
+		{name: "missing creation time", body: strings.Replace(containerJSON, `"created_at":0,`, "", 1)},
+		{name: "null name", body: strings.Replace(containerJSON, `"name":"work"`, `"name":null`, 1)},
+		{name: "wrong identity", body: strings.Replace(containerJSON, `"id":"cntr_1"`, `"id":"cntr_other"`, 1)},
+		{name: "null memory limit", body: strings.TrimSuffix(containerJSON, "}") + `,"memory_limit":null}`},
+		{name: "null expiry anchor", body: strings.TrimSuffix(containerJSON, "}") + `,"expires_after":{"anchor":null}}`},
+		{name: "null allowed domain", body: strings.TrimSuffix(containerJSON, "}") + `,"network_policy":{"type":"allowlist","allowed_domains":[null]}}`},
 	} {
-		t.Run(body, func(t *testing.T) {
-			client := testClient(t, staticJSON(body), io.Discard)
+		t.Run(tc.name, func(t *testing.T) {
+			client := testClient(t, staticJSON(tc.body), io.Discard)
+
 			_, err := client.RetrieveContainer(t.Context(), testAttempt(), "cntr_1")
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v", err)
-			}
+
+			assertProtocolError(t, err)
 		})
 	}
-	for _, item := range []string{`null`, strings.Replace(containerFileJSON, `"bytes":0,`, "", 1), strings.Replace(containerFileJSON, `"container_id":"cntr_1"`, `"container_id":"other"`, 1)} {
-		client := testClient(t, staticJSON(`{"object":"list","data":[`+item+`],"first_id":"cfile_1","last_id":"cfile_1","has_more":false}`), io.Discard)
-		if page, err := client.ListContainerFiles(t.Context(), testAttempt(), "cntr_1", openai.ContainerFileListParams{}); err == nil || len(page.Data) != 0 {
-			t.Fatalf("accepted invalid list item: %#v, %v", page, err)
-		}
+	for _, tc := range []struct{ name, item string }{
+		{name: "null item", item: `null`},
+		{name: "missing bytes", item: strings.Replace(containerFileJSON, `"bytes":0,`, "", 1)},
+		{name: "wrong owner", item: strings.Replace(containerFileJSON, `"container_id":"cntr_1"`, `"container_id":"other"`, 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := testClient(t, staticJSON(`{"object":"list","data":[`+containerFileJSON+`,`+tc.item+`],"first_id":"cfile_1","last_id":"cfile_1","has_more":false}`), io.Discard)
+
+			page, err := client.ListContainerFiles(t.Context(), testAttempt(), "cntr_1", openai.ContainerFileListParams{})
+
+			assertProtocolError(t, err)
+			if page.Data != nil {
+				t.Fatalf("invalid page retained earlier items: %#v", page)
+			}
+		})
 	}
 }
 

@@ -45,9 +45,6 @@ func TestStreamRecoversTextAndReportsUnknownEventsOnce(t *testing.T) {
 	if !reflect.DeepEqual(fragments, []string{"Hello", " world"}) || !reflect.DeepEqual(ended.Parts, []generation.Part{generation.Text{Text: "Hello world"}}) {
 		t.Fatalf("fragments = %q; final parts = %#v", fragments, ended.Parts)
 	}
-	if _, ok := events[len(events)-1].(generation.ResponseEnded); !ok {
-		t.Fatalf("last event = %#v", events[len(events)-1])
-	}
 	for _, want := range []string{`"reason":"unknown_event"`, `"count":2`, `"request_id":"request-1"`, `"attempt_id":"attempt-1"`, `"upstream_id":"upstream-1"`} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("logs do not contain %s: %s", want, logs.String())
@@ -129,8 +126,8 @@ func TestStreamPreservesFailureUsageWithoutSuccessfulEnd(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != generation.Unavailable {
 		t.Fatalf("error = %v", err)
 	}
-	last, ok := events[len(events)-1].(generation.UsageUpdated)
-	if !ok || last.Usage.Input != count(7) || last.Usage.Output != count(2) {
+	last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+	if last.Usage.Input != count(7) || last.Usage.Output != count(2) {
 		t.Fatalf("last event = %#v; want failure usage", events[len(events)-1])
 	}
 	assertNoResponseEnd(t, events)
@@ -191,9 +188,9 @@ func TestStreamPreservesLateReasoningData(t *testing.T) {
 
 func TestStreamRejectsConflictingOrMissingCalls(t *testing.T) {
 	for _, tc := range []struct{ name, final string }{
-		{"arguments", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Rome\"}"}]`},
-		{"identity", `[{"type":"function_call","id":"fc_1","call_id":"other","name":"weather","arguments":"{\"city\":\"Paris\"}"}]`},
-		{"missing", `[]`},
+		{name: "arguments", final: `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Rome\"}"}]`},
+		{name: "identity", final: `[{"type":"function_call","id":"fc_1","call_id":"other","name":"weather","arguments":"{\"city\":\"Paris\"}"}]`},
+		{name: "missing", final: `[]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := streamClient(t, io.Discard, created(),
@@ -204,13 +201,10 @@ func TestStreamRejectsConflictingOrMissingCalls(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
+			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("last event = %#v; want known usage", events[len(events)-1])
 			}
 		})
@@ -226,10 +220,7 @@ func TestStreamRejectsCompletedCallWithInvalidJSONArguments(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
+			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
 		})
 	}
@@ -261,6 +252,7 @@ func TestStreamIgnoresRepeatedSequenceWithoutDuplicatingArguments(t *testing.T) 
 
 func TestStreamCancellationStopsBufferedContent(t *testing.T) {
 	client := streamClient(t, io.Discard, created(), messageAdded(),
+		`{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"buffered"}`,
 		`{"type":"response.completed","response":`+textResponse("unused", "null")+`}`,
 	)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -270,8 +262,15 @@ func TestStreamCancellationStopsBufferedContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stream.Close()
-	if _, err := stream.Next(); err != nil {
-		t.Fatal(err)
+	for _, want := range []generation.Event{
+		generation.ResponseStarted{Identity: generation.Identity{ID: "resp_1", Model: "test-model"}},
+		generation.ItemStarted{Index: 0, Item: generation.Message{ID: "msg_1", Role: generation.Assistant, Status: generation.ItemInProgress}},
+		generation.PartStarted{Address: generation.PartAddress{Item: 0, Part: 0}, Part: generation.Text{}},
+	} {
+		event, err := stream.Next()
+		if err != nil || !reflect.DeepEqual(event, want) {
+			t.Fatalf("Next = %#v, %v; want %#v before cancelling buffered text", event, err, want)
+		}
 	}
 
 	cancel()
@@ -348,20 +347,15 @@ func TestStreamCloseUnblocksBodyRead(t *testing.T) {
 
 func TestStreamBoundsRetainedReasoningData(t *testing.T) {
 	encrypted := strings.Repeat("a", 600_000)
-	body := frame(created())
+	frames := []string{created()}
 	for index, id := range []string{"rs_1", "rs_2"} {
-		body += frame(fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":{"type":"reasoning","id":%q,"summary":[],"encrypted_content":%q}}`, index, id, encrypted))
+		frames = append(frames, outputItemAdded(index, fmt.Sprintf(`{"type":"reasoning","id":%q,"summary":[],"encrypted_content":%q}`, id, encrypted)))
 	}
-	client := clientWithTransport(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	}))
+	client := streamClient(t, io.Discard, frames...)
 
 	events, err := readStream(t, client)
 
-	var failure *generation.Failure
-	if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-		t.Fatalf("error = %v; want cumulative size rejection before EOF", err)
-	}
+	assertProtocolError(t, err)
 	assertNoResponseEnd(t, events)
 }
 
@@ -390,11 +384,11 @@ func TestStreamRetainsIncompleteArguments(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	end, ok := events[len(events)-1].(generation.ResponseEnded)
-	if !ok || end.Finish != (generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}) {
+	end := eventAt[generation.ResponseEnded](t, events, len(events)-1)
+	if end.Finish != (generation.Finish{Status: "incomplete", Reason: "max_output_tokens"}) {
 		t.Fatalf("last event = %#v", events[len(events)-1])
 	}
-	call := events[len(events)-2].(generation.ItemEnded).Item.(generation.ToolCall)
+	call := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.ToolCall)
 	if call.Arguments != `{"city":` || call.Status != generation.ItemIncomplete {
 		t.Fatalf("call = %#v", call)
 	}
@@ -498,10 +492,28 @@ func readStream(t *testing.T, client *openai.Client) ([]generation.Event, error)
 			if again != nil || !errors.Is(nextErr, err) {
 				t.Fatalf("terminal result changed: %#v, %v then %#v, %v", event, err, again, nextErr)
 			}
+			if errors.Is(err, io.EOF) {
+				eventAt[generation.ResponseEnded](t, events, len(events)-1)
+			}
 			return events, err
+		}
+		if event == nil {
+			t.Fatal("Next returned neither an event nor an error")
 		}
 		events = append(events, event)
 	}
+}
+
+func eventAt[T generation.Event](t *testing.T, events []generation.Event, index int) T {
+	t.Helper()
+	if index < 0 || index >= len(events) {
+		t.Fatalf("event index %d outside %d events: %#v", index, len(events), events)
+	}
+	event, ok := events[index].(T)
+	if !ok {
+		t.Fatalf("event %d = %T; want %T", index, events[index], event)
+	}
+	return event
 }
 
 func assertNoResponseEnd(t *testing.T, events []generation.Event) {

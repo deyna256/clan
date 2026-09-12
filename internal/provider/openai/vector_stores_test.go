@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -29,7 +28,7 @@ func TestCreateVectorStore(t *testing.T) {
 	if len(*requests) != 1 || (*requests)[0].Method != "POST" || (*requests)[0].Path != "/v1/vector_stores" || (*requests)[0].Beta != "assistants=v2" {
 		t.Fatalf("requests = %#v; want one create request with beta header", *requests)
 	}
-	assertVectorJSON(t, (*requests)[0].Body, `{"name":"Knowledge","description":"Docs","file_ids":["file_1"],"metadata":{"project":"clan"},"expires_after":{"anchor":"last_active_at","days":7},"chunking_strategy":{"type":"static","static":{"max_chunk_size_tokens":100,"chunk_overlap_tokens":50}}}`)
+	assertRequestJSON(t, (*requests)[0].Body, `{"name":"Knowledge","description":"Docs","file_ids":["file_1"],"metadata":{"project":"clan"},"expires_after":{"anchor":"last_active_at","days":7},"chunking_strategy":{"type":"static","static":{"max_chunk_size_tokens":100,"chunk_overlap_tokens":50}}}`)
 }
 
 func TestCreateVectorStorePresence(t *testing.T) {
@@ -50,7 +49,7 @@ func TestCreateVectorStorePresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertVectorJSON(t, (*requests)[0].Body, tc.want)
+			assertRequestJSON(t, (*requests)[0].Body, tc.want)
 		})
 	}
 }
@@ -76,7 +75,7 @@ func TestAttachVectorStoreFilePreservesAttributesAndFailure(t *testing.T) {
 	if len(*requests) != 1 || (*requests)[0].Path != "/v1/vector_stores/vs_1/files" || (*requests)[0].Method != "POST" {
 		t.Fatalf("requests = %#v; want one attach request", *requests)
 	}
-	assertVectorJSON(t, (*requests)[0].Body, `{"file_id":"file_1","attributes":{"revision":9007199254740993,"active":false},"chunking_strategy":{"type":"auto"}}`)
+	assertRequestJSON(t, (*requests)[0].Body, `{"file_id":"file_1","attributes":{"revision":9007199254740993,"active":false},"chunking_strategy":{"type":"auto"}}`)
 	attributes["revision"][0] = '1'
 	unchanged, _ := request.Attributes.Value()
 	if string(unchanged["revision"]) != "9007199254740993" {
@@ -114,6 +113,35 @@ func TestListVectorStoreFilesReturnsOnePage(t *testing.T) {
 	}
 	if len(*requests) != 1 || (*requests)[0].Query != "after=cursor%26x%3D1&before=before%3F&filter=in_progress&limit=1&order=asc" {
 		t.Fatalf("requests = %#v; want one explicitly paginated request", *requests)
+	}
+}
+
+func TestVectorStoreFilePagePresenceAndAtomicFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, data string
+		valid      bool
+	}{
+		{name: "empty page", data: `,"data":[]`, valid: true},
+		{name: "missing data"},
+		{name: "null data", data: `,"data":null`},
+		{name: "invalid second item", data: `,"data":[` + vectorFileJSON("completed", "null", "") + `,null]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, _ := vectorClient(t, `{"object":"list","first_id":"","last_id":"","has_more":false`+tc.data+`}`)
+
+			page, err := client.ListVectorStoreFiles(t.Context(), testAttempt(), "vs_1", openai.ListVectorStoreFilesOptions{})
+
+			if tc.valid {
+				if err != nil || page.Data == nil || len(page.Data) != 0 || page.HasMore || page.FirstID != "" || page.LastID != "" {
+					t.Fatalf("empty page = %#v, %v", page, err)
+				}
+			} else {
+				assertProtocolError(t, err)
+				if page.Data != nil {
+					t.Fatalf("invalid page retained earlier items: %#v", page)
+				}
+			}
+		})
 	}
 }
 
@@ -278,7 +306,7 @@ func vectorClient(t *testing.T, reply string) (*openai.Client, *[]vectorRequest)
 				return nil, err
 			}
 		}
-		requests = append(requests, vectorRequest{request.Method, request.URL.EscapedPath(), request.URL.RawQuery, string(body), request.Header.Get("OpenAI-Beta")})
+		requests = append(requests, vectorRequest{Method: request.Method, Path: request.URL.EscapedPath(), Query: request.URL.RawQuery, Body: string(body), Beta: request.Header.Get("OpenAI-Beta")})
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(reply))}, nil
 	}))
 	return client, &requests
@@ -294,24 +322,6 @@ func vectorFileJSON(status, lastError, extra string) string {
 
 func staticChunk(size, overlap int64) generation.Optional[openai.VectorStoreChunking] {
 	return generation.Some(openai.VectorStoreChunking{Type: "static", Static: generation.Some(openai.VectorStoreStaticChunking{MaxChunkSizeTokens: size, ChunkOverlapTokens: overlap})})
-}
-
-func assertVectorJSON(t *testing.T, got, want string) {
-	t.Helper()
-	var actual, expected any
-	gotDecoder := json.NewDecoder(strings.NewReader(got))
-	gotDecoder.UseNumber()
-	wantDecoder := json.NewDecoder(strings.NewReader(want))
-	wantDecoder.UseNumber()
-	if err := gotDecoder.Decode(&actual); err != nil {
-		t.Fatal(err)
-	}
-	if err := wantDecoder.Decode(&expected); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(actual, expected) {
-		t.Fatalf("JSON = %s; want %s", got, want)
-	}
 }
 
 func assertVectorInputError(t *testing.T, err error, field string, calls int) {

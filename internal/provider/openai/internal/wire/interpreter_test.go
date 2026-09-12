@@ -31,10 +31,14 @@ func TestEncodeInterpreterContainerModes(t *testing.T) {
 		container generation.InterpreterContainer
 		want      string
 	}{
-		{"existing", generation.InterpreterContainerID("cntr_1"), `"cntr_1"`},
-		{"auto", generation.InterpreterAutoContainer{}, `{"type":"auto"}`},
-		{"disabled network", generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkDisabled{}}, `{"type":"auto","network_policy":{"type":"disabled"}}`},
-		{"empty allowlist", generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkAllowlist{}}, `{"type":"auto","network_policy":{"type":"allowlist","allowed_domains":[]}}`},
+		{name: "existing", container: generation.InterpreterContainerID("cntr_1"), want: `"cntr_1"`},
+		{name: "auto", container: generation.InterpreterAutoContainer{}, want: `{"type":"auto"}`},
+		{name: "disabled network", container: generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkDisabled{}}, want: `{"type":"auto","network_policy":{"type":"disabled"}}`},
+		{
+			name:      "empty allowlist",
+			container: generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkAllowlist{}},
+			want:      `{"type":"auto","network_policy":{"type":"allowlist","allowed_domains":[]}}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -52,7 +56,13 @@ func TestEncodeInterpreterContainerModes(t *testing.T) {
 
 func TestEncodeInterpreterHistory(t *testing.T) {
 	request := requestWith(
-		generation.OpenAICodeInterpreterCall{ID: "ci_1", ContainerID: "cntr_1", Status: "completed", Code: generation.Some("print(1)"), Outputs: generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{Logs: "1\n"}, generation.InterpreterImage{URL: "https://example.com/plot.png"}})},
+		generation.OpenAICodeInterpreterCall{
+			ID:          "ci_1",
+			ContainerID: "cntr_1",
+			Status:      "completed",
+			Code:        generation.Some("print(1)"),
+			Outputs:     generation.Some([]generation.InterpreterOutput{generation.InterpreterLogs{Logs: "1\n"}, generation.InterpreterImage{URL: "https://example.com/plot.png"}}),
+		},
 		generation.OpenAICodeInterpreterCall{ID: "ci_2", ContainerID: "cntr_1", Status: "failed", Code: generation.Null[string](), Outputs: generation.Null[[]generation.InterpreterOutput]()},
 		generation.OpenAICodeInterpreterCall{ID: "ci_3", ContainerID: "cntr_1", Status: "incomplete", Code: generation.Some(""), Outputs: generation.Some([]generation.InterpreterOutput{})},
 	)
@@ -89,12 +99,15 @@ func TestRejectInvalidInterpreterConfiguration(t *testing.T) {
 		name string
 		tool generation.OpenAICodeInterpreterTool
 	}{
-		{"missing container", generation.OpenAICodeInterpreterTool{}},
-		{"empty container ID", generation.OpenAICodeInterpreterTool{Container: generation.InterpreterContainerID(" ")}},
-		{"memory", generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{MemoryLimit: generation.Some("2g")}}},
-		{"file ID", generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{FileIDs: []string{""}}}},
-		{"caller", generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{}, AllowedCallers: generation.Some([]string{"unknown"})}},
-		{"secret UTF-8", generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkAllowlist{Domains: []string{"example.com"}, Secrets: []generation.InterpreterDomainSecret{{Domain: "example.com", Name: "token", Value: "secret-value\xff"}}}}}},
+		{name: "missing container", tool: generation.OpenAICodeInterpreterTool{}},
+		{name: "empty container ID", tool: generation.OpenAICodeInterpreterTool{Container: generation.InterpreterContainerID(" ")}},
+		{name: "memory", tool: generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{MemoryLimit: generation.Some("2g")}}},
+		{name: "file ID", tool: generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{FileIDs: []string{""}}}},
+		{name: "caller", tool: generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{}, AllowedCallers: generation.Some([]string{"unknown"})}},
+		{
+			name: "secret UTF-8",
+			tool: generation.OpenAICodeInterpreterTool{Container: generation.InterpreterAutoContainer{NetworkPolicy: generation.InterpreterNetworkAllowlist{Domains: []string{"example.com"}, Secrets: []generation.InterpreterDomainSecret{{Domain: "example.com", Name: "token", Value: "secret-value\xff"}}}}},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -147,7 +160,11 @@ func TestRejectInvalidInterpreterHistory(t *testing.T) {
 func interpreterRequest() generation.Request {
 	request := requestWith()
 	request.Tools = []generation.Tool{generation.OpenAICodeInterpreterTool{
-		Container:      generation.InterpreterAutoContainer{FileIDs: []string{"file_1"}, MemoryLimit: generation.Some("4g"), NetworkPolicy: generation.InterpreterNetworkAllowlist{Domains: []string{"example.com"}, Secrets: []generation.InterpreterDomainSecret{{Domain: "example.com", Name: "token", Value: "secret-value"}}}},
+		Container: generation.InterpreterAutoContainer{
+			FileIDs:       []string{"file_1"},
+			MemoryLimit:   generation.Some("4g"),
+			NetworkPolicy: generation.InterpreterNetworkAllowlist{Domains: []string{"example.com"}, Secrets: []generation.InterpreterDomainSecret{{Domain: "example.com", Name: "token", Value: "secret-value"}}},
+		},
 		AllowedCallers: generation.Some([]string{"direct", "programmatic"}),
 	}}
 	request.ToolChoice = generation.OpenAICodeInterpreterChoice{}

@@ -132,11 +132,11 @@ func (s *streamState) mcpTarget(e responseEvent, call bool) (*streamItem, error)
 	if item == nil || itemID(item.item) != e.ItemID {
 		return nil, protocolError()
 	}
-	kind := "mcp_list"
+	_, matches := item.item.(generation.OpenAIMCPListTools)
 	if call {
-		kind = "mcp_call"
+		_, matches = item.item.(generation.OpenAIMCPCall)
 	}
-	if itemKind(item.item) != kind {
+	if !matches {
 		return nil, protocolError()
 	}
 	return item, nil

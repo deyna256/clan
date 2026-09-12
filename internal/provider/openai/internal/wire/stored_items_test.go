@@ -42,10 +42,13 @@ func TestStoredMessageRolesAndOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			message := item.(generation.Message)
-			text := message.Parts[0].(generation.Text)
-			if message.Role != role || message.Status != generation.ItemCompleted || !message.OpenAI.Phase.IsNull() || text.Text != "Done" {
-				t.Fatalf("message = %#v; want role %s, completed, null phase and Done", message, role)
+			want := generation.Message{
+				ID: "msg_1", Role: role, Status: generation.ItemCompleted,
+				OpenAI: generation.OpenAIMessageData{Phase: generation.Null[string]()},
+				Parts:  []generation.Part{generation.Text{Text: "Done"}},
+			}
+			if !reflect.DeepEqual(item, want) {
+				t.Fatalf("stored message = %#v; want %#v", item, want)
 			}
 		})
 	}
@@ -105,9 +108,21 @@ func TestStoredCustomAndPatchProvenance(t *testing.T) {
 		name, raw string
 		want      generation.Item
 	}{
-		{name: "custom output", raw: `{"type":"custom_tool_call_output","id":"out_1","call_id":"call_1","status":"completed","output":"done","created_by":"creator_1"}`, want: generation.CustomToolResult{ID: "out_1", CallID: "call_1", Status: generation.ItemCompleted, Output: generation.ToolTextOutput("done"), CreatedBy: creator}},
-		{name: "patch call", raw: `{"type":"apply_patch_call","id":"patch_1","call_id":"call_1","status":"completed","operation":{"type":"delete_file","path":"a.txt"},"created_by":"creator_1"}`, want: generation.OpenAIApplyPatchCall{ID: "patch_1", CallID: "call_1", Status: "completed", Operation: generation.PatchDeleteFile{Path: "a.txt"}, CreatedBy: creator}},
-		{name: "patch output", raw: `{"type":"apply_patch_call_output","id":"out_1","call_id":"call_1","status":"completed","created_by":"creator_1"}`, want: generation.OpenAIApplyPatchResult{ID: "out_1", CallID: "call_1", Status: "completed", CreatedBy: creator}},
+		{
+			name: "custom output",
+			raw:  `{"type":"custom_tool_call_output","id":"out_1","call_id":"call_1","status":"completed","output":"done","created_by":"creator_1"}`,
+			want: generation.CustomToolResult{ID: "out_1", CallID: "call_1", Status: generation.ItemCompleted, Output: generation.ToolTextOutput("done"), CreatedBy: creator},
+		},
+		{
+			name: "patch call",
+			raw:  `{"type":"apply_patch_call","id":"patch_1","call_id":"call_1","status":"completed","operation":{"type":"delete_file","path":"a.txt"},"created_by":"creator_1"}`,
+			want: generation.OpenAIApplyPatchCall{ID: "patch_1", CallID: "call_1", Status: "completed", Operation: generation.PatchDeleteFile{Path: "a.txt"}, CreatedBy: creator},
+		},
+		{
+			name: "patch output",
+			raw:  `{"type":"apply_patch_call_output","id":"out_1","call_id":"call_1","status":"completed","created_by":"creator_1"}`,
+			want: generation.OpenAIApplyPatchResult{ID: "out_1", CallID: "call_1", Status: "completed", CreatedBy: creator},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			item, err := wire.DecodeStoredItem([]byte(tc.raw), nil)

@@ -1,6 +1,7 @@
 package wire_test
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -23,9 +24,25 @@ func TestFunctionContentPreservesNullableFieldsAndSources(t *testing.T) {
 	parts := item.(generation.ToolResult).Output.(generation.ToolPartsOutput)
 	want := generation.ToolPartsOutput{
 		generation.OpenAIFunctionText{Text: "prefix", PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint]()},
-		generation.OpenAIFunctionImage{Detail: generation.Null[string](), FileID: generation.Null[string](), ImageURL: generation.Some("https://example.com/a.png"), PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint]()},
-		generation.OpenAIFunctionImage{Detail: generation.Some("original"), FileID: generation.Some("file_image"), ImageURL: generation.Some("https://example.com/b.png"), PromptCacheBreakpoint: generation.Some(generation.OpenAIPromptCacheBreakpoint{Mode: "explicit"})},
-		generation.OpenAIFunctionFile{FileID: generation.Some("file_report"), FileData: generation.Null[string](), FileURL: generation.Null[string](), Filename: generation.Null[string](), PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint]()},
+		generation.OpenAIFunctionImage{
+			Detail:                generation.Null[string](),
+			FileID:                generation.Null[string](),
+			ImageURL:              generation.Some("https://example.com/a.png"),
+			PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint](),
+		},
+		generation.OpenAIFunctionImage{
+			Detail:                generation.Some("original"),
+			FileID:                generation.Some("file_image"),
+			ImageURL:              generation.Some("https://example.com/b.png"),
+			PromptCacheBreakpoint: generation.Some(generation.OpenAIPromptCacheBreakpoint{Mode: "explicit"}),
+		},
+		generation.OpenAIFunctionFile{
+			FileID:                generation.Some("file_report"),
+			FileData:              generation.Null[string](),
+			FileURL:               generation.Null[string](),
+			Filename:              generation.Null[string](),
+			PromptCacheBreakpoint: generation.Null[generation.OpenAIPromptCacheBreakpoint](),
+		},
 		generation.OpenAIFunctionFile{Detail: generation.Some("high"), FileID: generation.Some("file_report"), FileData: generation.Some("aGk="), FileURL: generation.Some("https://example.com/a.pdf"), Filename: generation.Some("a.pdf")},
 	}
 	if !reflect.DeepEqual(parts, want) {
@@ -40,17 +57,18 @@ func TestFunctionContentPreservesNullableFieldsAndSources(t *testing.T) {
 }
 
 func TestFunctionContentRejectsInvalidFields(t *testing.T) {
-	for _, content := range []string{
-		`{"type":"input_text","text":null}`,
-		`{"type":"input_image","file_id":"file_1","detail":"invalid"}`,
-		`{"type":"input_file","file_id":"file_1","detail":null}`,
-		`{"type":"input_file","file_id":"file_1","file_url":false}`,
-		`{"type":"input_image","file_id":"file_1","image_url":"invalid"}`,
-		`{"type":"input_file","file_id":"file_1","file_data":"invalid"}`,
+	for _, tc := range []struct{ name, content string }{
+		{name: "null text", content: `{"type":"input_text","text":null}`},
+		{name: "invalid image detail", content: `{"type":"input_image","file_id":"file_1","detail":"invalid"}`},
+		{name: "null file detail", content: `{"type":"input_file","file_id":"file_1","detail":null}`},
+		{name: "boolean file URL", content: `{"type":"input_file","file_id":"file_1","file_url":false}`},
+		{name: "invalid image URL", content: `{"type":"input_image","file_id":"file_1","image_url":"invalid"}`},
+		{name: "invalid file data", content: `{"type":"input_file","file_id":"file_1","file_data":"invalid"}`},
 	} {
-		t.Run(content, func(t *testing.T) {
-			_, err := wire.DecodeItem([]byte(`{"type":"function_call_output","id":"out_1","status":"completed","output":[`+content+`]}`), true, nil)
-			if failure, ok := err.(*generation.Failure); !ok || failure.Kind != generation.ProtocolError {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := wire.DecodeItem([]byte(`{"type":"function_call_output","id":"out_1","status":"completed","output":[`+tc.content+`]}`), true, nil)
+			var failure *generation.Failure
+			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
 				t.Fatalf("error = %v", err)
 			}
 		})
@@ -69,11 +87,15 @@ func TestNullableFunctionPartsStayWithinFunctionResults(t *testing.T) {
 			generation.CustomToolResult{CallID: "call_1", Output: generation.ToolPartsOutput{part}},
 		} {
 			body, err := wire.EncodeRequest(requestWith(item), false)
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		}
 	}
+}
+
+func TestCustomFileContentRejectsNullFilename(t *testing.T) {
 	_, err := wire.DecodeItem([]byte(`{"type":"custom_tool_call_output","id":"out_1","call_id":"c","output":[{"type":"input_file","file_id":"f","filename":null}]}`), true, nil)
-	if failure, ok := err.(*generation.Failure); !ok || failure.Kind != generation.ProtocolError {
+	var failure *generation.Failure
+	if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
 		t.Fatalf("custom filename null error = %v", err)
 	}
 }
@@ -88,6 +110,6 @@ func TestFunctionContentRejectsInvalidReplayFields(t *testing.T) {
 		generation.OpenAIFunctionFile{FileID: generation.Some("file_1"), Detail: generation.Null[string]()},
 	} {
 		body, err := wire.EncodeRequest(requestWith(generation.ToolResult{Output: generation.ToolPartsOutput{part}}), false)
-		assertCustomInputError(t, body, err)
+		assertInputError(t, body, err)
 	}
 }

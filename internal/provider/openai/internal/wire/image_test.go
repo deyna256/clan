@@ -32,8 +32,16 @@ func TestEncodeImageMaskSources(t *testing.T) {
 		want string
 	}{
 		{name: "omitted"},
-		{"URL", generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("https://example.com/mask.png")}), `,"input_image_mask":{"image_url":"https://example.com/mask.png"}`},
-		{"data URL", generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("data:image/png;base64,bWFzaw==")}), `,"input_image_mask":{"image_url":"data:image/png;base64,bWFzaw=="}`},
+		{
+			name: "URL",
+			mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("https://example.com/mask.png")}),
+			want: `,"input_image_mask":{"image_url":"https://example.com/mask.png"}`,
+		},
+		{
+			name: "data URL",
+			mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("data:image/png;base64,bWFzaw==")}),
+			want: `,"input_image_mask":{"image_url":"data:image/png;base64,bWFzaw=="}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -54,17 +62,17 @@ func TestRejectInvalidImageTools(t *testing.T) {
 		name string
 		tool generation.OpenAIImageGenerationTool
 	}{
-		{"quality", generation.OpenAIImageGenerationTool{Quality: "unknown"}},
-		{"action", generation.OpenAIImageGenerationTool{Action: "unknown"}},
-		{"size", generation.OpenAIImageGenerationTool{Size: "0x1024"}},
-		{"compression", generation.OpenAIImageGenerationTool{OutputCompression: generation.Some(int64(101))}},
-		{"negative partials", generation.OpenAIImageGenerationTool{PartialImages: generation.Some(int64(-1))}},
-		{"too many partials", generation.OpenAIImageGenerationTool{PartialImages: generation.Some(int64(4))}},
-		{"transparent JPEG", generation.OpenAIImageGenerationTool{Background: "transparent", OutputFormat: "jpeg"}},
+		{name: "quality", tool: generation.OpenAIImageGenerationTool{Quality: "unknown"}},
+		{name: "action", tool: generation.OpenAIImageGenerationTool{Action: "unknown"}},
+		{name: "size", tool: generation.OpenAIImageGenerationTool{Size: "0x1024"}},
+		{name: "compression", tool: generation.OpenAIImageGenerationTool{OutputCompression: generation.Some(int64(101))}},
+		{name: "negative partials", tool: generation.OpenAIImageGenerationTool{PartialImages: generation.Some(int64(-1))}},
+		{name: "too many partials", tool: generation.OpenAIImageGenerationTool{PartialImages: generation.Some(int64(4))}},
+		{name: "transparent JPEG", tool: generation.OpenAIImageGenerationTool{Background: "transparent", OutputFormat: "jpeg"}},
 		{name: "null mask", tool: generation.OpenAIImageGenerationTool{Mask: generation.Null[generation.ImageGenerationMask]()}},
 		{name: "null mask file", tool: generation.OpenAIImageGenerationTool{Mask: generation.Some(generation.ImageGenerationMask{FileID: generation.Null[string]()})}},
-		{"mask base64", generation.OpenAIImageGenerationTool{Mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("data:image/png;base64,private!")})}},
-		{"mask local file", generation.OpenAIImageGenerationTool{Mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("file:///private")})}},
+		{name: "mask base64", tool: generation.OpenAIImageGenerationTool{Mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("data:image/png;base64,private!")})}},
+		{name: "mask local file", tool: generation.OpenAIImageGenerationTool{Mask: generation.Some(generation.ImageGenerationMask{ImageURL: generation.Some("file:///private")})}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -85,7 +93,19 @@ func TestRejectInvalidImageTools(t *testing.T) {
 
 func TestEncodeImageHistory(t *testing.T) {
 	request := requestWith(
-		generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: generation.Some("aW1hZ2U="), Metadata: generation.ImageGenerationMetadata{Action: generation.Some("edit"), Background: generation.Null[string](), OutputFormat: generation.Some("png"), Quality: generation.Some("xhigh"), Size: generation.Some("1536x864"), RevisedPrompt: generation.Some("Revised")}},
+		generation.OpenAIImageGenerationCall{
+			ID:     "ig_1",
+			Status: "completed",
+			Result: generation.Some("aW1hZ2U="),
+			Metadata: generation.ImageGenerationMetadata{
+				Action:        generation.Some("edit"),
+				Background:    generation.Null[string](),
+				OutputFormat:  generation.Some("png"),
+				Quality:       generation.Some("xhigh"),
+				Size:          generation.Some("1536x864"),
+				RevisedPrompt: generation.Some("Revised"),
+			},
+		},
 		generation.OpenAIImageGenerationCall{ID: "ig_2", Status: "failed", Result: generation.Null[string]()},
 	)
 
@@ -102,12 +122,12 @@ func TestRejectInvalidImageHistory(t *testing.T) {
 		name   string
 		result generation.Optional[string]
 	}{
-		{"missing", generation.Optional[string]{}},
-		{"null", generation.Null[string]()},
-		{"empty", generation.Some("")},
-		{"only line breaks", generation.Some("\r\n")},
-		{"invalid base64", generation.Some("private!")},
-		{"concatenated padded data", generation.Some("eA==eA==")},
+		{name: "missing", result: generation.Optional[string]{}},
+		{name: "null", result: generation.Null[string]()},
+		{name: "empty", result: generation.Some("")},
+		{name: "only line breaks", result: generation.Some("\r\n")},
+		{name: "invalid base64", result: generation.Some("private!")},
+		{name: "concatenated padded data", result: generation.Some("eA==eA==")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith(generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: tc.result})
@@ -124,7 +144,19 @@ func TestRejectInvalidImageHistory(t *testing.T) {
 
 func imageToolRequest() generation.Request {
 	request := requestWith()
-	request.Tools = []generation.Tool{generation.OpenAIImageGenerationTool{Model: generation.Some("image-alias"), Action: "edit", Background: "transparent", OutputFormat: "webp", Quality: "max", Size: "1536x864", InputFidelity: generation.Some("high"), Moderation: "low", OutputCompression: generation.Some(int64(0)), PartialImages: generation.Some(int64(0)), Mask: generation.Some(generation.ImageGenerationMask{FileID: generation.Some("file_mask")})}}
+	request.Tools = []generation.Tool{generation.OpenAIImageGenerationTool{
+		Model:             generation.Some("image-alias"),
+		Action:            "edit",
+		Background:        "transparent",
+		OutputFormat:      "webp",
+		Quality:           "max",
+		Size:              "1536x864",
+		InputFidelity:     generation.Some("high"),
+		Moderation:        "low",
+		OutputCompression: generation.Some(int64(0)),
+		PartialImages:     generation.Some(int64(0)),
+		Mask:              generation.Some(generation.ImageGenerationMask{FileID: generation.Some("file_mask")}),
+	}}
 	request.ToolChoice = generation.OpenAIImageGenerationChoice{}
 	return request
 }

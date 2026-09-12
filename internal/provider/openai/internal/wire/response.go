@@ -32,7 +32,26 @@ type ProviderError struct {
 
 func DecodeEnvelope(data []byte) (ResponseEnvelope, error) {
 	var response ResponseEnvelope
-	if !utf8.Valid(data) || json.Unmarshal(data, &response) != nil {
+	err := json.Unmarshal(data, &response)
+	if !utf8.Valid(data) {
+		// Keep accounting without exposing identities repaired by encoding/json.
+		var identity struct {
+			ID    json.RawMessage `json:"id"`
+			Model json.RawMessage `json:"model"`
+		}
+		if json.Unmarshal(data, &identity) != nil {
+			response.ID, response.Model = "", ""
+		} else {
+			if !utf8.Valid(identity.ID) {
+				response.ID = ""
+			}
+			if !utf8.Valid(identity.Model) {
+				response.Model = ""
+			}
+		}
+		return response, failure(generation.ProtocolError)
+	}
+	if err != nil {
 		return response, failure(generation.ProtocolError)
 	}
 	return response, nil
@@ -210,7 +229,7 @@ func decodeMessage(data []byte, warn func(string)) (generation.Item, error) {
 		Phase   json.RawMessage       `json:"phase"`
 		Content []json.RawMessage     `json:"content"`
 	}
-	if json.Unmarshal(data, &message) != nil || message.ID == "" || message.Role != generation.Assistant || message.Content == nil || itemMetadata(message.ID, message.Status) != nil {
+	if json.Unmarshal(data, &message) != nil || message.ID == "" || message.Role != generation.Assistant || message.Status == "" || message.Content == nil || itemMetadata(message.ID, message.Status) != nil {
 		return nil, failure(generation.ProtocolError)
 	}
 	result := generation.Message{ID: message.ID, Role: message.Role, Status: message.Status}

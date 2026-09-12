@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
@@ -13,9 +14,9 @@ import (
 )
 
 func TestCompactedMediaCanBeGenerated(t *testing.T) {
-	calls := 0
+	var calls atomic.Int32
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s", r.Method)
 		}
@@ -56,8 +57,8 @@ func TestCompactedMediaCanBeGenerated(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := client.Generate(t.Context(), testAttempt(), generation.Request{Model: "test-model", Input: compacted.Output})
-	if err != nil || len(result.Response.Output) != 1 || calls != 2 {
-		t.Fatalf("generate = %#v, %v, calls=%d", result, err, calls)
+	if err != nil || len(result.Response.Output) != 1 || calls.Load() != 2 {
+		t.Fatalf("generate = %#v, %v, calls=%d", result, err, calls.Load())
 	}
 }
 

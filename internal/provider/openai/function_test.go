@@ -70,8 +70,8 @@ func TestStreamFunctionRejectsChangedRoutingMetadata(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("last event = %#v; want output usage 8", events[len(events)-1])
 			}
 		})
@@ -190,7 +190,7 @@ func TestStreamFunctionFinalWithoutID(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.ToolCall{ID: "fc_1", CallID: "call_1", Name: "lookup", Arguments: "{}", OpenAI: generation.OpenAIToolCallData{Namespace: generation.Some("crm")}}
-	ended := events[len(events)-2].(generation.ItemEnded).Item
+	ended := eventAt[generation.ItemEnded](t, events, len(events)-2).Item
 	if !reflect.DeepEqual(ended, want) {
 		t.Fatalf("ended = %#v; want %#v", ended, want)
 	}
@@ -207,8 +207,8 @@ func TestStreamFunctionPreservesJSONArgumentValues(t *testing.T) {
 			if !errors.Is(err, io.EOF) {
 				t.Fatal(err)
 			}
-			delta := events[2].(generation.ArgumentsDelta)
-			ended := events[len(events)-2].(generation.ItemEnded).Item.(generation.ToolCall)
+			delta := eventAt[generation.ArgumentsDelta](t, events, 2)
+			ended := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.ToolCall)
 			if delta.Fragment != arguments || ended.Arguments != arguments {
 				t.Fatalf("delta = %q; ended arguments = %q; want %q", delta.Fragment, ended.Arguments, arguments)
 			}

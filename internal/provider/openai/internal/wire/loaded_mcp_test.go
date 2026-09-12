@@ -17,9 +17,32 @@ func TestLoadedMCPDeclarationsAndReplay(t *testing.T) {
 		{"type":"mcp","server_label":"local","tunnel_id":"tunnel_1","headers":{},"allowed_tools":["read"],"require_approval":"never"}
 	]`
 	want := []generation.Tool{
-		generation.OpenAIMCPTool{ServerLabel: "crm", Endpoint: generation.MCPServerURL("https://example.com/mcp"), Authorization: generation.Some("secret_token"), ServerDescription: generation.Some("Customer tools"), Headers: generation.Some(map[string]string{"X-Test": ""}), AllowedCallers: generation.Some([]string{"direct", "programmatic"}), DeferLoading: generation.Some(false), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ReadOnly: generation.Some(false), ToolNames: []string{}}), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{Always: generation.Some(generation.MCPToolFilter{ToolNames: []string{"write"}}), Never: generation.Some(generation.MCPToolFilter{ReadOnly: generation.Some(true)})})},
-		generation.OpenAIMCPTool{ServerLabel: "mail", Endpoint: generation.MCPConnectorID("connector_gmail"), Headers: generation.Null[map[string]string](), AllowedCallers: generation.Null[[]string](), AllowedTools: generation.Null[generation.MCPAllowedTools](), RequireApproval: generation.Null[generation.MCPApprovalPolicy]()},
-		generation.OpenAIMCPTool{ServerLabel: "local", Endpoint: generation.MCPTunnelID("tunnel_1"), Headers: generation.Some(map[string]string{}), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{"read"}), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("never"))},
+		generation.OpenAIMCPTool{
+			ServerLabel:       "crm",
+			Endpoint:          generation.MCPServerURL("https://example.com/mcp"),
+			Authorization:     generation.Some("secret_token"),
+			ServerDescription: generation.Some("Customer tools"),
+			Headers:           generation.Some(map[string]string{"X-Test": ""}),
+			AllowedCallers:    generation.Some([]string{"direct", "programmatic"}),
+			DeferLoading:      generation.Some(false),
+			AllowedTools:      generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ReadOnly: generation.Some(false), ToolNames: []string{}}),
+			RequireApproval:   generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{Always: generation.Some(generation.MCPToolFilter{ToolNames: []string{"write"}}), Never: generation.Some(generation.MCPToolFilter{ReadOnly: generation.Some(true)})}),
+		},
+		generation.OpenAIMCPTool{
+			ServerLabel:     "mail",
+			Endpoint:        generation.MCPConnectorID("connector_gmail"),
+			Headers:         generation.Null[map[string]string](),
+			AllowedCallers:  generation.Null[[]string](),
+			AllowedTools:    generation.Null[generation.MCPAllowedTools](),
+			RequireApproval: generation.Null[generation.MCPApprovalPolicy](),
+		},
+		generation.OpenAIMCPTool{
+			ServerLabel:     "local",
+			Endpoint:        generation.MCPTunnelID("tunnel_1"),
+			Headers:         generation.Some(map[string]string{}),
+			AllowedTools:    generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{"read"}),
+			RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("never")),
+		},
 	}
 	envelope, err := wire.DecodeEnvelope([]byte(`{"id":"resp_1","model":"test-model","status":"completed","output":[{"type":"tool_search_output","id":"search_1","call_id":null,"execution":"server","status":"completed","tools":` + catalog + `}]}`))
 	if err != nil {
@@ -31,7 +54,13 @@ func TestLoadedMCPDeclarationsAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded := result.Response.Output[0].(generation.OpenAIToolSearchOutput)
+	if len(result.Response.Output) != 1 {
+		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+	}
+	loaded, ok := result.Response.Output[0].(generation.OpenAIToolSearchOutput)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIToolSearchOutput", result.Response.Output[0])
+	}
 	if !reflect.DeepEqual(loaded.Tools, want) {
 		t.Fatalf("loaded tools = %#v; want %#v", loaded.Tools, want)
 	}

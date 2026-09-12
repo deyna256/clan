@@ -131,9 +131,15 @@ func TestEncodeRejectsInvalidRequest(t *testing.T) {
 }
 
 func TestEncodeRejectsInvalidSchema(t *testing.T) {
-	for _, schema := range []string{"", "null", "[]", `{"type":`, "{\"secret\":\"\xff\"}"} {
-		t.Run(schema, func(t *testing.T) {
-			request := generation.Request{Model: "test-model", OutputFormat: generation.JSONSchemaFormat{Name: "answer", Schema: json.RawMessage(schema)}}
+	for _, tc := range []struct{ name, schema string }{
+		{name: "empty", schema: ""},
+		{name: "null", schema: "null"},
+		{name: "array", schema: "[]"},
+		{name: "incomplete object", schema: `{"type":`},
+		{name: "invalid UTF-8", schema: "{\"secret\":\"\xff\"}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := generation.Request{Model: "test-model", OutputFormat: generation.JSONSchemaFormat{Name: "answer", Schema: json.RawMessage(tc.schema)}}
 
 			body, err := wire.EncodeRequest(request, false)
 
@@ -315,6 +321,9 @@ func assertJSON(t *testing.T, got []byte, want string) {
 	t.Helper()
 	decode := func(data []byte) any {
 		t.Helper()
+		if !json.Valid(data) {
+			t.Fatalf("invalid JSON document: %s", data)
+		}
 		decoder := json.NewDecoder(bytes.NewReader(data))
 		decoder.UseNumber()
 		var value any

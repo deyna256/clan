@@ -40,12 +40,60 @@ func TestMCPToolVariantsAndPresence(t *testing.T) {
 		tool generation.OpenAIMCPTool
 		want string
 	}{
-		{name: "connector", tool: generation.OpenAIMCPTool{ServerLabel: "drive", Endpoint: generation.MCPConnectorID("connector_googledrive")}, want: `{"type":"mcp","server_label":"drive","connector_id":"connector_googledrive"}`},
-		{name: "tunnel", tool: generation.OpenAIMCPTool{ServerLabel: "private", Endpoint: generation.MCPTunnelID("tunnel_1"), DeferLoading: generation.Some(true)}, want: `{"type":"mcp","server_label":"private","tunnel_id":"tunnel_1","defer_loading":true}`},
-		{name: "nullable", tool: generation.OpenAIMCPTool{ServerLabel: "s", Endpoint: generation.MCPTunnelID("t"), Headers: generation.Null[map[string]string](), AllowedCallers: generation.Null[[]string](), AllowedTools: generation.Null[generation.MCPAllowedTools](), RequireApproval: generation.Null[generation.MCPApprovalPolicy]()}, want: `{"type":"mcp","server_label":"s","tunnel_id":"t","headers":null,"allowed_callers":null,"allowed_tools":null,"require_approval":null}`},
-		{name: "empty collections", tool: generation.OpenAIMCPTool{ServerLabel: "s", Endpoint: generation.MCPTunnelID("t"), Headers: generation.Some(map[string]string{}), AllowedCallers: generation.Some([]string{}), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{}), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{})}, want: `{"type":"mcp","server_label":"s","tunnel_id":"t","headers":{},"allowed_callers":[],"allowed_tools":[],"require_approval":{}}`},
-		{name: "names and always", tool: generation.OpenAIMCPTool{ServerLabel: "s", Endpoint: generation.MCPTunnelID("t"), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{"read"}), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("always"))}, want: `{"type":"mcp","server_label":"s","tunnel_id":"t","allowed_tools":["read"],"require_approval":"always"}`},
-		{name: "empty filter and never", tool: generation.OpenAIMCPTool{ServerLabel: "s", Endpoint: generation.MCPTunnelID("t"), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ToolNames: []string{}}), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("never"))}, want: `{"type":"mcp","server_label":"s","tunnel_id":"t","allowed_tools":{"tool_names":[]},"require_approval":"never"}`},
+		{
+			name: "connector",
+			tool: generation.OpenAIMCPTool{ServerLabel: "drive", Endpoint: generation.MCPConnectorID("connector_googledrive")},
+			want: `{"type":"mcp","server_label":"drive","connector_id":"connector_googledrive"}`,
+		},
+		{
+			name: "tunnel",
+			tool: generation.OpenAIMCPTool{ServerLabel: "private", Endpoint: generation.MCPTunnelID("tunnel_1"), DeferLoading: generation.Some(true)},
+			want: `{"type":"mcp","server_label":"private","tunnel_id":"tunnel_1","defer_loading":true}`,
+		},
+		{
+			name: "nullable",
+			tool: generation.OpenAIMCPTool{
+				ServerLabel:     "s",
+				Endpoint:        generation.MCPTunnelID("t"),
+				Headers:         generation.Null[map[string]string](),
+				AllowedCallers:  generation.Null[[]string](),
+				AllowedTools:    generation.Null[generation.MCPAllowedTools](),
+				RequireApproval: generation.Null[generation.MCPApprovalPolicy](),
+			},
+			want: `{"type":"mcp","server_label":"s","tunnel_id":"t","headers":null,"allowed_callers":null,"allowed_tools":null,"require_approval":null}`,
+		},
+		{
+			name: "empty collections",
+			tool: generation.OpenAIMCPTool{
+				ServerLabel:     "s",
+				Endpoint:        generation.MCPTunnelID("t"),
+				Headers:         generation.Some(map[string]string{}),
+				AllowedCallers:  generation.Some([]string{}),
+				AllowedTools:    generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{}),
+				RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{}),
+			},
+			want: `{"type":"mcp","server_label":"s","tunnel_id":"t","headers":{},"allowed_callers":[],"allowed_tools":[],"require_approval":{}}`,
+		},
+		{
+			name: "names and always",
+			tool: generation.OpenAIMCPTool{
+				ServerLabel:     "s",
+				Endpoint:        generation.MCPTunnelID("t"),
+				AllowedTools:    generation.Some[generation.MCPAllowedTools](generation.MCPToolNames{"read"}),
+				RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("always")),
+			},
+			want: `{"type":"mcp","server_label":"s","tunnel_id":"t","allowed_tools":["read"],"require_approval":"always"}`,
+		},
+		{
+			name: "empty filter and never",
+			tool: generation.OpenAIMCPTool{
+				ServerLabel:     "s",
+				Endpoint:        generation.MCPTunnelID("t"),
+				AllowedTools:    generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ToolNames: []string{}}),
+				RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("never")),
+			},
+			want: `{"type":"mcp","server_label":"s","tunnel_id":"t","allowed_tools":{"tool_names":[]},"require_approval":"never"}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith()
@@ -78,14 +126,26 @@ func TestMCPItemsPreserveRawValuesAndApprovalDenial(t *testing.T) {
 	if result.Response.Finish.Reason != "tool_calls" {
 		t.Fatalf("approval finish = %s", result.Response.Finish.Reason)
 	}
-	list := result.Response.Output[0].(generation.OpenAIMCPListTools)
+	if len(result.Response.Output) != 4 {
+		t.Fatalf("output = %#v; want 4 items", result.Response.Output)
+	}
+	list, ok := result.Response.Output[0].(generation.OpenAIMCPListTools)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIMCPListTools", result.Response.Output[0])
+	}
+	if len(list.Tools) != 3 {
+		t.Fatalf("tools = %#v; want three tools", list.Tools)
+	}
 	if string(list.Tools[0].InputSchema) != `{"type":"object","minimum":9007199254740993}` {
 		t.Fatalf("schema = %s", list.Tools[0].InputSchema)
 	}
 	if !list.Tools[1].Annotations.IsNull() || !list.Tools[2].Annotations.IsZero() {
 		t.Fatal("lost annotation presence")
 	}
-	decision := result.Response.Output[3].(generation.OpenAIMCPApprovalResponse)
+	decision, ok := result.Response.Output[3].(generation.OpenAIMCPApprovalResponse)
+	if !ok {
+		t.Fatalf("output[3] = %T; want generation.OpenAIMCPApprovalResponse", result.Response.Output[3])
+	}
 	if decision.Approve || decision.ApprovalRequestID != "approve_1" {
 		t.Fatalf("decision = %#v", decision)
 	}
@@ -122,7 +182,13 @@ func TestMCPErrorsRemainItemData(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			call := result.Response.Output[0].(generation.OpenAIMCPCall)
+			if len(result.Response.Output) != 1 {
+				t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+			}
+			call, ok := result.Response.Output[0].(generation.OpenAIMCPCall)
+			if !ok {
+				t.Fatalf("output[0] = %T; want generation.OpenAIMCPCall", result.Response.Output[0])
+			}
 			got, ok := call.Error.Value()
 			if !ok || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("error = %#v; want %#v", got, tc.want)
@@ -152,7 +218,13 @@ func TestMCPListFailureRemainsItemData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	list := result.Response.Output[0].(generation.OpenAIMCPListTools)
+	if len(result.Response.Output) != 1 {
+		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+	}
+	list, ok := result.Response.Output[0].(generation.OpenAIMCPListTools)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIMCPListTools", result.Response.Output[0])
+	}
 	if message, ok := list.Error.Value(); !ok || message != "connection refused" {
 		t.Fatalf("list error = %q, %v", message, ok)
 	}
@@ -238,17 +310,39 @@ func TestRejectInvalidMCPInput(t *testing.T) {
 		{name: "invalid endpoint", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPServerURL("file:///private")}},
 		{name: "invalid connector", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPConnectorID("unknown")}},
 		{name: "null authorization", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), Authorization: generation.Null[string]()}},
-		{name: "header injection", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), Headers: generation.Some(map[string]string{"X-Token": "private\r\nInjected: value"})}},
+		{
+			name: "header injection",
+			tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), Headers: generation.Some(map[string]string{"X-Token": "private\r\nInjected: value"})},
+		},
 		{name: "invalid header name", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), Headers: generation.Some(map[string]string{"private:bad": "secret"})}},
 		{name: "null defer", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), DeferLoading: generation.Null[bool]()}},
 		{name: "nil allowed tools", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), AllowedTools: generation.Some[generation.MCPAllowedTools](nil)}},
-		{name: "null read only", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ReadOnly: generation.Null[bool]()})}},
-		{name: "null approval filter", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{Always: generation.Null[generation.MCPToolFilter]()})}},
-		{name: "invalid approval mode", tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("automatic"))}},
+		{
+			name: "null read only",
+			tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), AllowedTools: generation.Some[generation.MCPAllowedTools](generation.MCPToolFilter{ReadOnly: generation.Null[bool]()})},
+		},
+		{
+			name: "null approval filter",
+			tool: generation.OpenAIMCPTool{
+				ServerLabel:     "docs",
+				Endpoint:        generation.MCPTunnelID("t"),
+				RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalFilter{Always: generation.Null[generation.MCPToolFilter]()}),
+			},
+		},
+		{
+			name: "invalid approval mode",
+			tool: generation.OpenAIMCPTool{ServerLabel: "docs", Endpoint: generation.MCPTunnelID("t"), RequireApproval: generation.Some[generation.MCPApprovalPolicy](generation.MCPApprovalMode("automatic"))},
+		},
 		{name: "nil error", item: generation.OpenAIMCPCall{ID: "call_1", Name: "find", ServerLabel: "docs", Error: generation.Some[generation.MCPCallError](nil)}},
-		{name: "invalid raw error", item: generation.OpenAIMCPCall{ID: "call_1", Name: "find", ServerLabel: "docs", Error: generation.Some[generation.MCPCallError](generation.MCPExecutionError{Content: json.RawMessage(`private`)})}},
+		{
+			name: "invalid raw error",
+			item: generation.OpenAIMCPCall{ID: "call_1", Name: "find", ServerLabel: "docs", Error: generation.Some[generation.MCPCallError](generation.MCPExecutionError{Content: json.RawMessage(`private`)})},
+		},
 		{name: "missing schema", item: generation.OpenAIMCPListTools{ID: "list_1", ServerLabel: "docs", Tools: []generation.MCPListedTool{{Name: "find"}}}},
-		{name: "duplicate tools", item: generation.OpenAIMCPListTools{ID: "list_1", ServerLabel: "docs", Tools: []generation.MCPListedTool{{Name: "find", InputSchema: json.RawMessage(`{}`)}, {Name: "find", InputSchema: json.RawMessage(`true`)}}}},
+		{
+			name: "duplicate tools",
+			item: generation.OpenAIMCPListTools{ID: "list_1", ServerLabel: "docs", Tools: []generation.MCPListedTool{{Name: "find", InputSchema: json.RawMessage(`{}`)}, {Name: "find", InputSchema: json.RawMessage(`true`)}}},
+		},
 		{name: "invalid arguments UTF8", item: generation.OpenAIMCPApprovalRequest{ID: "approve_1", Name: "write", ServerLabel: "docs", Arguments: "private\xff"}},
 		{name: "missing approval link", item: generation.OpenAIMCPApprovalResponse{}},
 	} {

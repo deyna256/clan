@@ -35,20 +35,22 @@ func TestRetrieveResponsePreservesStoredState(t *testing.T) {
 func TestStoredResponseValidatesTerminalContentAndIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name, body string
+		kind       generation.FailureKind
 	}{
-		{name: "wrong response", body: strings.ReplaceAll(storedResponse("completed", `[]`, ""), "resp_1", "resp_2")},
-		{name: "missing tool identity", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","arguments":"{}"}]`, "")},
-		{name: "invalid completed arguments", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{"}]`, "")},
-		{name: "invalid error object", body: storedResponse("failed", `[]`, `,"error":{"code":"server_error"}`)},
-		{name: "invalid incomplete reason", body: storedResponse("incomplete", `[]`, `,"incomplete_details":{"reason":null}`)},
-		{name: "unsupported second item", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"},{"type":"unknown"}]`, "")},
+		{name: "wrong response", body: strings.ReplaceAll(storedResponse("completed", `[]`, ""), "resp_1", "resp_2"), kind: generation.ProtocolError},
+		{name: "missing tool identity", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","arguments":"{}"}]`, ""), kind: generation.ProtocolError},
+		{name: "invalid completed arguments", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{"}]`, ""), kind: generation.ProtocolError},
+		{name: "invalid error object", body: storedResponse("failed", `[]`, `,"error":{"code":"server_error"}`), kind: generation.ProtocolError},
+		{name: "invalid incomplete reason", body: storedResponse("incomplete", `[]`, `,"incomplete_details":{"reason":null}`), kind: generation.ProtocolError},
+		{name: "unsupported second item", body: storedResponse("completed", `[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{}"},{"type":"unknown"}]`, ""), kind: generation.Unsupported},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := testClient(t, staticJSON(tc.body), io.Discard)
 
 			result, err := client.RetrieveResponse(t.Context(), testAttempt(), "resp_1", openai.ResponseRetrieveOptions{})
 
-			if err == nil || result.Output != nil || result.Usage.Input != count(12) || result.Usage.Output != count(3) {
+			var failure *generation.Failure
+			if !errors.As(err, &failure) || failure.Kind != tc.kind || result.Output != nil || result.Usage.Input != count(12) || result.Usage.Output != count(3) {
 				t.Fatalf("result = %#v, %v; want usage without partial output", result, err)
 			}
 		})
@@ -56,13 +58,13 @@ func TestStoredResponseValidatesTerminalContentAndIdentity(t *testing.T) {
 }
 
 func TestStoredResponseRetainsUsageAfterMalformedMetadata(t *testing.T) {
-	for _, metadata := range []string{
-		`"created_at":"invalid"`,
-		`"created_at":0,"incomplete_details":42`,
-		`"created_at":0,"error":{"code":true,"message":"private"}`,
+	for _, tc := range []struct{ name, metadata string }{
+		{name: "invalid creation time", metadata: `"created_at":"invalid"`},
+		{name: "invalid incomplete details", metadata: `"created_at":0,"incomplete_details":42`},
+		{name: "invalid error code", metadata: `"created_at":0,"error":{"code":true,"message":"private"}`},
 	} {
-		t.Run(metadata, func(t *testing.T) {
-			body := `{"id":"resp_1","object":"response","model":"test-model","status":"completed","output":[],` + metadata + `,"usage":{"input_tokens":12,"output_tokens":3}}`
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"id":"resp_1","object":"response","model":"test-model","status":"completed","output":[],` + tc.metadata + `,"usage":{"input_tokens":12,"output_tokens":3}}`
 			client := testClient(t, staticJSON(body), io.Discard)
 
 			result, err := client.RetrieveResponse(t.Context(), testAttempt(), "resp_1", openai.ResponseRetrieveOptions{})
@@ -142,18 +144,18 @@ func TestCompactKeepsUsageWhenOutputFails(t *testing.T) {
 
 func TestCountInputTokensValidatesCounts(t *testing.T) {
 	for _, tc := range []struct {
-		body  string
-		want  int64
-		valid bool
+		name, body string
+		want       int64
+		valid      bool
 	}{
-		{body: `{"object":"response.input_tokens","input_tokens":0}`, valid: true},
-		{body: `{"object":"response.input_tokens","input_tokens":9007199254740993}`, want: 9007199254740993, valid: true},
-		{body: `{"object":"response.input_tokens","input_tokens":-1}`},
-		{body: `{"object":"response.input_tokens","input_tokens":null}`},
-		{body: `{"object":"response.input_tokens"}`},
-		{body: `{"object":"other","input_tokens":1}`},
+		{name: "zero", body: `{"object":"response.input_tokens","input_tokens":0}`, valid: true},
+		{name: "exact large integer", body: `{"object":"response.input_tokens","input_tokens":9007199254740993}`, want: 9007199254740993, valid: true},
+		{name: "negative", body: `{"object":"response.input_tokens","input_tokens":-1}`},
+		{name: "null", body: `{"object":"response.input_tokens","input_tokens":null}`},
+		{name: "missing", body: `{"object":"response.input_tokens"}`},
+		{name: "wrong object", body: `{"object":"other","input_tokens":1}`},
 	} {
-		t.Run(tc.body, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				if r.Method != "POST" || r.URL.Path != "/responses/input_tokens" || string(body) != `{}` {
@@ -173,13 +175,13 @@ func TestCountInputTokensValidatesCounts(t *testing.T) {
 
 func TestDeleteResponseAcceptsDocumentedSuccessBodies(t *testing.T) {
 	for _, tc := range []struct {
-		body  string
-		valid bool
+		name, body string
+		valid      bool
 	}{
-		{valid: true}, {body: `{"id":"resp_1","object":"response","deleted":true}`, valid: true},
-		{body: `{"id":"resp_2","object":"response","deleted":true}`}, {body: `{"id":"resp_1","object":"response","deleted":false}`},
+		{name: "empty response", valid: true}, {name: "deleted", body: `{"id":"resp_1","object":"response","deleted":true}`, valid: true},
+		{name: "wrong identity", body: `{"id":"resp_2","object":"response","deleted":true}`}, {name: "not deleted", body: `{"id":"resp_1","object":"response","deleted":false}`},
 	} {
-		t.Run(tc.body, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "DELETE" || r.URL.Path != "/responses/resp_1" {
 					t.Errorf("request = %s %s", r.Method, r.URL)

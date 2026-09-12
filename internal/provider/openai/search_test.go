@@ -61,7 +61,7 @@ func TestGenerateKeepsAnswerWhenOptionalSearchMetadataIsMalformed(t *testing.T) 
 			body := `{"id":"resp_1","model":"test-model","status":"completed","output":[
 				{"id":"fs_1","type":"file_search_call","status":"completed","queries":["q"],"results":` + results + `},
 				{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","sources":[{"type":"new_source","payload":"secret"},{"type":"url","url":"https://example.com"}]}},
-				{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Usable"}]}
+				{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Usable"}]}
 			]}`
 			client := testClient(t, staticJSON(body), &logs)
 

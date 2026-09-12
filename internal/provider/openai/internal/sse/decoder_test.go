@@ -68,25 +68,26 @@ func TestDecodeFrames(t *testing.T) {
 
 func TestFrameLimit(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		limit int
-		want  error
+		name   string
+		input  string
+		limit  int
+		want   error
+		events []sse.Event
 	}{
-		{name: "exact limit", input: "data: x\n\n", limit: 9, want: io.EOF},
+		{name: "exact limit", input: "data: x\n\n", limit: 9, want: io.EOF, events: []sse.Event{{Type: "message", Data: "x"}}},
 		{name: "oversized line", input: "data: xx\n\n", limit: 9, want: sse.ErrTooLarge},
 		{name: "accumulated data", input: "data: a\ndata: b\n\n", limit: 10, want: sse.ErrTooLarge},
 		{name: "ignored field", input: ": long comment\n\ndata: x\n\n", limit: 9, want: sse.ErrTooLarge},
-		{name: "limit resets per frame", input: "data: x\n\ndata: y\n\n", limit: 9, want: io.EOF},
+		{name: "limit resets per frame", input: "data: x\n\ndata: y\n\n", limit: 9, want: io.EOF, events: []sse.Event{{Type: "message", Data: "x"}, {Type: "message", Data: "y"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			decoder := newDecoder(t, strings.NewReader(tt.input), tt.limit)
 
-			_, err := readEvents(decoder)
+			events, err := readEvents(decoder)
 
-			if !errors.Is(err, tt.want) {
-				t.Fatalf("error = %v; want %v", err, tt.want)
+			if !errors.Is(err, tt.want) || !reflect.DeepEqual(events, tt.events) {
+				t.Fatalf("events = %#v, %v; want %#v, %v", events, err, tt.events, tt.want)
 			}
 		})
 	}

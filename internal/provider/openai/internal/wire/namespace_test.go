@@ -17,7 +17,12 @@ func TestEncodeNamespaceAndFunctionOptions(t *testing.T) {
 		}},
 		generation.OpenAINamespaceTool{Name: "crm", Description: "Customer tools", Tools: []generation.Tool{
 			generation.FunctionTool{Name: "omitted"},
-			generation.FunctionTool{Name: "boolean", Parameters: json.RawMessage(`false`), Strict: generation.Some(false), OpenAI: generation.OpenAIFunctionToolOptions{AllowedCallers: generation.Some([]string{}), OutputSchema: json.RawMessage(`null`)}},
+			generation.FunctionTool{
+				Name:       "boolean",
+				Parameters: json.RawMessage(`false`),
+				Strict:     generation.Some(false),
+				OpenAI:     generation.OpenAIFunctionToolOptions{AllowedCallers: generation.Some([]string{}), OutputSchema: json.RawMessage(`null`)},
+			},
 			generation.FunctionTool{Name: "null", Parameters: json.RawMessage(`null`), OpenAI: generation.OpenAIFunctionToolOptions{AllowedCallers: generation.Null[[]string]()}},
 			generation.CustomTool{Name: "query", Format: generation.CustomGrammarFormat{Syntax: "regex", Definition: ".*"}},
 		}},
@@ -78,7 +83,7 @@ func TestRejectInvalidNamespaceAndFunctionOptions(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }

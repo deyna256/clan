@@ -38,10 +38,7 @@ func TestGenerateRejectsMissingOrInvalidCompletedImage(t *testing.T) {
 
 			result, err := client.Generate(t.Context(), testAttempt(), textRequest())
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want protocol error", err)
-			}
+			assertProtocolError(t, err)
 			if result.Usage.Output != count(8) {
 				t.Fatalf("usage = %#v; want 8 output tokens", result.Usage)
 			}
@@ -104,7 +101,7 @@ func TestStreamImageRecoversEarlierResultAndLateMetadata(t *testing.T) {
 	if !errors.Is(err, io.EOF) {
 		t.Fatal(err)
 	}
-	end := events[len(events)-2].(generation.ItemEnded)
+	end := eventAt[generation.ItemEnded](t, events, len(events)-2)
 	want := generation.OpenAIImageGenerationCall{ID: "ig_1", Status: "completed", Result: generation.Some("aW1hZ2U="), Metadata: generation.ImageGenerationMetadata{OutputFormat: generation.Some("png"), Quality: generation.Null[string](), RevisedPrompt: generation.Some("Revised")}}
 	if !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("image = %#v; want %#v", end.Item, want)
@@ -118,12 +115,9 @@ func TestStreamImagePreviewDoesNotSatisfyCompletion(t *testing.T) {
 
 	events, err := readStream(t, client)
 
-	var failure *generation.Failure
-	if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-		t.Fatalf("error = %v; want protocol error", err)
-	}
-	last, ok := events[len(events)-1].(generation.UsageUpdated)
-	if !ok || last.Usage.Output != count(8) {
+	assertProtocolError(t, err)
+	last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+	if last.Usage.Output != count(8) {
 		t.Fatalf("last = %#v; want usage", events[len(events)-1])
 	}
 	assertNoResponseEnd(t, events)
@@ -137,10 +131,7 @@ func TestStreamImageConflictingFinalResult(t *testing.T) {
 
 	events, err := readStream(t, client)
 
-	var failure *generation.Failure
-	if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-		t.Fatalf("error = %v; want protocol error", err)
-	}
+	assertProtocolError(t, err)
 	assertNoResponseEnd(t, events)
 }
 
@@ -192,8 +183,8 @@ func TestStreamDoesNotAccumulateImagePreviews(t *testing.T) {
 func TestStreamBoundsRetainedImagesAndMetadata(t *testing.T) {
 	large := strings.Repeat("eHh4", 150_000)
 	for _, tc := range []struct{ name, result, metadata string }{
-		{"image", fmt.Sprintf("%q", large), ""},
-		{"metadata", `null`, fmt.Sprintf(`,"revised_prompt":%q`, large)},
+		{name: "image", result: fmt.Sprintf("%q", large)},
+		{name: "metadata", result: `null`, metadata: fmt.Sprintf(`,"revised_prompt":%q`, large)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := streamClient(t, io.Discard, created(),
@@ -203,10 +194,7 @@ func TestStreamBoundsRetainedImagesAndMetadata(t *testing.T) {
 
 			events, err := readStream(t, client)
 
-			var failure *generation.Failure
-			if !errors.As(err, &failure) || failure.Kind != generation.ProtocolError {
-				t.Fatalf("error = %v; want retained-size rejection", err)
-			}
+			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
 		})
 	}

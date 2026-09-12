@@ -51,9 +51,11 @@ func TestStreamToolSearchMergesAtomicSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ended []generation.Item
+	starts := 0
 	for _, event := range events {
 		switch value := event.(type) {
 		case generation.ItemStarted:
+			starts++
 			switch item := value.Item.(type) {
 			case generation.OpenAIToolSearchCall:
 				if item.Arguments != nil {
@@ -74,8 +76,8 @@ func TestStreamToolSearchMergesAtomicSnapshots(t *testing.T) {
 			generation.OpenAINamespaceTool{Name: "crm", Description: "Customers", Tools: []generation.Tool{generation.FunctionTool{Name: "lookup", Parameters: json.RawMessage(`{"const":9007199254740993}`)}}},
 		}},
 	}
-	if !reflect.DeepEqual(ended, want) || logs.Len() != 0 {
-		t.Fatalf("ended = %#v; want %#v; logs = %s", ended, want, logs.String())
+	if starts != 2 || !reflect.DeepEqual(ended, want) || logs.Len() != 0 {
+		t.Fatalf("starts = %d; ended = %#v; want two starts and %#v; logs = %s", starts, ended, want, logs.String())
 	}
 }
 
@@ -110,8 +112,8 @@ func TestStreamToolSearchRejectsUnsupportedCatalogAndKeepsUsage(t *testing.T) {
 		t.Fatalf("error = %v; want unsupported", err)
 	}
 	assertNoResponseEnd(t, events)
-	last, ok := events[len(events)-1].(generation.UsageUpdated)
-	if !ok || last.Usage.Output != count(8) {
+	last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+	if last.Usage.Output != count(8) {
 		t.Fatalf("last event = %#v; want usage 8", events[len(events)-1])
 	}
 }
@@ -149,7 +151,7 @@ func TestStreamAdditionalToolsPreservesRoleAndCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.OpenAIAdditionalTools{ID: generation.Some("added_1"), Role: "tool", Tools: []generation.Tool{generation.CustomTool{Name: "query"}}}
-	ended := events[len(events)-2].(generation.ItemEnded).Item
+	ended := eventAt[generation.ItemEnded](t, events, len(events)-2).Item
 	if !reflect.DeepEqual(ended, want) {
 		t.Fatalf("ended = %#v; want %#v", ended, want)
 	}
@@ -166,8 +168,8 @@ func TestStreamClientToolSearchNeedsActionableCallID(t *testing.T) {
 
 	assertProtocolError(t, err)
 	assertNoResponseEnd(t, events)
-	last, ok := events[len(events)-1].(generation.UsageUpdated)
-	if !ok || last.Usage.Output != count(8) {
+	last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+	if last.Usage.Output != count(8) {
 		t.Fatalf("last event = %#v; want usage 8", events[len(events)-1])
 	}
 }

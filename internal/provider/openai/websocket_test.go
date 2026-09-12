@@ -179,8 +179,8 @@ func TestSessionSendCreateKeepsSameLaneOrderAndWarmupID(t *testing.T) {
 	if !errors.As(invalid, &input) || input.Field != "stream_id" {
 		t.Fatalf("invalid lane = %v", invalid)
 	}
-	assertSessionJSON(t, <-requests, `{"type":"response.create","model":"test-model","input":[],"stream_id":"a","generate":false}`)
-	assertSessionJSON(t, <-requests, `{"type":"response.create","model":"test-model","input":[],"stream_id":"a","instructions":"second"}`)
+	assertRequestJSON(t, <-requests, `{"type":"response.create","model":"test-model","input":[],"stream_id":"a","generate":false}`)
+	assertRequestJSON(t, <-requests, `{"type":"response.create","model":"test-model","input":[],"stream_id":"a","instructions":"second"}`)
 	if len(events) != 2 || events[0].ResponseID != "resp_warm" || events[1].ResponseID != "resp_warm" {
 		t.Fatalf("warmup events = %#v", events)
 	}
@@ -266,28 +266,47 @@ func TestSessionAggregateOverflowDoesNotPublishCompletion(t *testing.T) {
 }
 
 func TestSessionConcurrentSendsAndReads(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	client := sessionServer(t, openai.Config{}, io.Discard, func(conn *websocket.Conn) {
 		for i := range 12 {
-			if _, _, err := conn.Read(t.Context()); err != nil {
+			if _, _, err := conn.Read(ctx); err != nil {
 				return
 			}
 			frame := `{"type":"response.completed","response":{"id":"resp_` + strconv.Itoa(i) + `","model":"test-model","status":"completed","output":[]}}`
-			if conn.Write(t.Context(), websocket.MessageText, []byte(frame)) != nil {
+			if conn.Write(ctx, websocket.MessageText, []byte(frame)) != nil {
 				return
 			}
 		}
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	})
-	session := openTestSession(t, client)
+	session, err := client.OpenSession(ctx, testAttempt())
+	if err != nil {
+		t.Fatal(err)
+	}
 	sent := make(chan error, 12)
 	var workers sync.WaitGroup
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		_ = session.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("session send workers did not stop")
+		}
+	})
 
 	for range 12 {
-		workers.Go(func() { sent <- session.SendCreate(t.Context(), textRequest(), openai.CreateOptions{}) })
+		workers.Go(func() { sent <- session.SendCreate(ctx, textRequest(), openai.CreateOptions{}) })
 	}
+	go func() { workers.Wait(); close(sent); close(done) }()
 	events, err := readSession(session)
-	workers.Wait()
-	close(sent)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("session send workers did not finish")
+	}
 
 	for sendErr := range sent {
 		if sendErr != nil {
@@ -371,20 +390,35 @@ func TestSessionCancellationInterruptsReadAndConcurrentClose(t *testing.T) {
 		_, _, _ = conn.Read(t.Context())
 		close(peerClosed)
 	})
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	session, err := client.OpenSession(ctx, testAttempt())
 	if err != nil {
 		t.Fatal(err)
 	}
 	read := make(chan error, 1)
-	go func() { _, err := session.Next(); read <- err }()
+	done := make(chan struct{})
+	var workers sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("concurrent Close workers did not stop")
+		}
+	})
+	workers.Go(func() { _, err := session.Next(); read <- err })
 
 	cancel()
-	var workers sync.WaitGroup
 	for range 3 {
 		workers.Go(func() { _ = session.Close() })
 	}
-	workers.Wait()
+	go func() { workers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent Close calls did not finish")
+	}
 
 	select {
 	case err := <-read:
@@ -465,7 +499,9 @@ func sessionFrames(t *testing.T, config openai.Config, frames ...string) *openai
 
 func openTestSession(t *testing.T, client *openai.Client) *openai.Session {
 	t.Helper()
-	session, err := client.OpenSession(t.Context(), testAttempt())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	session, err := client.OpenSession(ctx, testAttempt())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,16 +523,4 @@ func readSession(session *openai.Session) ([]openai.SessionEvent, error) {
 func laneEvent(lane, event string) string {
 	encoded, _ := json.Marshal(lane)
 	return `{"stream_id":` + string(encoded) + `,` + strings.TrimPrefix(event, "{")
-}
-
-func assertSessionJSON(t *testing.T, got, want string) {
-	t.Helper()
-	var actual, expected any
-	a := json.NewDecoder(bytes.NewBufferString(got))
-	a.UseNumber()
-	b := json.NewDecoder(bytes.NewBufferString(want))
-	b.UseNumber()
-	if a.Decode(&actual) != nil || b.Decode(&expected) != nil || !reflect.DeepEqual(actual, expected) {
-		t.Fatalf("JSON = %s; want %s", got, want)
-	}
 }

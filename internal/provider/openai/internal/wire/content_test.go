@@ -53,24 +53,22 @@ func TestEncodeRejectsInvalidContent(t *testing.T) {
 		name string
 		part generation.Part
 	}{
-		{"missing file ID", generation.FileID{}},
-		{"local file URL", generation.FileURL{URL: "file:///private"}},
-		{"URL credentials", generation.FileURL{URL: "https://secret@example.com/file"}},
-		{"invalid base64", generation.FileData{Data: "not base64"}},
-		{"empty decoded file", generation.FileData{Data: "\r\n"}},
-		{"wrong data URL", generation.FileData{Data: "data:application/pdf,abc"}},
-		{"invalid filename", generation.FileData{Data: "YQ==", Options: generation.FileOptions{Filename: generation.Some("\xff")}}},
-		{"wrong detail", generation.FileID{ID: "file_1", Options: generation.FileOptions{Detail: "original"}}},
-		{"output metadata in user input", generation.Text{Text: "text", OpenAI: generation.OpenAITextData{Annotations: []generation.Annotation{{Citation: generation.FilePath{FileID: "file_1"}}}}}},
+		{name: "missing file ID", part: generation.FileID{}},
+		{name: "local file URL", part: generation.FileURL{URL: "file:///private"}},
+		{name: "URL credentials", part: generation.FileURL{URL: "https://secret@example.com/file"}},
+		{name: "invalid base64", part: generation.FileData{Data: "not base64"}},
+		{name: "empty decoded file", part: generation.FileData{Data: "\r\n"}},
+		{name: "wrong data URL", part: generation.FileData{Data: "data:application/pdf,abc"}},
+		{name: "invalid filename", part: generation.FileData{Data: "YQ==", Options: generation.FileOptions{Filename: generation.Some("\xff")}}},
+		{name: "wrong detail", part: generation.FileID{ID: "file_1", Options: generation.FileOptions{Detail: "original"}}},
+		{name: "output metadata in user input", part: generation.Text{Text: "text", OpenAI: generation.OpenAITextData{Annotations: []generation.Annotation{{Citation: generation.FilePath{FileID: "file_1"}}}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := requestWith(message(tc.part))
 
 			body, err := wire.EncodeRequest(request, false)
 
-			if err == nil || body != nil {
-				t.Fatalf("EncodeRequest = %s, %v; want validation error", body, err)
-			}
+			assertInputError(t, body, err)
 		})
 	}
 }
@@ -80,15 +78,26 @@ func TestEncodeRejectsInvalidOutputProbability(t *testing.T) {
 	text := request.Input[0].(generation.Message).Parts[0].(generation.Text)
 	text.OpenAI.Logprobs[0].Logprob = math.NaN()
 
-	_, err := wire.EncodeRequest(request, false)
+	body, err := wire.EncodeRequest(request, false)
 
-	if err == nil {
-		t.Fatal("NaN probability was accepted")
-	}
+	assertInputError(t, body, err)
 }
 
 func TestEncodeEmptyLogprobCandidatesAsArray(t *testing.T) {
-	request := requestWith(generation.Message{ID: "msg_1", Role: generation.Assistant, Status: generation.ItemCompleted, Parts: []generation.Part{generation.Text{Text: "x", OpenAI: generation.OpenAITextData{Logprobs: []generation.TokenLogprob{{TokenProbability: generation.TokenProbability{Token: "x", Bytes: []byte{120}, Logprob: 0}}}}}}})
+	text := generation.Text{
+		Text: "x",
+		OpenAI: generation.OpenAITextData{
+			Logprobs: []generation.TokenLogprob{{
+				TokenProbability: generation.TokenProbability{Token: "x", Bytes: []byte{120}, Logprob: 0},
+			}},
+		},
+	}
+	request := requestWith(generation.Message{
+		ID:     "msg_1",
+		Role:   generation.Assistant,
+		Status: generation.ItemCompleted,
+		Parts:  []generation.Part{text},
+	})
 
 	body, err := wire.EncodeRequest(request, false)
 

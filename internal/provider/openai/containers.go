@@ -121,20 +121,11 @@ func (c *Client) ListContainerFiles(ctx context.Context, attempt Attempt, contai
 		return ContainerFilePage{}, err
 	}
 	body, err := c.resourceJSON(ctx, attempt, http.MethodGet, []string{"containers", containerID, "files"}, query, nil)
-	page, err := decodeResource[struct {
-		Data    []json.RawMessage `json:"data"`
-		FirstID string            `json:"first_id"`
-		LastID  string            `json:"last_id"`
-		HasMore bool              `json:"has_more"`
-		Object  string            `json:"object"`
-	}](body, err)
+	page, err := decodeResourcePage(body, err)
 	if err != nil {
 		return ContainerFilePage{}, err
 	}
-	if resourceRequired(body, "data", "first_id", "last_id", "has_more", "object") != nil || page.Object != "list" {
-		return ContainerFilePage{}, protocolError()
-	}
-	result := ContainerFilePage{Data: make([]ContainerFile, 0, len(page.Data)), FirstID: page.FirstID, LastID: page.LastID, HasMore: page.HasMore, Object: page.Object}
+	result := ContainerFilePage{Data: make([]ContainerFile, 0, len(page.Data)), FirstID: *page.FirstID, LastID: *page.LastID, HasMore: *page.HasMore, Object: page.Object}
 	for _, raw := range page.Data {
 		file, err := decodeContainerFile(raw, nil, containerID)
 		if err != nil {

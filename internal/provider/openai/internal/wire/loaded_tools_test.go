@@ -24,13 +24,23 @@ func TestLoadedToolDeclarationsAndReplay(t *testing.T) {
 		{"type":"tool_search","description":null,"execution":"client","parameters":[9007199254740993]}
 	]`
 	want := []generation.Tool{
-		generation.FunctionTool{Name: "lookup", Parameters: json.RawMessage(`{"const":9007199254740993}`), Description: generation.Null[string](), OpenAI: generation.OpenAIFunctionToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(true), AllowedCallers: generation.Null[[]string](), OutputSchema: json.RawMessage(`{"const":9007199254740995}`)}},
+		generation.FunctionTool{
+			Name:        "lookup",
+			Parameters:  json.RawMessage(`{"const":9007199254740993}`),
+			Description: generation.Null[string](),
+			OpenAI:      generation.OpenAIFunctionToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(true), AllowedCallers: generation.Null[[]string](), OutputSchema: json.RawMessage(`{"const":9007199254740995}`)},
+		},
 		generation.CustomTool{Name: "text", Format: generation.CustomTextFormat{}, OpenAI: generation.OpenAICustomToolOptions{AllowedCallers: generation.Some([]string{})}},
 		generation.OpenAINamespaceTool{Name: "crm", Tools: []generation.Tool{
 			generation.FunctionTool{Name: "unset"},
 			generation.FunctionTool{Name: "null", Parameters: json.RawMessage(`null`), Strict: generation.Null[bool]()},
 			generation.FunctionTool{Name: "boolean", Parameters: json.RawMessage(`false`), Strict: generation.Some(false)},
-			generation.CustomTool{Name: "grammar", Description: generation.Some("Parse text"), Format: generation.CustomGrammarFormat{Syntax: "regex"}, OpenAI: generation.OpenAICustomToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(false), AllowedCallers: generation.Null[[]string]()}},
+			generation.CustomTool{
+				Name:        "grammar",
+				Description: generation.Some("Parse text"),
+				Format:      generation.CustomGrammarFormat{Syntax: "regex"},
+				OpenAI:      generation.OpenAICustomToolOptions{Async: generation.Some(false), DeferLoading: generation.Some(false), AllowedCallers: generation.Null[[]string]()},
+			},
 		}},
 		generation.OpenAIToolSearchTool{Description: generation.Null[string](), Execution: generation.Some("client"), Parameters: json.RawMessage(`[9007199254740993]`)},
 	}
@@ -44,7 +54,13 @@ func TestLoadedToolDeclarationsAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded := result.Response.Output[0].(generation.OpenAIToolSearchOutput)
+	if len(result.Response.Output) != 1 {
+		t.Fatalf("output = %#v; want 1 items", result.Response.Output)
+	}
+	loaded, ok := result.Response.Output[0].(generation.OpenAIToolSearchOutput)
+	if !ok {
+		t.Fatalf("output[0] = %T; want generation.OpenAIToolSearchOutput", result.Response.Output[0])
+	}
 	if !reflect.DeepEqual(loaded.Tools, want) {
 		t.Fatalf("loaded tools = %#v; want %#v", loaded.Tools, want)
 	}

@@ -84,7 +84,7 @@ func TestStreamMCPInterleavesArgumentsAndReportsToolFailure(t *testing.T) {
 	if !reflect.DeepEqual(deltas, wantDeltas) || !reflect.DeepEqual(progress, wantProgress) || !reflect.DeepEqual(calls, []generation.OpenAIMCPCall{wantFirst, wantSecond}) {
 		t.Fatalf("deltas = %#v; progress = %#v; calls = %#v", deltas, progress, calls)
 	}
-	if finish := events[len(events)-1].(generation.ResponseEnded).Finish; finish.Reason != "stop" || logs.Len() != 0 {
+	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Reason != "stop" || logs.Len() != 0 {
 		t.Fatalf("finish = %#v; logs = %s; want stop without warnings", finish, logs.String())
 	}
 }
@@ -103,10 +103,10 @@ func TestStreamMCPListFailureDoesNotEndGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := generation.OpenAIMCPListTools{ID: "list_1", ServerLabel: "server", Tools: []generation.MCPListedTool{}, Error: generation.Some("server unavailable")}
-	if end := events[len(events)-2].(generation.ItemEnded); !reflect.DeepEqual(end.Item, want) {
+	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("end = %#v; want %#v", end.Item, want)
 	}
-	if progress := events[3].(generation.MCPProgress); progress.Status != "failed" || progress.ItemIndex != 0 {
+	if progress := eventAt[generation.MCPProgress](t, events, 3); progress.Status != "failed" || progress.ItemIndex != 0 {
 		t.Fatalf("progress = %#v; want failed at item 0", progress)
 	}
 }
@@ -125,7 +125,7 @@ func TestStreamMCPUsesLatestCatalogAndRetainsOmittedMetadata(t *testing.T) {
 		{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`), Description: generation.Some("find it"), Annotations: generation.Some(json.RawMessage(`{"priority":9007199254740993}`))},
 		{Name: "new", InputSchema: json.RawMessage(`null`), Annotations: generation.Null[json.RawMessage]()},
 	}
-	end := events[len(events)-2].(generation.ItemEnded).Item.(generation.OpenAIMCPListTools)
+	end := eventAt[generation.ItemEnded](t, events, len(events)-2).Item.(generation.OpenAIMCPListTools)
 	if !reflect.DeepEqual(end.Tools, want) {
 		t.Fatalf("tools = %#v; want %#v", end.Tools, want)
 	}
@@ -172,8 +172,8 @@ func TestStreamMCPRejectsConflictsAndPreservesUsage(t *testing.T) {
 
 			assertProtocolError(t, err)
 			assertNoResponseEnd(t, events)
-			last, ok := events[len(events)-1].(generation.UsageUpdated)
-			if !ok || last.Usage.Output != count(8) {
+			last := eventAt[generation.UsageUpdated](t, events, len(events)-1)
+			if last.Usage.Output != count(8) {
 				t.Fatalf("events = %#v; want preserved usage", events)
 			}
 		})
@@ -211,6 +211,7 @@ func TestStreamMCPRetainedMetadataIsIndependentOfCaller(t *testing.T) {
 	t.Cleanup(func() { _ = stream.Close() })
 
 	var ends []generation.Item
+	var mutatedList, mutatedCall bool
 	for {
 		event, err := stream.Next()
 		if errors.Is(err, io.EOF) {
@@ -225,15 +226,20 @@ func TestStreamMCPRetainedMetadataIsIndependentOfCaller(t *testing.T) {
 			case generation.OpenAIMCPListTools:
 				annotations, _ := item.Tools[0].Annotations.Value()
 				annotations[0] = '!'
+				mutatedList = true
 			case generation.OpenAIMCPCall:
 				err, _ := item.Error.Value()
 				err.(generation.MCPExecutionError).Content[0] = '!'
+				mutatedCall = true
 			}
 		case generation.ItemEnded:
 			ends = append(ends, value.Item)
 		}
 	}
 
+	if !mutatedList || !mutatedCall || len(ends) != 2 {
+		t.Fatalf("mutated list/call = %v/%v; ended items = %d; want both starts mutated and two ends", mutatedList, mutatedCall, len(ends))
+	}
 	tool := ends[0].(generation.OpenAIMCPListTools).Tools[0]
 	annotations, _ := tool.Annotations.Value()
 	callError, _ := ends[1].(generation.OpenAIMCPCall).Error.Value()
@@ -286,10 +292,10 @@ func TestStreamMCPFinalOnlyIncomplete(t *testing.T) {
 	}
 	want := mcpCall(`{"q":`)
 	want.Status = generation.Some("incomplete")
-	if end := events[len(events)-2].(generation.ItemEnded); !reflect.DeepEqual(end.Item, want) {
+	if end := eventAt[generation.ItemEnded](t, events, len(events)-2); !reflect.DeepEqual(end.Item, want) {
 		t.Fatalf("end = %#v; want %#v", end.Item, want)
 	}
-	if finish := events[len(events)-1].(generation.ResponseEnded).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
+	if finish := eventAt[generation.ResponseEnded](t, events, len(events)-1).Finish; finish.Status != "incomplete" || finish.Reason != "max_output_tokens" {
 		t.Fatalf("finish = %#v; want incomplete due to max_output_tokens", finish)
 	}
 }

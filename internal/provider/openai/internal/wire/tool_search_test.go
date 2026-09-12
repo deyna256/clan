@@ -18,8 +18,16 @@ func TestEncodeToolSearchDeclaration(t *testing.T) {
 	}{
 		{name: "default", want: `{"type":"tool_search"}`},
 		{name: "server", tool: generation.OpenAIToolSearchTool{Execution: generation.Some("server")}, want: `{"type":"tool_search","execution":"server"}`},
-		{name: "client", tool: generation.OpenAIToolSearchTool{Execution: generation.Some("client"), Description: generation.Some("Find tools"), Parameters: json.RawMessage(`{"type":"object"}`)}, want: `{"type":"tool_search","execution":"client","description":"Find tools","parameters":{"type":"object"}}`},
-		{name: "explicit null", tool: generation.OpenAIToolSearchTool{Description: generation.Null[string](), Parameters: json.RawMessage(`null`)}, want: `{"type":"tool_search","description":null,"parameters":null}`},
+		{
+			name: "client",
+			tool: generation.OpenAIToolSearchTool{Execution: generation.Some("client"), Description: generation.Some("Find tools"), Parameters: json.RawMessage(`{"type":"object"}`)},
+			want: `{"type":"tool_search","execution":"client","description":"Find tools","parameters":{"type":"object"}}`,
+		},
+		{
+			name: "explicit null",
+			tool: generation.OpenAIToolSearchTool{Description: generation.Null[string](), Parameters: json.RawMessage(`null`)},
+			want: `{"type":"tool_search","description":null,"parameters":null}`,
+		},
 		{name: "boolean schema", tool: generation.OpenAIToolSearchTool{Parameters: json.RawMessage(`false`)}, want: `{"type":"tool_search","parameters":false}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,7 +47,14 @@ func TestEncodeToolSearchDeclaration(t *testing.T) {
 func TestEncodeToolSearchInputPresence(t *testing.T) {
 	request := requestWith(
 		generation.OpenAIToolSearchCall{Arguments: json.RawMessage(`null`)},
-		generation.OpenAIToolSearchCall{ID: generation.Null[string](), CallID: generation.Null[string](), Status: generation.Null[generation.ItemStatus](), Execution: generation.Some("client"), Arguments: json.RawMessage(`[9007199254740993]`), CreatedBy: generation.Some("creator_1")},
+		generation.OpenAIToolSearchCall{
+			ID:        generation.Null[string](),
+			CallID:    generation.Null[string](),
+			Status:    generation.Null[generation.ItemStatus](),
+			Execution: generation.Some("client"),
+			Arguments: json.RawMessage(`[9007199254740993]`),
+			CreatedBy: generation.Some("creator_1"),
+		},
 		generation.OpenAIToolSearchOutput{ID: generation.Null[string](), CallID: generation.Null[string](), Status: generation.Null[generation.ItemStatus](), CreatedBy: generation.Some("creator_2")},
 		generation.OpenAIAdditionalTools{ID: generation.Null[string](), Role: "developer"},
 	)
@@ -67,8 +82,22 @@ func TestToolSearchReturnedMetadataAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []generation.Item{
-		generation.OpenAIToolSearchCall{ID: generation.Some("search_1"), CallID: generation.Null[string](), Execution: generation.Some("server"), Status: generation.Some(generation.ItemCompleted), Arguments: json.RawMessage(`false`), CreatedBy: generation.Some("creator_1")},
-		generation.OpenAIToolSearchOutput{ID: generation.Some("loaded_1"), CallID: generation.Null[string](), Execution: generation.Some("server"), Status: generation.Some(generation.ItemCompleted), Tools: []generation.Tool{}, CreatedBy: generation.Some("creator_2")},
+		generation.OpenAIToolSearchCall{
+			ID:        generation.Some("search_1"),
+			CallID:    generation.Null[string](),
+			Execution: generation.Some("server"),
+			Status:    generation.Some(generation.ItemCompleted),
+			Arguments: json.RawMessage(`false`),
+			CreatedBy: generation.Some("creator_1"),
+		},
+		generation.OpenAIToolSearchOutput{
+			ID:        generation.Some("loaded_1"),
+			CallID:    generation.Null[string](),
+			Execution: generation.Some("server"),
+			Status:    generation.Some(generation.ItemCompleted),
+			Tools:     []generation.Tool{},
+			CreatedBy: generation.Some("creator_2"),
+		},
 		generation.OpenAIAdditionalTools{ID: generation.Some("extra_1"), Role: "developer", Tools: []generation.Tool{}},
 	}
 
@@ -107,7 +136,7 @@ func TestRejectInvalidToolSearchDeclarations(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }
@@ -136,7 +165,7 @@ func TestRejectInvalidToolSearchInput(t *testing.T) {
 
 			body, err := wire.EncodeRequest(request, false)
 
-			assertCustomInputError(t, body, err)
+			assertInputError(t, body, err)
 		})
 	}
 }

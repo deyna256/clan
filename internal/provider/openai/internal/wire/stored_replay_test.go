@@ -2,6 +2,7 @@ package wire_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/deyna256/clan/internal/generation"
@@ -36,10 +37,23 @@ func TestStoredMediaReplayPreservesPresence(t *testing.T) {
 		{"type":"input_file","file_id":"file_report"},
 		{"type":"input_file","file_data":"data:application/pdf;base64,YQ==","filename":"report.pdf"}
 	]}`)
-	item, err := wire.DecodeStoredItem(raw, nil)
-	if err != nil {
-		t.Fatal(err)
+	want := generation.Message{
+		ID: "msg_1", Role: generation.User, Status: generation.ItemCompleted,
+		Parts: []generation.Part{
+			generation.OpenAIStoredImage{Kind: "input_image", Detail: "original", FileID: generation.Null[string](), ImageURL: generation.Some("https://example.com/image.png"), PromptCacheBreakpoint: true},
+			generation.OpenAIStoredImage{Kind: "input_image", Detail: "low", FileID: generation.Some("file_image"), ImageURL: generation.Null[string]()},
+			generation.OpenAIStoredImage{Kind: "computer_screenshot", Detail: "auto", FileID: generation.Some("file_screen"), ImageURL: generation.Some("https://example.com/screen.png")},
+			generation.OpenAIStoredFile{FileID: generation.Null[string](), FileURL: generation.Some("https://example.com/report.pdf"), Filename: generation.Some(""), Detail: generation.Some("high"), PromptCacheBreakpoint: true},
+			generation.OpenAIStoredFile{FileID: generation.Some("file_report")},
+			generation.OpenAIStoredFile{FileData: generation.Some("data:application/pdf;base64,YQ=="), Filename: generation.Some("report.pdf")},
+		},
 	}
+
+	item, err := wire.DecodeStoredItem(raw, nil)
+	if err != nil || !reflect.DeepEqual(item, want) {
+		t.Fatalf("stored media = %#v, %v; want %#v", item, err, want)
+	}
+
 	body, err := wire.EncodeRequest(requestWith(item), false)
 	if err != nil {
 		t.Fatal(err)
@@ -59,20 +73,20 @@ func TestStoredMediaReplayRejectsUnusableSources(t *testing.T) {
 		name string
 		part generation.Part
 	}{
-		{"missing image", generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto"}},
-		{"null image references", generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", FileID: generation.Null[string](), ImageURL: generation.Null[string]()}},
-		{"empty image ID", generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", FileID: generation.Some("")}},
-		{"invalid image URL", generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", ImageURL: generation.Some("file:///private")}},
-		{"image kind", generation.OpenAIStoredImage{Kind: "future", Detail: "auto", FileID: generation.Some("file_1")}},
-		{"image detail", generation.OpenAIStoredImage{Kind: "input_image", Detail: "future", FileID: generation.Some("file_1")}},
-		{"missing file", generation.OpenAIStoredFile{FileID: generation.Null[string]()}},
-		{"file URL credentials", generation.OpenAIStoredFile{FileURL: generation.Some("https://private@example.com/file")}},
-		{"file data", generation.OpenAIStoredFile{FileData: generation.Some("not base64")}},
-		{"file null URL", generation.OpenAIStoredFile{FileID: generation.Some("file_1"), FileURL: generation.Null[string]()}},
-		{"file null name", generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Filename: generation.Null[string]()}},
-		{"file invalid name", generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Filename: generation.Some("\xff")}},
-		{"file null detail", generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Detail: generation.Null[string]()}},
-		{"file invalid detail", generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Detail: generation.Some("original")}},
+		{name: "missing image", part: generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto"}},
+		{name: "null image references", part: generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", FileID: generation.Null[string](), ImageURL: generation.Null[string]()}},
+		{name: "empty image ID", part: generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", FileID: generation.Some("")}},
+		{name: "invalid image URL", part: generation.OpenAIStoredImage{Kind: "input_image", Detail: "auto", ImageURL: generation.Some("file:///private")}},
+		{name: "image kind", part: generation.OpenAIStoredImage{Kind: "future", Detail: "auto", FileID: generation.Some("file_1")}},
+		{name: "image detail", part: generation.OpenAIStoredImage{Kind: "input_image", Detail: "future", FileID: generation.Some("file_1")}},
+		{name: "missing file", part: generation.OpenAIStoredFile{FileID: generation.Null[string]()}},
+		{name: "file URL credentials", part: generation.OpenAIStoredFile{FileURL: generation.Some("https://private@example.com/file")}},
+		{name: "file data", part: generation.OpenAIStoredFile{FileData: generation.Some("not base64")}},
+		{name: "file null URL", part: generation.OpenAIStoredFile{FileID: generation.Some("file_1"), FileURL: generation.Null[string]()}},
+		{name: "file null name", part: generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Filename: generation.Null[string]()}},
+		{name: "file invalid name", part: generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Filename: generation.Some("\xff")}},
+		{name: "file null detail", part: generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Detail: generation.Null[string]()}},
+		{name: "file invalid detail", part: generation.OpenAIStoredFile{FileID: generation.Some("file_1"), Detail: generation.Some("original")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := wire.EncodeRequest(requestWith(message(tc.part)), false)
