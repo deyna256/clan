@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/tidwall/gjson"
 )
 
 func decodeLoadedTools(raw []json.RawMessage) ([]generation.Tool, error) {
@@ -20,16 +21,14 @@ func decodeLoadedTools(raw []json.RawMessage) ([]generation.Tool, error) {
 }
 
 func decodeLoadedTool(raw json.RawMessage, namespaced bool) (generation.Tool, error) {
-	var header struct {
-		Type string `json:"type"`
-	}
-	if !utf8.Valid(raw) || json.Unmarshal(raw, &header) != nil || header.Type == "" {
+	kind := gjson.GetBytes(raw, "type")
+	if !utf8.Valid(raw) || !gjson.ValidBytes(raw) || kind.Type != gjson.String || kind.Str == "" {
 		return nil, failure(generation.ProtocolError)
 	}
-	if namespaced && header.Type != "function" && header.Type != "custom" {
+	if namespaced && kind.Str != "function" && kind.Str != "custom" {
 		return nil, failure(generation.ProtocolError)
 	}
-	switch header.Type {
+	switch kind.Str {
 	case "function":
 		return decodeLoadedFunction(raw, namespaced)
 	case "custom":
@@ -43,7 +42,7 @@ func decodeLoadedTool(raw json.RawMessage, namespaced bool) (generation.Tool, er
 	case "tool_search":
 		return decodeLoadedToolSearch(raw)
 	default:
-		return decodeLoadedNative(raw, header.Type)
+		return decodeLoadedNative(raw, kind.Str)
 	}
 }
 

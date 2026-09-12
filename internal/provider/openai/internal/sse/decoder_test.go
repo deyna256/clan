@@ -16,6 +16,7 @@ func TestDecodeFrames(t *testing.T) {
 		name  string
 		input string
 		want  []sse.Event
+		err   error
 	}{
 		{
 			name: "multiline and fragmented unicode",
@@ -41,16 +42,17 @@ func TestDecodeFrames(t *testing.T) {
 		{
 			name:  "empty data and single optional space",
 			input: "data\n\nevent:\ndata:  x\ndata:\n\n",
-			want:  []sse.Event{{Type: "message"}, {Type: "message", Data: " x\n"}},
+			want:  []sse.Event{{Type: "message", Data: " x\n"}},
 		},
 		{
-			name:  "discard unterminated frame",
+			name:  "dispatch newline-terminated data at EOF",
 			input: "data: complete\n\ndata: unfinished\n",
-			want:  []sse.Event{{Type: "message", Data: "complete"}},
+			want:  []sse.Event{{Type: "message", Data: "complete"}, {Type: "message", Data: "unfinished"}},
 		},
 		{
-			name:  "discard unterminated line",
+			name:  "reject unterminated line",
 			input: "data: unfinished",
+			err:   io.ErrUnexpectedEOF,
 		},
 	}
 	for _, tt := range tests {
@@ -59,8 +61,12 @@ func TestDecodeFrames(t *testing.T) {
 
 			got, err := readEvents(decoder)
 
-			if !errors.Is(err, io.EOF) || !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("events = %#v, %v; want %#v, EOF", got, err, tt.want)
+			wantErr := tt.err
+			if wantErr == nil {
+				wantErr = io.EOF
+			}
+			if !errors.Is(err, wantErr) || !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("events = %#v, %v; want %#v, %v", got, err, tt.want, wantErr)
 			}
 		})
 	}
@@ -75,6 +81,7 @@ func TestFrameLimit(t *testing.T) {
 		events []sse.Event
 	}{
 		{name: "exact limit", input: "data: x\n\n", limit: 9, want: io.EOF, events: []sse.Event{{Type: "message", Data: "x"}}},
+		{name: "raw CRLF bytes count toward limit", input: "data: x\r\n\r\n", limit: 9, want: sse.ErrTooLarge},
 		{name: "oversized line", input: "data: xx\n\n", limit: 9, want: sse.ErrTooLarge},
 		{name: "accumulated data", input: "data: a\ndata: b\n\n", limit: 10, want: sse.ErrTooLarge},
 		{name: "ignored field", input: ": long comment\n\ndata: x\n\n", limit: 9, want: sse.ErrTooLarge},
@@ -141,21 +148,20 @@ func TestCarriageReturnDispatchesWithoutReadingAhead(t *testing.T) {
 	}
 }
 
-func FuzzFragmentation(f *testing.F) {
-	f.Add("data: hello\n\n")
-	f.Add("\ufeffdata: 👋\r\r")
-	f.Add("data: incomplete")
-	f.Fuzz(func(t *testing.T, input string) {
-		whole := newDecoder(t, strings.NewReader(input), 4096)
-		fragmented := newDecoder(t, iotest.OneByteReader(strings.NewReader(input)), 4096)
+func TestStopAbandonsUnreadEvents(t *testing.T) {
+	reader := &failingReader{err: errors.New("read after Stop")}
+	decoder := newDecoder(t, io.MultiReader(strings.NewReader("data: ready\n\n"), reader), 1024)
+	if event, err := decoder.Next(); err != nil || event.Data != "ready" {
+		t.Fatalf("first Next = %#v, %v; want ready event", event, err)
+	}
 
-		want, wantErr := readEvents(whole)
-		got, err := readEvents(fragmented)
+	decoder.Stop()
+	decoder.Stop()
+	event, err := decoder.Next()
 
-		if !reflect.DeepEqual(got, want) || !errors.Is(err, wantErr) {
-			t.Fatalf("fragmentation changed events or error: %#v, %v versus %#v, %v", got, err, want, wantErr)
-		}
-	})
+	if event != (sse.Event{}) || !errors.Is(err, io.EOF) || reader.calls != 0 {
+		t.Fatalf("Next after Stop = %#v, %v; subsequent reads = %d", event, err, reader.calls)
+	}
 }
 
 func newDecoder(t *testing.T, reader io.Reader, limit int) *sse.Decoder {
@@ -164,6 +170,7 @@ func newDecoder(t *testing.T, reader io.Reader, limit int) *sse.Decoder {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(decoder.Stop)
 	return decoder
 }
 

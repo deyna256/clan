@@ -249,6 +249,9 @@ report new findings even with the same checks enabled.
 
 Add dependencies with the code that uses them. First consider the standard library
 and existing dependencies. Explain what a new library solves and why it helps.
+Prefer a maintained library when it removes protocol or schema code we would
+otherwise own. Count the required wrappers and conversions when judging the saving;
+do not duplicate the library's implementation or tests.
 
 Use `just deps` to keep module files consistent with the code. `go.mod` records
 version requirements; `go.sum` records checksums. `go mod tidy` updates those files.

@@ -3,8 +3,10 @@ package wire
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 
 	"github.com/deyna256/clan/internal/usage"
+	"github.com/tidwall/gjson"
 )
 
 // NormalizeUsage merges observed counters and reports whether any were invalid.
@@ -13,38 +15,25 @@ func NormalizeUsage(raw json.RawMessage, previous usage.State) (usage.State, boo
 	if absent(raw) {
 		return previous, false
 	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil {
+	fields := gjson.ParseBytes(raw)
+	if !gjson.ValidBytes(raw) || !fields.IsObject() {
 		return previous, true
 	}
-	var details struct {
-		cached, reasoning json.RawMessage
-	}
 	invalid := false
-	for _, group := range []struct {
-		name, field string
-		target      *json.RawMessage
-	}{
-		{"input_tokens_details", "cached_tokens", &details.cached},
-		{"output_tokens_details", "reasoning_tokens", &details.reasoning},
-	} {
-		if absent(fields[group.name]) {
-			continue
-		}
-		var values map[string]json.RawMessage
-		if json.Unmarshal(fields[group.name], &values) != nil {
+	for _, name := range []string{"input_tokens_details", "output_tokens_details"} {
+		group := fields.Get(name)
+		if group.Exists() && group.Type != gjson.Null && !group.IsObject() {
 			invalid = true
-			continue
 		}
-		*group.target = values[group.field]
 	}
 	state := previous
-	for i, value := range []json.RawMessage{fields["input_tokens"], fields["output_tokens"], details.cached, details.reasoning, fields["total_tokens"]} {
-		if absent(value) {
+	for i, path := range []string{"input_tokens", "output_tokens", "input_tokens_details.cached_tokens", "output_tokens_details.reasoning_tokens", "total_tokens"} {
+		value := fields.Get(path)
+		if !value.Exists() || value.Type == gjson.Null {
 			continue
 		}
-		var tokens int64
-		if json.Unmarshal(value, &tokens) != nil || tokens < 0 {
+		tokens, err := strconv.ParseInt(value.Raw, 10, 64)
+		if value.Type != gjson.Number || err != nil || tokens < 0 {
 			invalid = true
 			continue
 		}

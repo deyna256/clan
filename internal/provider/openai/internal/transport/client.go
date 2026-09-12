@@ -25,7 +25,7 @@ var ErrInvalidPath = errors.New("openai: invalid resource path")
 // New uses baseURL as the API root and copies the HTTP client configuration.
 // The transport is shared. Cookies and redirects are disabled; timeouts remain
 // the caller's choice. The standard transport may recover stale connections for
-// idempotent reads; generation and upload bodies cannot be replayed.
+// idempotent reads; generation bodies cannot be replayed.
 func New(baseURL string, client *http.Client) (*Client, error) {
 	if client == nil {
 		return nil, errors.New("openai: HTTP client is required")
@@ -58,10 +58,10 @@ func (c *Client) Create(ctx context.Context, apiKey string, payload []byte, stre
 }
 
 type Request struct {
-	Method, ContentType, Accept, Beta string
-	Path                              []string
-	Query                             url.Values
-	Body                              io.Reader
+	Method, ContentType, Accept string
+	Path                        []string
+	Query                       url.Values
+	Body                        io.Reader
 }
 
 // Do sends a resource request. Path entries are individual unescaped segments.
@@ -90,9 +90,6 @@ func (c *Client) Do(ctx context.Context, apiKey string, request Request) (*http.
 		req.Header.Set("Content-Type", request.ContentType)
 	}
 	req.Header.Set("Accept", request.Accept)
-	if request.Beta != "" {
-		req.Header.Set("OpenAI-Beta", request.Beta)
-	}
 	response, err := c.http.Do(req)
 	if err != nil {
 		return nil, &requestError{cause: err}

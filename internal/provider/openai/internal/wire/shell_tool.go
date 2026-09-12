@@ -78,7 +78,7 @@ func encodeShellEnvironment(environment generation.Optional[generation.ShellEnvi
 				return nil, err
 			}
 		}
-		policy, err := EncodeContainerNetwork(value.NetworkPolicy)
+		policy, err := encodeContainerNetwork(value.NetworkPolicy)
 		if err != nil {
 			return nil, at("network_policy", err)
 		}
@@ -87,7 +87,7 @@ func encodeShellEnvironment(environment generation.Optional[generation.ShellEnvi
 			skills = make([]json.RawMessage, len(value.Skills))
 		}
 		for i, skill := range value.Skills {
-			skills[i], err = EncodeShellSkill(skill)
+			skills[i], err = encodeShellSkill(skill)
 			if err != nil {
 				return nil, at("skills", err)
 			}
@@ -104,8 +104,7 @@ func encodeShellEnvironment(environment generation.Optional[generation.ShellEnvi
 	}
 }
 
-// EncodeShellSkill encodes a skill shared by shell tools and container creation.
-func EncodeShellSkill(skill generation.ShellSkill) (json.RawMessage, error) {
+func encodeShellSkill(skill generation.ShellSkill) (json.RawMessage, error) {
 	switch value := skill.(type) {
 	case generation.ShellSkillReference:
 		if err := requiredString("skill_id", value.SkillID); err != nil {

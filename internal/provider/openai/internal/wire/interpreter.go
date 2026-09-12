@@ -41,7 +41,7 @@ func encodeInterpreterContainer(container generation.InterpreterContainer) (json
 				return nil, err
 			}
 		}
-		policy, err := EncodeContainerNetwork(value.NetworkPolicy)
+		policy, err := encodeContainerNetwork(value.NetworkPolicy)
 		if err != nil {
 			return nil, at("network_policy", err)
 		}
@@ -56,8 +56,7 @@ func encodeInterpreterContainer(container generation.InterpreterContainer) (json
 	}
 }
 
-// EncodeContainerNetwork encodes the shared hosted-container network policy.
-func EncodeContainerNetwork(policy generation.InterpreterNetworkPolicy) (json.RawMessage, error) {
+func encodeContainerNetwork(policy generation.InterpreterNetworkPolicy) (json.RawMessage, error) {
 	switch value := policy.(type) {
 	case nil:
 		return nil, nil

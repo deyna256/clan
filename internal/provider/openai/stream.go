@@ -15,6 +15,7 @@ import (
 	"github.com/deyna256/clan/internal/generation"
 	"github.com/deyna256/clan/internal/provider/openai/internal/sse"
 	"github.com/deyna256/clan/internal/provider/openai/internal/wire"
+	"github.com/tidwall/sjson"
 )
 
 // Stream has one sequential Next consumer. Close may overlap a blocked Next;
@@ -112,7 +113,9 @@ func (s *Stream) Next() (generation.Event, error) {
 		if err != nil {
 			if s.ctx.Err() != nil {
 				err = s.ctx.Err()
-			} else if errors.Is(err, io.EOF) {
+			} else if errors.Is(err, sse.ErrTooLarge) {
+				err = protocolError()
+			} else if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				err = io.ErrUnexpectedEOF
 			} else {
 				err = transportFailure(err)
@@ -121,7 +124,7 @@ func (s *Stream) Next() (generation.Event, error) {
 			continue
 		}
 		var event responseEvent
-		if !utf8.ValidString(frame.Data) || json.Unmarshal([]byte(frame.Data), &event) != nil {
+		if decodeStreamFrame([]byte(frame.Data), &event) != nil {
 			s.state.diagnostics.warn("invalid_event", frame.Type, "skipped")
 			continue
 		}
@@ -160,6 +163,7 @@ func (s *Stream) closeBody() error {
 		if s.body.Close() != nil {
 			s.closeErr = errors.New("openai: stream cleanup failed")
 		}
+		s.decoder.Stop()
 	})
 	return s.closeErr
 }
@@ -171,6 +175,20 @@ func (s *Stream) finish(err error) {
 }
 
 func protocolError() error { return &generation.Failure{Kind: generation.ProtocolError} }
+
+func decodeStreamFrame(data []byte, frame any) error {
+	if !utf8.Valid(data) {
+		// The response decoder retains usage before rejecting invalid content.
+		header, err := sjson.DeleteBytes(data, "response")
+		if err != nil || !utf8.Valid(header) {
+			return protocolError()
+		}
+	}
+	if json.Unmarshal(data, frame) != nil {
+		return protocolError()
+	}
+	return nil
+}
 
 type responseEvent struct {
 	raw               string

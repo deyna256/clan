@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deyna256/clan/internal/generation"
+	"github.com/tidwall/gjson"
 )
 
 func encodeImageTool(tool generation.OpenAIImageGenerationTool) (json.RawMessage, error) {
@@ -170,30 +171,24 @@ func decodeImageCall(data []byte, warn func(string)) (generation.Item, error) {
 
 // DecodeImageMetadata tolerates malformed optional fields independently.
 func DecodeImageMetadata(data []byte, warn func(string)) generation.ImageGenerationMetadata {
-	var raw struct {
-		Action     json.RawMessage `json:"action"`
-		Background json.RawMessage `json:"background"`
-		Format     json.RawMessage `json:"output_format"`
-		Quality    json.RawMessage `json:"quality"`
-		Size       json.RawMessage `json:"size"`
-		Prompt     json.RawMessage `json:"revised_prompt"`
-	}
-	if json.Unmarshal(data, &raw) != nil {
+	raw := gjson.ParseBytes(data)
+	if !gjson.ValidBytes(data) || (!raw.IsObject() && raw.Type != gjson.Null) {
 		warn("invalid_image_metadata")
 		return generation.ImageGenerationMetadata{}
 	}
 	var m generation.ImageGenerationMetadata
 	for _, field := range []struct {
-		raw    json.RawMessage
+		name   string
 		target *generation.Optional[string]
 	}{
-		{raw.Action, &m.Action}, {raw.Background, &m.Background}, {raw.Format, &m.OutputFormat},
-		{raw.Quality, &m.Quality}, {raw.Size, &m.Size}, {raw.Prompt, &m.RevisedPrompt},
+		{name: "action", target: &m.Action}, {name: "background", target: &m.Background}, {name: "output_format", target: &m.OutputFormat},
+		{name: "quality", target: &m.Quality}, {name: "size", target: &m.Size}, {name: "revised_prompt", target: &m.RevisedPrompt},
 	} {
-		if len(field.raw) == 0 {
+		value := raw.Get(field.name)
+		if !value.Exists() {
 			continue
 		}
-		if json.Unmarshal(field.raw, field.target) != nil {
+		if json.Unmarshal([]byte(value.Raw), field.target) != nil {
 			warn("invalid_image_metadata")
 		}
 	}

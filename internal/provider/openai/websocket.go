@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	"github.com/deyna256/clan/internal/generation"
@@ -152,7 +151,7 @@ func (s *Session) Next() (SessionEvent, error) {
 			s.finish(s.readFailure(err))
 			continue
 		}
-		if kind != websocket.MessageText || !utf8.Valid(data) {
+		if kind != websocket.MessageText {
 			s.finish(protocolError())
 			continue
 		}
@@ -173,7 +172,7 @@ func (s *Session) consume(data []byte) error {
 			Headers json.RawMessage             `json:"headers"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(data, &frame) != nil || frame.Type == "" || frame.Lane.IsNull() {
+	if decodeStreamFrame(data, &frame) != nil || frame.Type == "" || frame.Lane.IsNull() {
 		return protocolError()
 	}
 	name, named := frame.Lane.Value()
@@ -232,10 +231,8 @@ func (s *Session) consume(data []byte) error {
 	}
 	before := lane.bytes()
 	if lifecycle {
-		var identity struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(frame.Response, &identity) != nil || identity.ID == "" {
+		identity, _ := wire.DecodeEnvelope(frame.Response)
+		if identity.ID == "" {
 			return protocolError()
 		}
 		if lane.state != nil && lane.id != identity.ID {

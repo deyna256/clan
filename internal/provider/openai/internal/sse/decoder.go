@@ -1,109 +1,78 @@
-// Package sse reads bounded server-sent events without reconnecting.
+// Package sse adapts bounded server-sent events without reconnecting.
 package sse
 
 import (
 	"bufio"
 	"errors"
 	"io"
-	"strings"
+	"iter"
+	"sync"
+
+	gosse "github.com/tmaxmax/go-sse"
 )
 
-// ErrTooLarge means an event exceeds the configured byte limit.
-var ErrTooLarge = errors.New("sse: event exceeds byte limit")
+// ErrTooLarge means an encoded event exceeds the configured byte limit.
+var ErrTooLarge = bufio.ErrTooLong
 
 // Event contains the event name and joined data lines.
-type Event struct {
-	Type string
-	Data string
-}
+type Event struct{ Type, Data string }
 
-// Decoder must be created with New and read sequentially.
-// The caller owns cancellation and reader cleanup.
-// EOF describes the transport, not successful provider completion.
+// Decoder must be constructed with New and has one sequential Next consumer.
+// Stop may overlap Next after the caller cancels or closes its reader to unblock I/O.
 type Decoder struct {
-	reader *bufio.Reader
-	limit  int
-	first  bool
-	skipLF bool
-	err    error
+	mu   sync.Mutex
+	next func() (gosse.Event, error, bool)
+	stop func()
+	err  error
 }
 
-// New bounds each frame to maxBytes after treating CRLF as one delimiter.
+// New bounds encoded events, including literal CRLF delimiters, to maxBytes.
 func New(reader io.Reader, maxBytes int) (*Decoder, error) {
 	if reader == nil || maxBytes <= 0 {
 		return nil, errors.New("sse: reader and positive byte limit are required")
 	}
-	return &Decoder{reader: bufio.NewReader(reader), limit: maxBytes, first: true}, nil
+	next, stop := iter.Pull2(gosse.Read(reader, &gosse.ReadConfig{MaxEventSize: maxBytes}))
+	return &Decoder{next: next, stop: stop}, nil
 }
 
-// Next returns one event. Unterminated frames at EOF are discarded.
-// After any error, later calls return that error without reading again.
+// Next returns nonempty event data. A final newline-terminated event may be
+// dispatched at EOF; EOF itself does not establish provider completion.
 func (d *Decoder) Next() (Event, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.err != nil {
 		return Event{}, d.err
 	}
-	event := Event{Type: "message"}
-	var data strings.Builder
-	remaining := d.limit
 	for {
-		line, err := d.line(&remaining)
+		event, err, ok := d.next()
+		if !ok {
+			err = io.EOF
+		}
+		if errors.Is(err, gosse.ErrUnexpectedEOF) {
+			err = io.ErrUnexpectedEOF
+		}
 		if err != nil {
 			d.err = err
+			d.stop()
 			return Event{}, err
 		}
-		if d.first {
-			line = strings.TrimPrefix(line, "\ufeff")
-			d.first = false
-		}
-		if line == "" {
-			if data.Len() != 0 {
-				event.Data = strings.TrimSuffix(data.String(), "\n")
-				return event, nil
-			}
-			event.Type = "message"
-			remaining = d.limit
+		if event.Data == "" {
 			continue
 		}
-		name, value, _ := strings.Cut(line, ":")
-		value = strings.TrimPrefix(value, " ")
-		switch name {
-		case "event":
-			event.Type = value
-			if value == "" {
-				event.Type = "message"
-			}
-		case "data":
-			data.WriteString(value)
-			data.WriteByte('\n')
+		if event.Type == "" {
+			event.Type = "message"
 		}
+		return Event{Type: event.Type, Data: event.Data}, nil
 	}
 }
 
-func (d *Decoder) line(remaining *int) (string, error) {
-	var line strings.Builder
-	for {
-		b, err := d.reader.ReadByte()
-		if err != nil {
-			return "", err
-		}
-		if d.skipLF {
-			d.skipLF = false
-			if b == '\n' {
-				continue
-			}
-		}
-		if *remaining == 0 {
-			return "", ErrTooLarge
-		}
-		*remaining -= 1
-		switch b {
-		case '\r':
-			d.skipLF = true
-			return line.String(), nil
-		case '\n':
-			return line.String(), nil
-		default:
-			line.WriteByte(b)
-		}
+// Stop releases an abandoned iterator and waits for an active Next to finish.
+// Cancel or close the reader before calling Stop. Repeated calls are safe.
+func (d *Decoder) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stop()
+	if d.err == nil {
+		d.err = io.EOF
 	}
 }

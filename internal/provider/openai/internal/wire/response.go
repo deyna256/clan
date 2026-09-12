@@ -89,10 +89,54 @@ func (r ResponseEnvelope) Result(warn func(string)) (generation.Result, error) {
 func (r ResponseFields) TerminalOutput(warn func(string)) ([]generation.Item, bool, error) {
 	toolCalls := false
 	output := make([]generation.Item, 0, len(r.Output))
+	itemIDs := make(map[string]bool)
+	callIDs, resultIDs := make(map[string]string), make(map[string]string)
 	for _, raw := range r.Output {
 		item, err := DecodeItem(raw, r.Status == "completed", warn)
 		if err != nil {
 			return nil, false, err
+		}
+		var fields struct {
+			ID, Type string
+			CallID   json.RawMessage `json:"call_id"`
+		}
+		if json.Unmarshal(raw, &fields) != nil {
+			return nil, false, failure(generation.ProtocolError)
+		}
+		if id := fields.ID; id != "" {
+			if itemIDs[id] {
+				return nil, false, failure(generation.ProtocolError)
+			}
+			itemIDs[id] = true
+		}
+		kind := fields.Type
+		switch kind {
+		case "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output",
+			"shell_call", "shell_call_output", "local_shell_call", "local_shell_call_output",
+			"computer_call", "computer_call_output", "apply_patch_call", "apply_patch_call_output",
+			"tool_search_call", "tool_search_output", "program", "program_output":
+		default:
+			kind = ""
+		}
+		if kind != "" && !absent(fields.CallID) {
+			var callID string
+			if json.Unmarshal(fields.CallID, &callID) != nil {
+				return nil, false, failure(generation.ProtocolError)
+			}
+			seen, paired := callIDs, resultIDs
+			if strings.HasSuffix(kind, "_output") {
+				kind = strings.TrimSuffix(kind, "_output")
+				if kind == "tool_search" {
+					kind = "tool_search_call"
+				}
+				seen, paired = resultIDs, callIDs
+			}
+			if callID != "" {
+				if seen[callID] != "" || (paired[callID] != "" && paired[callID] != kind) {
+					return nil, false, failure(generation.ProtocolError)
+				}
+				seen[callID] = kind
+			}
 		}
 		switch call := item.(type) {
 		case generation.ToolCall:

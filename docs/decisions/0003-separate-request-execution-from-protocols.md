@@ -227,6 +227,11 @@ translation should not produce warnings.
 
 ## Stored provider resources
 
+The initial scope includes stored responses and conversations. Management of
+Files, Containers and Vector Stores is deferred, including uploads and artifact
+downloads. Their references may appear in generation data, but the gateway must
+authorize referenced resources before dispatch.
+
 Resources created through CLAN belong to the access-key identity that created them.
 CLAN keeps their upstream/account binding; content stays at the provider. On each
 read, continuation, update or deletion, check ownership and the key's current
@@ -263,8 +268,7 @@ dispatch; do not silently change them to ordinary generation.
 
 Do not add provider-job polling, durable job recovery or restored concurrency
 slots. Existing budget snapshot persistence and interrupted-request history still
-apply. This exclusion does not remove stored responses or other provider resources
-from the adapter scope.
+apply. Stored responses and conversations remain in scope.
 
 ## Access-key disabling and deletion
 
