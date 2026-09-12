@@ -106,8 +106,9 @@ records may use extra sections for detailed contracts and validation.
 This follows [Nygard's ADR guidance](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
 
 New decisions are **Proposed** until agreed. **Accepted** does not mean implemented.
-When replacing a decision, retain the old record as **Superseded** and link its
-replacement. Wording fixes do not require a new ADR.
+Keep only current decisions. Update an existing ADR or remove it when it no longer
+applies; Git keeps the history. Do not archive obsolete drafts or decisions, and
+do not renumber remaining ADRs. Wording fixes do not require a new ADR.
 
 Update affected docs and links in the same change. Use plain English and diagrams
 that identify whether arrows mean runtime flow or code dependencies. Give each

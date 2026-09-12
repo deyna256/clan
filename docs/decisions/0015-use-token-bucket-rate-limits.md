@@ -3,7 +3,6 @@
 Status: Accepted. Recorded: 2026-09-10.
 Decision owner: project maintainer. Implementation: limiter in `internal/ratelimit`
 and admission coordinator; request execution integration pending.
-Supersedes [ADR 0011](0011-use-sliding-window-rpm.md).
 
 ## Decision
 
@@ -108,7 +107,7 @@ No periodic cleanup or background worker is needed.
 
 ## Rationale and alternatives
 
-The previous exact sliding window required retaining admission timestamps.
+An exact sliding window requires retaining admission timestamps.
 A token bucket keeps constant-size state per key, and the Go library supplies
 refill calculations and synchronization. CLAN still owns key lookup, configuration
 changes, inactive-state cleanup and coordination with other admission checks.

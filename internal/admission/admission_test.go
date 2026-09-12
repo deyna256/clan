@@ -392,7 +392,7 @@ func coordinator(t *testing.T, store *testStore) (*admission.Coordinator, *ratel
 func policy(t *testing.T, id accesskey.ID) admission.Policy {
 	t.Helper()
 	key, err := accesskey.New(accesskey.Identity{ID: id, Name: "test key"}, true,
-		accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true})
+		accesskey.Permissions{AllUpstreams: true, AllModels: true})
 	if err != nil {
 		t.Fatal(err)
 	}

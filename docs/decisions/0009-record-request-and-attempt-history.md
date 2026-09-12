@@ -60,7 +60,9 @@ records and their details. Do not delete records of active requests just because
 Deleting an account or access key does not erase its history or consumption. Keep its
 ID and name snapshot from request time, and indicate deletion, without retaining
 credentials. A new same-name entity gets a different ID and does not inherit history.
-Define how deletion affects active requests in the account/key modules.
+Access-key deletion cancels active work under
+[ADR 0003](0003-separate-request-execution-from-protocols.md#access-key-disabling-and-deletion).
+Account deletion behavior remains open.
 
 History cleanup must not reset consumption or reopen an active exhausted budget.
 Keep admission counters; this decision does not require summing all history on each

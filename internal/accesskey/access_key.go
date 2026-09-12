@@ -29,16 +29,14 @@ func (m Model) valid() bool {
 	return strings.TrimSpace(string(m.UpstreamID)) != "" && strings.TrimSpace(m.Name) != ""
 }
 
-// Permissions restrict upstreams, models and accounts by exact value.
-// All three restrictions must allow access. Empty lists deny access.
+// Permissions restrict upstreams and models by exact value.
+// Both restrictions must allow access. Empty lists deny access.
 // Each All flag removes its restriction and cannot accompany a nonempty list.
 type Permissions struct {
 	AllUpstreams bool
 	Upstreams    []upstream.ID
 	AllModels    bool
 	Models       []Model
-	AllAccounts  bool
-	Accounts     []account.ID
 }
 
 func (p Permissions) validate() error {
@@ -48,9 +46,6 @@ func (p Permissions) validate() error {
 	if p.AllModels && len(p.Models) > 0 {
 		return errors.New("access key: models cannot combine all with a list")
 	}
-	if p.AllAccounts && len(p.Accounts) > 0 {
-		return errors.New("access key: accounts cannot combine all with a list")
-	}
 	for _, id := range p.Upstreams {
 		if strings.TrimSpace(string(id)) == "" {
 			return errors.New("access key: upstreams must contain nonblank IDs")
@@ -59,11 +54,6 @@ func (p Permissions) validate() error {
 	for _, model := range p.Models {
 		if !model.valid() {
 			return errors.New("access key: models must contain a nonblank upstream ID and name")
-		}
-	}
-	for _, id := range p.Accounts {
-		if strings.TrimSpace(string(id)) == "" {
-			return errors.New("access key: accounts must contain nonblank IDs")
 		}
 	}
 	return nil
@@ -92,7 +82,6 @@ func New(identity Identity, enabled bool, permissions Permissions) (AccessKey, e
 	}
 	permissions.Upstreams = slices.Clone(permissions.Upstreams)
 	permissions.Models = slices.Clone(permissions.Models)
-	permissions.Accounts = slices.Clone(permissions.Accounts)
 	return AccessKey{identity: identity, enabled: enabled, permissions: permissions}, nil
 }
 
@@ -112,8 +101,7 @@ func (k AccessKey) Allows(model Model, candidate account.Identity) bool {
 	}
 	p := k.permissions
 	return (p.AllUpstreams || slices.Contains(p.Upstreams, model.UpstreamID)) &&
-		(p.AllModels || slices.Contains(p.Models, model)) &&
-		(p.AllAccounts || slices.Contains(p.Accounts, candidate.ID))
+		(p.AllModels || slices.Contains(p.Models, model))
 }
 
 // Filter applies [AccessKey.Allows], preserving candidate order. It returns nil

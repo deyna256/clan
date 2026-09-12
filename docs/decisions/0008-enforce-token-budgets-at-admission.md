@@ -210,15 +210,14 @@ another fallible check. A rejection releases the provisional slot. Cancellation
 after admission does not refund RPM or release the request before cleanup.
 
 Sample accounting time under the state lock. Keep loaded keys for the process
-lifetime and attempt state with its handle. No event queue or attempt registry
-is required. `Observe` has no request context: cancellation must not discard
+lifetime and attempt state with its handle. This coordinator requires no event
+queue or attempt registry. `Observe` has no request context: cancellation must not discard
 received consumption.
 
 ## Snapshot persistence and restart
 
-Agreed on 2026-09-11: check and update budgets in memory, then periodically save
-their current state. This replaces the earlier event-sequence and durable replay
-design. The database stores both windows' opening times and absolute token counts
+Check and update budgets in memory, then periodically save their current state.
+The database stores both windows' opening times and absolute token counts
 atomically per access key. Save only budget state, without overwriting key settings.
 
 Saving the same snapshot again succeeds without adding consumption. This also
@@ -228,7 +227,7 @@ pending for a later save; completing the older save must not clear them.
 
 Pending work is the latest state to save, not a queue of every accounting event.
 No event sequence, gap check, durable receipt or event replay is required.
-Detailed history is independent; saving attempt state and budget state together
+Detailed history is independent; saving history records and budget state together
 is not required. History gaps and cleanup cannot alter budget counters.
 
 After restart, restore saved windows before using them for admission. Do not replay

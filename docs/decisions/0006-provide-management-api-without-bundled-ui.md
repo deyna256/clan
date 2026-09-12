@@ -40,7 +40,7 @@ variants are defined in [ADR 0005](0005-encapsulate-credential-types-in-account.
 
 Call credentials issued to applications and people **access keys** (Russian:
 **ключи доступа**), with Go name `AccessKey`. They are distinct from the admin token
-and upstream credentials. Permissions restrict upstreams, models and accounts.
+and upstream credentials. Permissions restrict upstreams and models.
 RPM, burst, concurrency and fixed 5-hour/7-day token limits are settings of the
 access key, not independent policy resources. Observed consumption cannot be edited
 as settings.
@@ -54,9 +54,12 @@ A listed model may have no account available to serve it at that moment.
 
 ## Access-key permission rules
 
-Agreed on 2026-09-10: deny access unless it is explicitly permitted. Upstream,
-model and account restrictions must all allow the target. A disabled key denies
-every target.
+Deny access unless it is explicitly permitted. Upstream and model restrictions
+must both allow the target. A disabled key denies every target.
+
+A key permits any eligible account in an allowed upstream for an allowed model.
+Account availability and model support still determine which accounts can serve
+the request.
 
 | Restriction | Meaning |
 |---|---|
@@ -67,7 +70,7 @@ every target.
 Identify a model by its upstream ID and exact name. The same name on another
 upstream is a different target. Match IDs and model names exactly; do not treat
 strings as wildcard patterns. An account must belong to the requested upstream,
-even when all accounts are permitted.
+even when all upstreams and models are permitted.
 
 The Go model uses `accesskey.ID`, `Identity`, `Permissions` and `AccessKey`.
 `Permissions` has an all setting and a list for each dimension. Combining all
@@ -91,8 +94,9 @@ or an account is currently available.
 
 Client-facing model listings are separate from the admin catalog and respect the
 caller's access key. Avoid manually maintained model lists where client discovery
-allows it. OpenCode, Codex and Claude Code are required clients for the first version;
-their discovery behavior and supported models need not be identical.
+allows it. OpenCode and Codex are required clients for the first version;
+their discovery behavior and supported models need not be identical. Direct Claude
+Code support is deferred with the Anthropic client API.
 
 Validate model selection and an actual inference request in each supported client
 version, including access restrictions. Define discovery routes, how to collect model
@@ -123,6 +127,25 @@ Validate the resulting resource. Removing a required field is an error. Resource
 schemas must preserve the permission rules above and define optional limit fields;
 the patch format alone does not decide their meaning.
 
+An upstream's integration type and an account's upstream ID are fixed at creation.
+Reject changes to either field, even when the resource is disabled. Use a new
+upstream for another integration type and a new account for another upstream.
+This does not prevent credential renewal; base URL update rules remain open.
+
+### Access-key updates
+
+Permission changes require the key to be disabled and its local request cleanup
+to be complete. Disabling blocks new requests and cancels active work. Reject
+permission changes while the key is enabled or cleanup is pending; a patch that
+also disables an enabled key does not bypass this rule. Re-enabling also waits
+for cleanup and does not resume cancelled work.
+
+Changing permissions preserves the key ID, secret, history and consumption.
+Name and limit changes do not require disabling the key. Limit changes govern
+later admission checks without resetting token consumption or cancelling active
+requests. Check update preconditions atomically with configuration changes and
+coordinate disabling with admission so new work cannot escape cancellation.
+
 ## Concurrent configuration updates
 
 Return an ETag that identifies the version of editable configuration. Clients send
@@ -143,7 +166,7 @@ Use [Problem Details, RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) wit
 and `detail`, and `status` matching the HTTP response. Include `request_id` to find
 server logs. Validation errors include invalid fields and their problems in an
 extension; exact identifiers, status mappings and extension schemas remain open.
-Inference errors retain their OpenAI- or Anthropic-compatible representation.
+Inference errors use the representation of the requested OpenAI API.
 
 ## Management list pagination
 
