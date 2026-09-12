@@ -13,6 +13,10 @@ Other modules use the same account interface for both authorization methods.
 Each account contains exactly one credential type: `OAuthCredentials` or
 `APIKeyCredentials`.
 
+An account's upstream ID is fixed at creation. Connecting to another upstream
+requires a new account. Replacing credentials or renewing OAuth tokens does not
+change this binding. The management API enforces it across stored updates.
+
 ```text
 Account
   ID, name, upstream reference

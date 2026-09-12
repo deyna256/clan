@@ -145,7 +145,7 @@ func newCoordinator(t *testing.T, store *storage.Store) *admission.Coordinator {
 func admissionPolicy(t *testing.T) admission.Policy {
 	t.Helper()
 	key, err := accesskey.New(accesskey.Identity{ID: "client", Name: "client"}, true,
-		accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true})
+		accesskey.Permissions{AllUpstreams: true, AllModels: true})
 	if err != nil {
 		t.Fatal(err)
 	}

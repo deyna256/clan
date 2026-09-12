@@ -8,7 +8,7 @@ admission coordinator implemented; request execution integration is pending.
 ## Decision
 
 For an access key with a concurrency limit, each client request that passes admission
-checks holds one slot until it finishes. Admission checks decide whether the request
+checks holds one slot for its execution lifetime. Admission checks decide whether the request
 may proceed. Retries and account fallback keep the same slot without taking another.
 
 Streaming requests retain their slot until processing ends and the upstream stream
@@ -73,7 +73,10 @@ slot's release with `sync.OnceFunc`, following the ownership pattern used by Go'
 Unit tests cover capacity, limit changes, key isolation, and concurrent acquisition
 and release through the public contract. Integration tests must cover immediate
 429 without upstream dispatch, retries retaining one slot, streams holding slots
-through cleanup, and release on terminal and admission-error paths.
+through cleanup, and release on terminal and admission-error paths. Disabling and
+deletion tests must verify blocked new requests, cancellation of active work,
+retained usage and release once after cleanup. Re-enabling must not resume
+cancelled work.
 
 Request-rate accounting is defined in [ADR 0015](0015-use-token-bucket-rate-limits.md).
 Timeout policies are defined in [ADR 0013](0013-separate-ordinary-and-streaming-timeouts.md).

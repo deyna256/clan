@@ -18,7 +18,8 @@ account state, as defined in
 [ADR 0003](0003-separate-request-execution-from-protocols.md).
 
 Named account pools are deferred. Group candidates by configured upstream and concrete
-model, then apply access-key restrictions on upstreams, models and accounts.
+model, then apply access-key restrictions on upstreams and models. Access keys
+do not restrict individual accounts within a permitted upstream.
 An upstream is the configured destination, not the client's input API format; see
 [ADR 0006](0006-provide-management-api-without-bundled-ui.md#resources). This adopts the
 account-selection approach from CLIProxyAPI with explicit access restrictions inspired

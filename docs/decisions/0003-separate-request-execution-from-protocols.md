@@ -1,7 +1,8 @@
 # ADR 0003: Separate request execution from protocol adapters
 
 Status: Accepted. Recorded: 2026-09-08.
-Decision owner: project maintainer. Implementation: not started.
+Decision owner: project maintainer. Implementation: initial OpenAI JSON/SSE provider
+adapter; inbound adapters and centralized execution are not implemented.
 
 ## Decision
 
@@ -74,8 +75,8 @@ Contract requirements:
 - Events retain their order and are delivered incrementally. Converting one upstream
   event into several CLAN events may require a small internal buffer.
 
-The interface uses the common `Event` type described below. Its exact Go definition
-is still open:
+The stream uses the common `Event` type described below. Consumers can declare the
+interface they need:
 
 ```go
 type Stream interface {
@@ -122,6 +123,16 @@ Each event has a kind, a target where needed, and data for that kind:
 | `ItemStarted` | Stable item address, item type, role or tool-call identity/name as applicable |
 | `PartStarted` | Parent item, part address and content type |
 | `Delta` | Target and a typed incremental change: text or a tool-argument string fragment |
+| `CodeDelta` | Tool-call item address and a generated-code fragment |
+| `ToolInputDelta` | Custom-tool item address and a freeform input fragment |
+| `MCPProgress` | MCP item address and hosted-tool status; failure here does not end generation |
+| `ShellCommandDelta` | Shell-call item and command index, with a command string fragment |
+| `ShellOutputDelta` | Shell-result item and command index, with stdout/stderr fragments |
+| `ShellOutputEnded` | A command's output chunks and outcomes as a snapshot |
+| `PatchDiffDelta` | Patch-call item address and a diff suffix recovered from an item snapshot |
+| `ImagePreview` | Image-call item address, preview index, complete base64 preview and image metadata; never a final result |
+| `AnnotationAdded` | Part address, annotation index and typed citation |
+| `LogprobsDelta` | Part address and newly observed token probabilities |
 | `PartEnded` | Completion of a particular part |
 | `ItemEnded` | Completion of an item and final metadata, including reasoning data that CLAN preserves without interpreting |
 | `UsageUpdated` | Snapshot of currently known token counts |
@@ -131,6 +142,16 @@ An address distinguishes items and their parts without relying on which item was
 most recently opened. If multiple choices are supported, it must also distinguish
 the choice; this decision does not itself add multiple-choice support. Tool-call IDs
 are preserved separately from local addresses for subsequent tool results.
+
+Shell output events keep their command indices. The terminal item carries the
+provider's flat output list, which has no command indices. Keep both representations;
+do not infer one output chunk per command. Snapshots do not append bytes already
+delivered by deltas.
+
+Tool-search arguments and loaded catalogs are atomic snapshots. `ItemStarted`
+carries identity; `ItemEnded` carries their final data. A completed client search
+needs a call ID so the client can submit its result. Hosted search stays at the
+provider; CLAN does not perform discovery or execute the loaded tools.
 
 ### Conversion rules
 
@@ -174,6 +195,84 @@ io.EOF
 
 Compatibility still needs testing.
 These event types do not promise support for every upstream event or operation.
+
+### Recoverable protocol differences
+
+Ignore additional response fields, known service events and exact repeats without
+warnings. An unknown stream event is skipped with a warning, not an immediate
+failure. Completion still requires a recognized terminal response and supported
+final output. This favors availability but may omit a new optional extension.
+
+For ordered SSE streams, use supplied sequence numbers to recognize a repeated
+last event. Conflicting or regressing sequence numbers are protocol errors;
+identical text in different events must still be delivered.
+
+Use final snapshots to recover missing text or arguments when they extend the
+published prefix. If a final text aggregate contradicts text already delivered,
+keep the delivered text and warn instead of replacing it or failing the request.
+Conflicting tool arguments or identity, unrecoverable required content and
+unsupported final items remain errors. Never invent a completed tool call.
+Provider failures and missing protocol completion remain failures.
+
+Keep reliable observed usage when optional usage data is missing or invalid;
+do not turn unknown consumption into zero or reject an otherwise usable answer
+solely because optional accounting data could not be read.
+
+Use structured `log/slog` warnings for unexpected recoverable anomalies, with a
+stable reason, request/attempt identity, upstream, event type and action. Exclude
+payloads, arguments, credentials and opaque reasoning. Coalesce repeats within
+a request. Log terminal failures once at their owning boundary; routine protocol
+translation should not produce warnings.
+
+## Stored provider resources
+
+Resources created through CLAN belong to the access-key identity that created them.
+CLAN keeps their upstream/account binding; content stays at the provider. On each
+read, continuation, update or deletion, check ownership and the key's current
+permissions. Knowing a resource ID does not grant access.
+
+Resource-bound operations use the original account. If it is unavailable, return
+an error instead of switching accounts. Round-robin still applies to new requests
+without bound resources. Other access keys do not inherit resource access merely
+because they can use the same provider account.
+
+Provider adapters receive the selected account and provider resource IDs. Resource
+ownership checks and ID resolution belong above the adapter. A session's account
+binding does not replace ownership checks for stored resources.
+
+Resource ID representation, externally created resources, resource retention after
+key deletion, and account deletion or credential replacement remain to be defined.
+CLAN-issued IDs are not required by this decision; choose their representation
+with the resource-operation contracts.
+
+For WebSocket sessions, use CLIProxyAPI's account/connection binding and cleanup
+as a reference, adapting its Codex behavior to the public OpenAI API. Keep retries
+in request execution. Support explicit `response.create` requests; steering and
+its automatic continuations are deferred. Reject `response.steer` explicitly.
+Cancelling an active response closes its entire WebSocket session, interrupting
+other responses on that connection. Preserve known usage and complete local cleanup.
+Do not replay interrupted generations automatically.
+See [CLIProxyAPI's session implementation](https://github.com/router-for-me/CLIProxyAPI/blob/09a29bd345bc44c473abe7fd07859e32df2ea543/internal/runtime/executor/codex_websockets_session.go).
+
+## Generation lifetime
+
+The current scope includes ordinary responses and streaming, not provider
+background generation. Reject requests to start background work before upstream
+dispatch; do not silently change them to ordinary generation.
+
+Do not add provider-job polling, durable job recovery or restored concurrency
+slots. Existing budget snapshot persistence and interrupted-request history still
+apply. This exclusion does not remove stored responses or other provider resources
+from the adapter scope.
+
+## Access-key disabling and deletion
+
+Disabling or deleting an access key blocks new requests and cancels its active
+ordinary requests and streams. Close upstream resources before releasing slots.
+Preserve observed usage and history, including pending accounting writes. Cleanup
+does not require the client key to authenticate. Re-enabling does not resume
+cancelled work. Permission updates follow
+[ADR 0006](0006-provide-management-api-without-bundled-ui.md#access-key-updates).
 
 ## Context and alternatives
 

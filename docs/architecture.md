@@ -2,7 +2,7 @@
 
 CLAN is one gateway process with shared account inventory, access rules and limits.
 The gateway is not yet runnable. The foundation packages below are implemented;
-HTTP handling, provider adapters and application startup are still pending.
+client HTTP handling and application startup are still pending.
 
 ## Request path
 
@@ -14,8 +14,10 @@ These responsibilities do not require separate services.
 Execution selects an eligible account for the requested upstream and model, then
 asks admission whether the attempt may proceed. Selection alone grants no access
 or quota. Execution also owns retries, cancellation and provider cleanup.
-Protocol parsing stays in the adapters; shared request and event types are still
-to be implemented. See [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
+Protocol parsing stays in the adapters. The [OpenAI adapter](openai-adapter.md)
+provides Responses JSON/SSE, WebSocket sessions and provider resource operations.
+See
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
 
 ## Foundation packages
 
@@ -35,6 +37,8 @@ All packages are under `internal/`. The links point to their public Go contracts
 | [storage](../internal/storage/storage.go) | Budget snapshots and migrations in SQLite or PostgreSQL |
 | [credentialcipher](../internal/credentialcipher/cipher.go) | Encryption of serialized upstream credentials |
 | [retry](../internal/retry/retry.go) | Retry eligibility and remaining delay; execution owns waiting |
+| [generation](../internal/generation/request.go) | Shared request, item, result and stream-event values for implemented features |
+| [provider/openai](../internal/provider/openai/client.go) | Responses conversion, streaming and provider resources with API-key authentication |
 
 ## Admission and accounting
 
@@ -61,8 +65,8 @@ for the database contract and tests.
 
 ## Remaining integration work
 
-The entry point is empty. Management HTTP routes, shared protocol types, provider
-adapters, OAuth renewal, model discovery and request history remain to be built.
+The entry point is empty. Management HTTP routes, complete provider adapters,
+OAuth renewal, model discovery and request history remain to be built.
 The web panel belongs in a separate repository.
 
 Resolve the remaining [management contract](decisions/0006-provide-management-api-without-bundled-ui.md#remaining-contract-decisions)

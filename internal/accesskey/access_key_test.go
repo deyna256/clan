@@ -61,11 +61,6 @@ func TestNewRejectsInvalidPermissions(t *testing.T) {
 			permissions: accesskey.Permissions{AllModels: true, Models: []accesskey.Model{{UpstreamID: "u", Name: "m"}}},
 			wantField:   "models",
 		},
-		{
-			name:        "all and listed accounts",
-			permissions: accesskey.Permissions{AllAccounts: true, Accounts: []account.ID{"a"}},
-			wantField:   "accounts",
-		},
 		{name: "empty upstream", permissions: accesskey.Permissions{Upstreams: []upstream.ID{""}}, wantField: "upstreams"},
 		{name: "blank upstream", permissions: accesskey.Permissions{Upstreams: []upstream.ID{"u", " \t\n"}}, wantField: "upstreams"},
 		{
@@ -88,8 +83,6 @@ func TestNewRejectsInvalidPermissions(t *testing.T) {
 			permissions: accesskey.Permissions{Models: []accesskey.Model{validModel, {UpstreamID: "u", Name: " \t\n"}}},
 			wantField:   "models",
 		},
-		{name: "empty account", permissions: accesskey.Permissions{Accounts: []account.ID{""}}, wantField: "accounts"},
-		{name: "blank account", permissions: accesskey.Permissions{Accounts: []account.ID{"a", " \t\n"}}, wantField: "accounts"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,13 +112,9 @@ func TestAllowsRequiresEveryDimension(t *testing.T) {
 		{name: "no permissions"},
 		{name: "only upstreams", permissions: accesskey.Permissions{AllUpstreams: true}},
 		{name: "only models", permissions: accesskey.Permissions{AllModels: true}},
-		{name: "only accounts", permissions: accesskey.Permissions{AllAccounts: true}},
-		{name: "upstreams and models", permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true}},
-		{name: "upstreams and accounts", permissions: accesskey.Permissions{AllUpstreams: true, AllAccounts: true}},
-		{name: "models and accounts", permissions: accesskey.Permissions{AllModels: true, AllAccounts: true}},
 		{
 			name:        "all dimensions",
-			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true},
+			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true},
 			want:        true,
 		},
 	}
@@ -152,52 +141,37 @@ func TestAllowsCombinesListsWithUnrestrictedDimensions(t *testing.T) {
 	}{
 		{
 			name:        "listed upstream",
-			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"u"}, AllModels: true, AllAccounts: true},
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"u"}, AllModels: true},
 			want:        true,
 		},
 		{
 			name:        "listed model",
-			permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{{UpstreamID: "u", Name: "m"}}, AllAccounts: true},
-			want:        true,
-		},
-		{
-			name:        "listed account",
-			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{"a"}},
+			permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{{UpstreamID: "u", Name: "m"}}},
 			want:        true,
 		},
 		{
 			name:        "upstream case differs",
-			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"U"}, AllModels: true, AllAccounts: true},
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"U"}, AllModels: true},
 		},
 		{
 			name:        "upstream whitespace differs",
-			permissions: accesskey.Permissions{Upstreams: []upstream.ID{" u "}, AllModels: true, AllAccounts: true},
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{" u "}, AllModels: true},
 		},
-		{
-			name:        "account whitespace differs",
-			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{" a "}},
-		},
-		{name: "empty upstreams", permissions: accesskey.Permissions{Upstreams: []upstream.ID{}, AllModels: true, AllAccounts: true}},
-		{name: "empty models", permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{}, AllAccounts: true}},
-		{name: "empty accounts", permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{}}},
+		{name: "empty upstreams", permissions: accesskey.Permissions{Upstreams: []upstream.ID{}, AllModels: true}},
+		{name: "empty models", permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{}}},
 		{
 			name:        "upstream star is not all",
-			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"*"}, AllModels: true, AllAccounts: true},
+			permissions: accesskey.Permissions{Upstreams: []upstream.ID{"*"}, AllModels: true},
 		},
 		{
 			name:        "model star is not all",
-			permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{{UpstreamID: "u", Name: "*"}}, AllAccounts: true},
-		},
-		{
-			name:        "account star is not all",
-			permissions: accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{"*"}},
+			permissions: accesskey.Permissions{AllUpstreams: true, Models: []accesskey.Model{{UpstreamID: "u", Name: "*"}}},
 		},
 		{
 			name: "all with empty lists",
 			permissions: accesskey.Permissions{
 				AllUpstreams: true, Upstreams: []upstream.ID{},
 				AllModels: true, Models: []accesskey.Model{},
-				AllAccounts: true, Accounts: []account.ID{},
 			},
 			want: true,
 		},
@@ -225,7 +199,6 @@ func TestAllowsMatchesExactTargets(t *testing.T) {
 	key := newKey(t, true, accesskey.Permissions{
 		Upstreams: []upstream.ID{"first", "second"},
 		Models:    []accesskey.Model{firstModel, secondModel},
-		Accounts:  []account.ID{"a", "b"},
 	})
 	tests := []struct {
 		name      string
@@ -256,9 +229,10 @@ func TestAllowsMatchesExactTargets(t *testing.T) {
 			candidate: firstAccount,
 		},
 		{
-			name:      "unlisted account",
+			name:      "another account in permitted upstream",
 			model:     firstModel,
 			candidate: account.Identity{ID: "c", UpstreamID: "first"},
+			want:      true,
 		},
 		{
 			name:      "account belongs to another upstream",
@@ -274,11 +248,6 @@ func TestAllowsMatchesExactTargets(t *testing.T) {
 			name:      "model name whitespace differs",
 			model:     accesskey.Model{UpstreamID: "first", Name: " shared "},
 			candidate: firstAccount,
-		},
-		{
-			name:      "account id case differs",
-			model:     firstModel,
-			candidate: account.Identity{ID: "A", UpstreamID: "first"},
 		},
 	}
 	for _, tt := range tests {
@@ -372,7 +341,6 @@ func TestNewPreservesIdentityAndPermissionValues(t *testing.T) {
 	permissions := accesskey.Permissions{
 		Upstreams: []upstream.ID{" first ", " first "},
 		Models:    []accesskey.Model{{UpstreamID: " first ", Name: " model "}, {UpstreamID: " first ", Name: " model "}},
-		Accounts:  []account.ID{" a ", " a "},
 	}
 
 	key, err := accesskey.New(identity, true, permissions)
@@ -395,13 +363,11 @@ func TestNewOwnsPermissionLists(t *testing.T) {
 	permissions := accesskey.Permissions{
 		Upstreams: []upstream.ID{"first"},
 		Models:    []accesskey.Model{{UpstreamID: "first", Name: "model"}},
-		Accounts:  []account.ID{"a"},
 	}
 	key := newKey(t, true, permissions)
 
 	permissions.Upstreams[0] = "second"
 	permissions.Models[0] = accesskey.Model{UpstreamID: "second", Name: "other"}
-	permissions.Accounts[0] = "b"
 	original := key.Allows(accesskey.Model{UpstreamID: "first", Name: "model"}, account.Identity{ID: "a", UpstreamID: "first"})
 	replacement := key.Allows(accesskey.Model{UpstreamID: "second", Name: "other"}, account.Identity{ID: "b", UpstreamID: "second"})
 
@@ -411,7 +377,7 @@ func TestNewOwnsPermissionLists(t *testing.T) {
 }
 
 func TestFilterLeavesCandidatesUnchanged(t *testing.T) {
-	key := newKey(t, true, accesskey.Permissions{AllUpstreams: true, AllModels: true, Accounts: []account.ID{"a"}})
+	key := newKey(t, true, accesskey.Permissions{AllUpstreams: true, AllModels: true})
 	model := accesskey.Model{UpstreamID: "u", Name: "m"}
 	candidates := []account.Identity{{ID: "c", UpstreamID: "u"}, {ID: "a", UpstreamID: "u"}, {ID: "b", UpstreamID: "other"}}
 	wantCandidates := slices.Clone(candidates)
@@ -434,7 +400,7 @@ func TestFilterWithNoCandidates(t *testing.T) {
 	}
 }
 
-func TestPermissionsLimitRoundRobinCandidates(t *testing.T) {
+func TestPermissionsAllowAllAccountsInPermittedUpstream(t *testing.T) {
 	candidates := []account.Identity{
 		{ID: "c", UpstreamID: "primary"},
 		{ID: "a", UpstreamID: "primary"},
@@ -445,7 +411,6 @@ func TestPermissionsLimitRoundRobinCandidates(t *testing.T) {
 	key := newKey(t, true, accesskey.Permissions{
 		Upstreams: []upstream.ID{"primary"},
 		Models:    []accesskey.Model{model},
-		Accounts:  []account.ID{"a", "c", "d"},
 	})
 	selector := selection.NewRoundRobin()
 	scope := selection.Scope{UpstreamID: "primary", Model: "model"}
@@ -462,10 +427,10 @@ func TestPermissionsLimitRoundRobinCandidates(t *testing.T) {
 	}
 
 	// Assert: filtering preserves input order; selection rotates by ID.
-	if want := []account.ID{"c", "a"}; !slices.Equal(allowed, want) {
+	if want := []account.ID{"c", "a", "b"}; !slices.Equal(allowed, want) {
 		t.Errorf("allowed = %v, want %v", allowed, want)
 	}
-	if want := []account.ID{"a", "c", "a", "c"}; !slices.Equal(choices, want) {
+	if want := []account.ID{"a", "b", "c", "a"}; !slices.Equal(choices, want) {
 		t.Errorf("choices = %v, want %v", choices, want)
 	}
 }
@@ -480,5 +445,5 @@ func newKey(t *testing.T, enabled bool, permissions accesskey.Permissions) acces
 }
 
 func unrestrictedPermissions() accesskey.Permissions {
-	return accesskey.Permissions{AllUpstreams: true, AllModels: true, AllAccounts: true}
+	return accesskey.Permissions{AllUpstreams: true, AllModels: true}
 }

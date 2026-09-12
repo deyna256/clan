@@ -11,7 +11,7 @@
 ---
 
 CLAN is a self-hosted gateway for your LLM accounts, including CLI subscriptions
-and API keys. It serves OpenAI- and Anthropic-compatible APIs in one installation.
+and API keys. Its initial client API supports OpenAI Chat Completions and Responses.
 
 Administrators configure external LLM services (upstreams), connect accounts, and
 issue access keys that control which services applications and people can use.
@@ -54,19 +54,24 @@ is not yet usable.
 
 | Area | Initial scope |
 |---|---|
-| Client APIs | OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, available simultaneously |
+| Client APIs | OpenAI Chat Completions and Responses, available simultaneously |
 | Upstream integrations | Codex OAuth; Claude OAuth/API keys; OpenAI-compatible and Anthropic-compatible services through a base URL and API key, including [MiniMax](https://platform.minimax.io/docs/api-reference/text-anthropic-api) |
 | Accounts and routing | Accounts belong to upstreams. Choose an allowed account for the requested model using round-robin; check access on every attempt |
 | Failover | Limit retries to failures that allow them. Never silently restart a response or resend a request whose outcome is unknown |
-| Access keys | Separate keys for applications and people, restricted by upstream, model and account |
+| Access keys | Separate keys for applications and people, restricted by upstream and model; any eligible account in the permitted upstream may serve the request |
 | Limits | Request-rate limits with token-bucket bursts, concurrent client requests, and token budgets over independent fixed 5-hour and 7-day windows |
 | Consumption | Count known input/output tokens, including failed attempts; show when usage is unknown. An attempt that passes budget checks may finish over budget |
 | History | Request outcomes, separate attempts, account status and safe failure details; one year of configurable retention and reports computed on demand |
 | Management | HTTP JSON API under `/api`, with a separate admin token. Generate OpenAPI from Go and publish it through a dedicated endpoint |
-| Model discovery | Expose models permitted by the caller's access key. OpenCode, Codex and Claude Code are required clients; discovery behavior depends on the client |
+| Model discovery | Expose models permitted by the caller's access key. OpenCode and Codex are required clients; discovery behavior depends on the client |
 | Storage | SQLite by default; PostgreSQL selected through environment configuration, with the same application features and no silent fallback |
 | Deployment | One process or container per installation, handling concurrent requests |
 | Secrets | Show access keys once, then store only hashes for checking them. Encrypt upstream credentials with a key kept outside the database |
+
+An upstream's integration type and an account's upstream are fixed at creation.
+
+Changing an access key's permissions requires disabling it and completing local
+request cleanup. Its name and limits can change while the key is enabled.
 
 The web panel will be delivered from a separate repository. This repository provides
 its backend API. Request bodies, model responses and individual stream chunks are
@@ -128,6 +133,15 @@ full contract.
 
 ## Deferred
 
+Anthropic Messages as a client API and direct Claude Code support are deferred.
+This does not remove Anthropic-compatible upstreams from the integration scope.
+
+Provider background generation is outside the current scope. Requests to start it
+are rejected explicitly; ordinary responses and streaming remain supported targets.
+
+WebSocket steering and its automatic continuations are deferred. Explicit
+`response.create` requests remain in scope.
+
 Gemini on both API sides, named account pools, model aliases or automatic model
 switching, additional selection strategies, cost tracking and USD budgets,
 and multiple active gateway instances are outside the initial scope.
@@ -140,6 +154,7 @@ and multiple active gateway instances are outside the initial scope.
 | Write and review Go code and tests | [Development guide](docs/development.md) |
 | Open an issue or PR, or write documentation | [Contributing](CONTRIBUTING.md) |
 | Use storage and run database tests | [Storage setup](docs/storage.md) |
+| Check the OpenAI provider adapter's operations and ownership rules | [OpenAI adapter](docs/openai-adapter.md) |
 | Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |
 
 Working notes belong in the ignored `.local/` directory; see
@@ -159,9 +174,7 @@ Working notes belong in the ignored `.local/` directory; see
 | [0008 — Token-budget enforcement](docs/decisions/0008-enforce-token-budgets-at-admission.md) | Accepted | Token windows, observed usage, overruns and accounting failures |
 | [0009 — Request history](docs/decisions/0009-record-request-and-attempt-history.md) | Accepted | Request/attempt history, retention, reporting and recovery |
 | [0010 — Client-request concurrency](docs/decisions/0010-limit-concurrent-client-requests.md) | Accepted | One slot per active client request; reject without queuing |
-| [0011 — Sliding-window RPM](docs/decisions/0011-use-sliding-window-rpm.md) | Superseded by 0015 | Previous exact sliding-window policy |
 | [0012 — Retry policy](docs/decisions/0012-retry-classified-transient-failures.md) | Accepted | Retry eligibility, attempt/wait limits and Retry-After |
 | [0013 — Timeout policies](docs/decisions/0013-separate-ordinary-and-streaming-timeouts.md) | Accepted | Separate overall, startup, inactivity and write timeouts |
 | [0014 — HTTP routing](docs/decisions/0014-use-chi-for-http-routing.md) | Accepted | chi over net/http, route groups and standard handlers |
 | [0015 — Token-bucket rate limits](docs/decisions/0015-use-token-bucket-rate-limits.md) | Accepted | Sustained request rate and burst capacity, counted once per client request |
-
