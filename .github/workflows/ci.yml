@@ -28,9 +28,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: |
-            go.mod
-            go.sum
+          cache-dependency-path: go.mod
 
       - name: Set up Just
         uses: extractions/setup-just@v4

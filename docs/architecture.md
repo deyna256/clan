@@ -75,14 +75,12 @@ through sequential requests despite its concurrency limit.
 
 ## Existing code
 
-The source has not yet been aligned with this design. The entry point is empty.
-The current admission coordinator combines budgets, RPM and snapshot persistence;
-replace it with simpler execution for the first-release scope.
+The code contains OAuth account snapshots, named access keys and secret
+verification, credential encryption, per-key concurrency slots, model-based
+round-robin, observed usage types and Retry-After parsing.
 
-Reuse applicable account, key-verification, selection, concurrency, usage and
-credential-encryption code after checking it against these requirements. Existing
-permission rules, API-key credential variants and budget storage are
-not first-release requirements. Their presence does not expand the planned scope.
+The entry point is empty. HTTP routes, Codex integration, request execution,
+management and SQLite persistence are not implemented yet.
 
 ## Remaining decisions and checks
 

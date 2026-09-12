@@ -8,7 +8,6 @@ import (
 
 	"github.com/deyna256/clan/internal/account"
 	"github.com/deyna256/clan/internal/credentialcipher"
-	"github.com/deyna256/clan/internal/upstream"
 )
 
 func TestNewRejectsWrongKeyLengths(t *testing.T) {
@@ -27,9 +26,9 @@ func TestDecryptIndependentRecord(t *testing.T) {
 	cipher := newCipher(t)
 	record := fixtureRecord(t)
 	wantRecord := bytes.Clone(record)
-	want := []byte(`{"key":"test-secret"}`)
+	want := []byte(`{"access_token":"test-secret"}`)
 
-	plaintext, err := cipher.Decrypt("account", "upstream", record)
+	plaintext, err := cipher.Decrypt("account", record)
 
 	if err != nil || !bytes.Equal(plaintext, want) {
 		t.Fatalf("Decrypt() = (%q, %v), want independent fixture plaintext", plaintext, err)
@@ -49,8 +48,7 @@ func TestEncryptCompleteCredentialPayloads(t *testing.T) {
 		name      string
 		plaintext []byte
 	}{
-		{name: "API key", plaintext: []byte(`{"key":"upstream-api-key"}`)},
-		{name: "OAuth", plaintext: []byte(`{"access_token":"access","refresh_token":"refresh","expires_at":"2026-10-01T00:00:00Z","provider_data":{"signature":"opaque"}}`)},
+		{name: "OAuth", plaintext: []byte(`{"access_token":"access","refresh_token":"refresh","expires_at":"2026-10-01T00:00:00Z"}`)},
 		{name: "binary", plaintext: []byte{0, 0xff, 0xfe, '\n', 0x80}},
 		{name: "nil"},
 		{name: "empty", plaintext: []byte{}},
@@ -59,7 +57,7 @@ func TestEncryptCompleteCredentialPayloads(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			want := bytes.Clone(tt.plaintext)
 
-			record, err := cipher.Encrypt("account", "upstream", tt.plaintext)
+			record, err := cipher.Encrypt("account", tt.plaintext)
 
 			if err != nil {
 				t.Fatal(err)
@@ -74,7 +72,7 @@ func TestEncryptCompleteCredentialPayloads(t *testing.T) {
 				t.Fatal("Encrypt() changed its input plaintext")
 			}
 			clear(tt.plaintext)
-			got, err := cipher.Decrypt("account", "upstream", record)
+			got, err := cipher.Decrypt("account", record)
 			if err != nil || !bytes.Equal(got, want) {
 				t.Errorf("Decrypt() after changing the original input = (%q, %v), want original content", got, err)
 			}
@@ -95,9 +93,9 @@ func TestCipherDoesNotRetainMutableKey(t *testing.T) {
 	record := fixtureRecord(t)
 
 	clear(key)
-	plaintext, err := cipher.Decrypt("account", "upstream", record)
+	plaintext, err := cipher.Decrypt("account", record)
 
-	if err != nil || string(plaintext) != `{"key":"test-secret"}` {
+	if err != nil || string(plaintext) != `{"access_token":"test-secret"}` {
 		t.Errorf("Decrypt() after changing the supplied key = (%q, %v), want unchanged cipher", plaintext, err)
 	}
 }
@@ -138,7 +136,7 @@ func TestDecryptionRejectsWrongKeyAndTamperedRecords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			wantRecord := bytes.Clone(tt.record)
 
-			plaintext, err := tt.cipher.Decrypt("account", "upstream", tt.record)
+			plaintext, err := tt.cipher.Decrypt("account", tt.record)
 
 			if err == nil || plaintext != nil {
 				t.Fatalf("Decrypt() = (%q, %v), want nil plaintext and error", plaintext, err)
@@ -155,65 +153,50 @@ func TestDecryptionRejectsWrongKeyAndTamperedRecords(t *testing.T) {
 	}
 }
 
-func TestIdentityBindingUsesExactUnambiguousBytes(t *testing.T) {
+func TestIdentityBindingUsesExactBytes(t *testing.T) {
 	cipher := newCipher(t)
 	tests := []struct {
-		name          string
-		account       account.ID
-		upstream      upstream.ID
-		wrongAccount  account.ID
-		wrongUpstream upstream.ID
+		name         string
+		account      account.ID
+		wrongAccount account.ID
 	}{
-		{name: "account", account: "account", upstream: "upstream", wrongAccount: "other", wrongUpstream: "upstream"},
-		{name: "upstream", account: "account", upstream: "upstream", wrongAccount: "account", wrongUpstream: "other"},
-		{name: "swapped identities", account: "account", upstream: "upstream", wrongAccount: "upstream", wrongUpstream: "account"},
-		{name: "ambiguous concatenation", account: "a", upstream: "bc", wrongAccount: "ab", wrongUpstream: "c"},
-		{name: "embedded separators", account: "a\x00b", upstream: "c", wrongAccount: "a", wrongUpstream: "b\x00c"},
-		{name: "non-UTF-8 account", account: "\xff", upstream: "upstream", wrongAccount: "\xfe", wrongUpstream: "upstream"},
-		{name: "non-UTF-8 upstream", account: "account", upstream: "\xff", wrongAccount: "account", wrongUpstream: "\xfe"},
-		{name: "surrounding whitespace", account: " account ", upstream: " upstream ", wrongAccount: "account", wrongUpstream: "upstream"},
+		{name: "another account", account: "account", wrongAccount: "other"},
+		{name: "embedded separator", account: "a\x00b", wrongAccount: "a"},
+		{name: "non-UTF-8", account: "\xff", wrongAccount: "\xfe"},
+		{name: "surrounding whitespace", account: " account ", wrongAccount: "account"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			payload := []byte("credential")
-			record, err := cipher.Encrypt(tt.account, tt.upstream, payload)
+			record, err := cipher.Encrypt(tt.account, payload)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			matching, matchingErr := cipher.Decrypt(tt.account, tt.upstream, record)
-			wrong, wrongErr := cipher.Decrypt(tt.wrongAccount, tt.wrongUpstream, record)
+			matching, matchingErr := cipher.Decrypt(tt.account, record)
+			wrong, wrongErr := cipher.Decrypt(tt.wrongAccount, record)
 
 			if matchingErr != nil || !bytes.Equal(matching, payload) {
-				t.Errorf("matching identities: Decrypt() = (%q, %v), want original payload", matching, matchingErr)
+				t.Errorf("matching account: Decrypt() = (%q, %v), want original payload", matching, matchingErr)
 			}
 			if wrongErr == nil || wrong != nil {
-				t.Errorf("wrong identities: Decrypt() = (%q, %v), want nil plaintext and error", wrong, wrongErr)
+				t.Errorf("wrong account: Decrypt() = (%q, %v), want nil plaintext and error", wrong, wrongErr)
 			}
 		})
 	}
 }
 
-func TestBlankIdentitiesAreRejected(t *testing.T) {
+func TestBlankAccountIDsAreRejected(t *testing.T) {
 	cipher := newCipher(t)
-	tests := []struct {
-		account  account.ID
-		upstream upstream.ID
-	}{
-		{account: "", upstream: "upstream"},
-		{account: " \t\n", upstream: "upstream"},
-		{account: "account", upstream: ""},
-		{account: "account", upstream: " \t\n"},
-	}
-	for i, tt := range tests {
+	for _, id := range []account.ID{"", " \t\n"} {
 		payload := []byte("credential")
 		record := fixtureRecord(t)
 
-		encrypted, encryptErr := cipher.Encrypt(tt.account, tt.upstream, payload)
-		decrypted, decryptErr := cipher.Decrypt(tt.account, tt.upstream, record)
+		encrypted, encryptErr := cipher.Encrypt(id, payload)
+		decrypted, decryptErr := cipher.Decrypt(id, record)
 
 		if encryptErr == nil || encrypted != nil || decryptErr == nil || decrypted != nil {
-			t.Errorf("case %d: Encrypt() error %v, Decrypt() error %v; want nil outputs and errors", i, encryptErr, decryptErr)
+			t.Errorf("ID %q: Encrypt() error %v, Decrypt() error %v; want nil outputs and errors", id, encryptErr, decryptErr)
 		}
 	}
 }
@@ -237,8 +220,8 @@ func fixtureKey() []byte {
 func fixtureRecord(t *testing.T) []byte {
 	t.Helper()
 	// Node 26/OpenSSL 3.6.4 AES-256-GCM: key 00..1f, nonce 00..0b,
-	// AAD 01|uint64BE(7)|account|upstream, plaintext {"key":"test-secret"}.
-	record, err := hex.DecodeString("01000102030405060708090a0b3c20bd7ebcc7f839f924e4ff9c9a1d0ef1b3f3168dce0e5db0ed6ce3b903ff379491b61a57")
+	// AAD account, plaintext {"access_token":"test-secret"}.
+	record, err := hex.DecodeString("01000102030405060708090a0b3c20b778a680b168d235f8e0d4875a57a1a2e24784562c195b1580f13f149fe8d202795317e050ebc6a537f6acec")
 	if err != nil {
 		t.Fatal(err)
 	}

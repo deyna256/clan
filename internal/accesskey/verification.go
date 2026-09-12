@@ -42,7 +42,7 @@ func Hash(raw string) (VerificationHash, bool) {
 
 // Verify reports whether the canonical raw key matches this hash.
 // It compares all digest bytes in constant time and rejects malformed input.
-// It does not check identity, permissions or enabled status.
+// It does not check identity or enabled status.
 func (hash VerificationHash) Verify(raw string) bool {
 	candidate, ok := Hash(raw)
 	return ok && subtle.ConstantTimeCompare(hash[:], candidate[:]) == 1

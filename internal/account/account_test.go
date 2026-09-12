@@ -3,8 +3,6 @@ package account_test
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,134 +11,78 @@ import (
 )
 
 const (
-	apiKeySecret   = "distinctive-api-key-secret"
-	accessSecret   = "distinctive-access-token-secret"
-	refreshSecret  = "distinctive-refresh-token-secret"
-	providerSecret = "distinctive-provider-secret"
+	accessSecret  = "distinctive-access-token-secret"
+	refreshSecret = "distinctive-refresh-token-secret"
 )
 
 func TestNewPreservesIdentityAndCredentials(t *testing.T) {
-	tests := []struct {
-		name        string
-		credentials account.Credentials
-	}{
-		{name: "API key", credentials: account.APIKeyCredentials{Key: " api-key-secret "}},
-		{
-			name: "OAuth",
-			credentials: account.OAuthCredentials{
-				AccessToken:  " access-token-secret ",
-				RefreshToken: " refresh-token-secret ",
-				ExpiresAt:    time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
-				ProviderData: map[string]string{"tenant": "provider-value"},
-			},
-		},
+	identity := account.Identity{ID: " account-1 ", Name: " Primary account "}
+	credentials := account.OAuthCredentials{
+		AccessToken:  " access-token-secret ",
+		RefreshToken: " refresh-token-secret ",
+		ExpiresAt:    time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			identity := account.Identity{ID: " account-1 ", Name: " Primary account ", UpstreamID: " upstream-1 "}
-			want := tt.credentials
-			if oauth, ok := want.(account.OAuthCredentials); ok {
-				oauth.ProviderData = maps.Clone(oauth.ProviderData)
-				want = oauth
-			}
 
-			got, err := account.New(identity, tt.credentials)
+	got, err := account.New(identity, credentials)
 
-			if err != nil {
-				t.Fatalf("New() error: %v", err)
-			}
-			if got.Identity() != identity {
-				t.Errorf("identity = %+v, want %+v", got.Identity(), identity)
-			}
-			if !reflect.DeepEqual(got.Credentials(), want) {
-				t.Errorf("credentials = %#v, want %#v", got.Credentials(), want)
-			}
-			if !reflect.DeepEqual(tt.credentials, want) {
-				t.Errorf("New() changed input credentials: got %#v, want %#v", tt.credentials, want)
-			}
-		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Identity() != identity {
+		t.Errorf("identity = %+v, want %+v", got.Identity(), identity)
+	}
+	if got.Credentials() != credentials {
+		t.Errorf("credentials = %#v, want %#v", got.Credentials(), credentials)
 	}
 }
 
 func TestNewRejectsInvalidIdentityWithoutExposingCredentials(t *testing.T) {
-	identities := []struct {
+	tests := []struct {
 		name      string
 		identity  account.Identity
 		wantField string
 	}{
-		{name: "missing id", identity: account.Identity{Name: "Primary", UpstreamID: "upstream"}, wantField: "id"},
-		{name: "blank id", identity: account.Identity{ID: " \t\n", Name: "Primary", UpstreamID: "upstream"}, wantField: "id"},
-		{name: "missing name", identity: account.Identity{ID: "account", UpstreamID: "upstream"}, wantField: "name"},
-		{name: "blank name", identity: account.Identity{ID: "account", Name: " \t\n", UpstreamID: "upstream"}, wantField: "name"},
-		{name: "missing upstream", identity: account.Identity{ID: "account", Name: "Primary"}, wantField: "upstream"},
-		{name: "blank upstream", identity: account.Identity{ID: "account", Name: "Primary", UpstreamID: " \t\n"}, wantField: "upstream"},
-	}
-	variants := []struct {
-		name        string
-		credentials account.Credentials
-	}{
-		{name: "API key", credentials: account.APIKeyCredentials{Key: apiKeySecret}},
-		{name: "OAuth", credentials: oauthCredentials()},
-	}
-	for _, variant := range variants {
-		for _, tt := range identities {
-			t.Run(variant.name+"/"+tt.name, func(t *testing.T) {
-				got, err := account.New(tt.identity, variant.credentials)
-
-				if err == nil {
-					t.Fatal("New() succeeded with invalid identity")
-				}
-				if got.Identity() != (account.Identity{}) || got.Credentials() != nil {
-					t.Error("New() returned a partial account on failure")
-				}
-				if !strings.Contains(" "+err.Error()+" ", " "+tt.wantField+" ") {
-					t.Errorf("error %q does not identify field %q", err, tt.wantField)
-				}
-				assertNoSecrets(t, err.Error())
-			})
-		}
-	}
-}
-
-func TestNewRejectsInvalidCredentials(t *testing.T) {
-	tests := []struct {
-		name        string
-		credentials account.Credentials
-		wantField   string
-	}{
-		{name: "no variant", wantField: "credentials"},
-		{name: "empty API key", credentials: account.APIKeyCredentials{}, wantField: "API key"},
-		{name: "blank API key", credentials: account.APIKeyCredentials{Key: " \t\n"}, wantField: "API key"},
-		{name: "empty access token", credentials: account.OAuthCredentials{
-			RefreshToken: refreshSecret, ProviderData: map[string]string{"secret": providerSecret},
-		}, wantField: "access token"},
-		{name: "blank access token", credentials: account.OAuthCredentials{AccessToken: " \t\n", RefreshToken: refreshSecret}, wantField: "access token"},
-		{name: "nil API key pointer", credentials: (*account.APIKeyCredentials)(nil), wantField: "credentials"},
-		{name: "nil OAuth pointer", credentials: (*account.OAuthCredentials)(nil), wantField: "credentials"},
-		{name: "API key pointer", credentials: &account.APIKeyCredentials{Key: apiKeySecret}, wantField: "credentials"},
-		{name: "OAuth pointer", credentials: &account.OAuthCredentials{AccessToken: accessSecret}, wantField: "credentials"},
-		{
-			name: "embedded interface",
-			credentials: struct{ account.Credentials }{
-				Credentials: account.APIKeyCredentials{Key: apiKeySecret},
-			},
-			wantField: "credentials",
-		},
+		{name: "missing id", identity: account.Identity{Name: "Primary"}, wantField: "id"},
+		{name: "blank id", identity: account.Identity{ID: " \t\n", Name: "Primary"}, wantField: "id"},
+		{name: "missing name", identity: account.Identity{ID: "account"}, wantField: "name"},
+		{name: "blank name", identity: account.Identity{ID: "account", Name: " \t\n"}, wantField: "name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			identity := testIdentity()
+			credentials := oauthCredentials()
 
-			got, err := account.New(identity, tt.credentials)
+			got, err := account.New(tt.identity, credentials)
 
 			if err == nil {
-				t.Fatal("New() succeeded with invalid credentials")
+				t.Fatal("New() succeeded with invalid identity")
 			}
-			if got.Identity() != (account.Identity{}) || got.Credentials() != nil {
+			if got != (account.Account{}) {
 				t.Error("New() returned a partial account on failure")
 			}
 			if !strings.Contains(" "+err.Error()+" ", " "+tt.wantField+" ") {
 				t.Errorf("error %q does not identify field %q", err, tt.wantField)
+			}
+			assertNoSecrets(t, err.Error())
+		})
+	}
+}
+
+func TestNewRejectsInvalidCredentials(t *testing.T) {
+	for _, token := range []string{"", " \t\n"} {
+		t.Run(fmt.Sprintf("token %q", token), func(t *testing.T) {
+			credentials := oauthCredentials()
+			credentials.AccessToken = token
+
+			got, err := account.New(testIdentity(), credentials)
+
+			if err == nil {
+				t.Fatal("New() succeeded with invalid credentials")
+			}
+			if got != (account.Account{}) {
+				t.Error("New() returned a partial account on failure")
+			}
+			if !strings.Contains(err.Error(), "access token") {
+				t.Errorf("error %q does not identify access token", err)
 			}
 			assertNoSecrets(t, err.Error())
 		})
@@ -165,7 +107,7 @@ func TestOAuthRecordDoesNotRequireFreshnessOrRefreshToken(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New() rejected a structurally valid OAuth record: %v", err)
 			}
-			if !reflect.DeepEqual(got.Credentials(), credentials) {
+			if got.Credentials() != credentials {
 				t.Errorf("credentials = %#v, want %#v", got.Credentials(), credentials)
 			}
 		})
@@ -173,71 +115,25 @@ func TestOAuthRecordDoesNotRequireFreshnessOrRefreshToken(t *testing.T) {
 }
 
 func TestIdentityDoesNotExposeCredentials(t *testing.T) {
-	for _, credentials := range []account.Credentials{
-		account.APIKeyCredentials{Key: apiKeySecret},
-		oauthCredentials(),
-	} {
-		t.Run(fmt.Sprintf("%T", credentials), func(t *testing.T) {
-			a := newAccount(t, credentials)
-
-			identity := a.Identity()
-			encoded, err := json.Marshal(identity)
-			formatted := fmt.Sprintf("%#v", identity)
-
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertNoSecrets(t, string(encoded))
-			assertNoSecrets(t, formatted)
-		})
-	}
-}
-
-func TestNewOwnsCredentialData(t *testing.T) {
-	identity := testIdentity()
-	credentials := oauthCredentials()
-	a, err := account.New(identity, credentials)
+	a, err := account.New(testIdentity(), oauthCredentials())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	identity.Name = "Changed"
-	credentials.AccessToken = "replacement"
-	credentials.RefreshToken = "replacement"
-	credentials.ProviderData["secret"] = "replacement"
-	credentials.ProviderData["extra"] = "unexpected"
+	identity := a.Identity()
+	encoded, err := json.Marshal(identity)
+	formatted := fmt.Sprintf("%#v", identity)
 
-	wantIdentity := testIdentity()
-	if a.Identity() != wantIdentity {
-		t.Errorf("identity = %+v, want %+v", a.Identity(), wantIdentity)
+	if err != nil {
+		t.Fatal(err)
 	}
-	wantCredentials := oauthCredentials()
-	if !reflect.DeepEqual(a.Credentials(), wantCredentials) {
-		t.Errorf("credentials changed with input: got %#v, want %#v", a.Credentials(), wantCredentials)
-	}
-}
-
-func TestCredentialReadsAreIndependent(t *testing.T) {
-	a := newAccount(t, oauthCredentials())
-	first := a.Credentials().(account.OAuthCredentials)
-	second := a.Credentials().(account.OAuthCredentials)
-
-	delete(first.ProviderData, "secret")
-	first.ProviderData["extra"] = "unexpected"
-	latest := a.Credentials().(account.OAuthCredentials)
-
-	want := map[string]string{"secret": providerSecret}
-	if !maps.Equal(second.ProviderData, want) {
-		t.Errorf("another credential copy changed: got %v, want %v", second.ProviderData, want)
-	}
-	if !maps.Equal(latest.ProviderData, want) {
-		t.Errorf("stored credentials changed: got %v, want %v", latest.ProviderData, want)
-	}
+	assertNoSecrets(t, string(encoded))
+	assertNoSecrets(t, formatted)
 }
 
 func assertNoSecrets(t *testing.T, text string) {
 	t.Helper()
-	for _, secret := range []string{apiKeySecret, accessSecret, refreshSecret, providerSecret} {
+	for _, secret := range []string{accessSecret, refreshSecret} {
 		if strings.Contains(text, secret) {
 			t.Errorf("safe output contains credential secret %q: %s", secret, text)
 		}
@@ -245,21 +141,9 @@ func assertNoSecrets(t *testing.T, text string) {
 }
 
 func testIdentity() account.Identity {
-	return account.Identity{ID: "account", Name: "Primary", UpstreamID: "upstream"}
+	return account.Identity{ID: "account", Name: "Primary"}
 }
 
 func oauthCredentials() account.OAuthCredentials {
-	return account.OAuthCredentials{
-		AccessToken: accessSecret, RefreshToken: refreshSecret,
-		ProviderData: map[string]string{"secret": providerSecret},
-	}
-}
-
-func newAccount(t *testing.T, credentials account.Credentials) account.Account {
-	t.Helper()
-	a, err := account.New(testIdentity(), credentials)
-	if err != nil {
-		t.Fatalf("create test account: %v", err)
-	}
-	return a
+	return account.OAuthCredentials{AccessToken: accessSecret, RefreshToken: refreshSecret}
 }

@@ -23,7 +23,5 @@ Never include credentials in logs or client errors.
 SQLite avoids a separate database service. PostgreSQL would add deployment and
 test work without serving an initial requirement, so it is deferred.
 
-Account and key persistence is still to be implemented. Existing budget storage
-does not fulfill this contract. Define schemas, migrations, database location and
-key provisioning with that implementation; current source behavior is not a new
-product guarantee.
+Account and key persistence is still to be implemented. Define schemas,
+migrations, database location and key provisioning with that implementation.

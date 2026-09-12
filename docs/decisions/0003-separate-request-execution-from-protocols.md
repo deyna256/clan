@@ -60,6 +60,6 @@ Do not introduce a separate item/part/delta event hierarchy.
 ## Consequences
 
 Protocol changes stay in HTTP and integration code. Execution can use existing
-selection and concurrency primitives without the old budget/RPM coordinator.
+selection and concurrency primitives.
 Tests must verify retries before response start, no replay of unknown outcomes,
 key revocation, stream interruption and cleanup before slot release.

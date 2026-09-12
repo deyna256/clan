@@ -1,16 +1,14 @@
-// Package credentialcipher encrypts serialized upstream credentials for storage.
+// Package credentialcipher encrypts serialized OAuth credentials for storage.
 package credentialcipher
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/binary"
 	"errors"
 	"math"
 	"strings"
 
 	"github.com/deyna256/clan/internal/account"
-	"github.com/deyna256/clan/internal/upstream"
 )
 
 const (
@@ -19,7 +17,7 @@ const (
 	maxPlaintext   = ((1 << 32) - 2) * aes.BlockSize
 )
 
-// Cipher authenticates credentials against their exact account and upstream IDs.
+// Cipher authenticates credentials against their exact account ID.
 // Construct it with [New]. Callers must limit encryption to 2^32 messages per key
 // across all cipher instances, restarts and restores; this object keeps no counter.
 type Cipher struct {
@@ -45,27 +43,27 @@ func New(key []byte) (*Cipher, error) {
 }
 
 // Encrypt returns version 1 followed by a random nonce, ciphertext and tag.
-// IDs must be nonblank. Empty and arbitrary binary plaintext are supported.
+// The account ID must be nonblank. Empty and arbitrary binary plaintext are supported.
 // Inputs remain unchanged; the returned record is caller-owned. Errors return nil.
-func (c *Cipher) Encrypt(accountID account.ID, upstreamID upstream.ID, plaintext []byte) ([]byte, error) {
+func (c *Cipher) Encrypt(accountID account.ID, plaintext []byte) ([]byte, error) {
 	if uint64(len(plaintext)) > maxPlaintext || len(plaintext) > math.MaxInt-recordOverhead {
 		return nil, errors.New("credential cipher: plaintext is too large")
 	}
-	aad, err := associatedData(accountID, upstreamID)
+	aad, err := associatedData(accountID)
 	if err != nil {
 		return nil, err
 	}
 	return c.aead.Seal([]byte{recordVersion}, nil, plaintext, aad), nil
 }
 
-// Decrypt authenticates a version 1 record under the exact supplied identities.
+// Decrypt authenticates a version 1 record under the exact supplied account ID.
 // Inputs remain unchanged; successful plaintext is caller-owned. Every validation
 // or authentication failure returns nil plaintext and a secret-free error.
-func (c *Cipher) Decrypt(accountID account.ID, upstreamID upstream.ID, record []byte) ([]byte, error) {
+func (c *Cipher) Decrypt(accountID account.ID, record []byte) ([]byte, error) {
 	if len(record) < recordOverhead || record[0] != recordVersion || uint64(len(record)-recordOverhead) > maxPlaintext {
 		return nil, errors.New("credential cipher: invalid encrypted record")
 	}
-	aad, err := associatedData(accountID, upstreamID)
+	aad, err := associatedData(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,16 +74,9 @@ func (c *Cipher) Decrypt(accountID account.ID, upstreamID upstream.ID, record []
 	return plaintext, nil
 }
 
-func associatedData(accountID account.ID, upstreamID upstream.ID) ([]byte, error) {
-	if strings.TrimSpace(string(accountID)) == "" || strings.TrimSpace(string(upstreamID)) == "" {
-		return nil, errors.New("credential cipher: account and upstream IDs must be nonblank")
+func associatedData(accountID account.ID) ([]byte, error) {
+	if strings.TrimSpace(string(accountID)) == "" {
+		return nil, errors.New("credential cipher: account ID must be nonblank")
 	}
-	if len(accountID) > math.MaxInt-9-len(upstreamID) {
-		return nil, errors.New("credential cipher: identities are too large")
-	}
-	aad := make([]byte, 9, 9+len(accountID)+len(upstreamID))
-	aad[0] = recordVersion
-	binary.BigEndian.PutUint64(aad[1:], uint64(len(accountID)))
-	aad = append(aad, accountID...)
-	return append(aad, upstreamID...), nil
+	return []byte(accountID), nil
 }
