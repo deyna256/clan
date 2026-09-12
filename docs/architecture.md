@@ -1,73 +1,99 @@
 # Architecture
 
-CLAN is one gateway process with shared account inventory, access rules and limits.
-The gateway is not yet runnable. The foundation packages below are implemented;
-HTTP handling, provider adapters and application startup are still pending.
+This is the first-release design. The [README](../README.md#first-release) defines
+its supported features. The gateway is not yet runnable.
 
-## Request path
+## Responsibilities
 
-The [request-flow diagram](../README.md#request-flow) shows the planned runtime flow:
-an inbound adapter converts the client protocol, request execution manages attempts,
-and a provider adapter calls the upstream service. Results return along that path.
-These responsibilities do not require separate services.
-
-Execution selects an eligible account for the requested upstream and model, then
-asks admission whether the attempt may proceed. Selection alone grants no access
-or quota. Execution also owns retries, cancellation and provider cleanup.
-Protocol parsing stays in the adapters; shared request and event types are still
-to be implemented. See [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
-
-## Foundation packages
-
-All packages are under `internal/`. The links point to their public Go contracts.
-
-| Package | Responsibility |
+| Module | Responsibility |
 |---|---|
-| [account](../internal/account/account.go) | Immutable account identity and API-key/OAuth credentials |
-| [upstream](../internal/upstream/upstream.go) | Shared upstream ID type; configuration is pending |
-| [accesskey](../internal/accesskey/access_key.go) | Immutable permissions and candidate filtering; [secret generation and verification](../internal/accesskey/verification.go) |
-| [selection](../internal/selection/round_robin.go) | Round-robin positions per upstream and model |
-| [concurrency](../internal/concurrency/limiter.go) | Active client-request slots per access key |
-| [ratelimit](../internal/ratelimit/limiter.go) | Request permits and token-bucket configuration per access key |
-| [usage](../internal/usage/usage.go) | Cumulative attempt usage and newly chargeable tokens |
-| [budget](../internal/budget/budget.go) | Pure transitions for fixed 5-hour and 7-day token windows |
-| [admission](../internal/admission/admission.go) | Combined admission checks, live accounting and ordered snapshot saves |
-| [storage](../internal/storage/storage.go) | Budget snapshots and migrations in SQLite or PostgreSQL |
-| [credentialcipher](../internal/credentialcipher/cipher.go) | Encryption of serialized upstream credentials |
-| [retry](../internal/retry/retry.go) | Retry eligibility and remaining delay; execution owns waiting |
+| HTTP API | Routes, request parsing and validation, JSON/SSE output and client errors |
+| Request execution | Key checks, concurrency slots, account selection, safe retries, cancellation and outcome logs |
+| Codex integration | OAuth protocol, upstream calls, required conversion, failure classification and usage extraction |
+| Management | Account connection and status, access-key lifecycle and settings |
+| Storage | SQLite persistence for accounts, encrypted credentials, key hashes and settings |
 
-## Admission and accounting
+These are responsibilities within one process, not required packages or an
+interface for every module. Keep interfaces small and define them where callers
+need them. Wire dependencies explicitly at startup.
 
-The implemented coordinator combines the existing permission and limit primitives:
+The [request-flow diagram](../README.md#request-flow) shows the generation path.
+Management changes the accounts and key settings used by that path; it does not
+run generations.
 
-```text
-Start -> access -> restore budget -> budget check -> slot -> RPM -> admit
-NextAttempt -> fresh access and budget checks; keep the request's slot and RPM
-Observe -> cumulative usage delta -> update both budget windows in memory
-Flush -> save pending budget snapshots through SnapshotStore
-Release -> release the request's slot after provider cleanup
-```
+## Request data and execution
 
-These arrows show operation order, not package imports. The coordinator defines
-the small `SnapshotStore` interface it needs; the SQL store satisfies it without
-depending on admission. Application startup will connect the two.
+Use Responses as the content format. Preserve JSON that needs no conversion and
+use small Go types for values CLAN interprets. Execution needs the model, account,
+attempt state, failure details and usage; it does not inspect messages or tool
+arguments. See [ADR 0002](decisions/0002-use-responses-as-content-format.md).
 
-The coordinator holds a short lock across related state changes and performs
-database I/O outside it. Admitted attempts may exceed token budgets. Periodic saves
-can lose unsaved usage on a crash; failed saves block later budgeted attempts for
-the affected key. See [ADR 0008](decisions/0008-enforce-token-budgets-at-admission.md)
-for failure, cancellation and shutdown rules, and [storage setup](storage.md)
-for the database contract and tests.
+The Codex integration runs one generation attempt. Execution owns account
+selection and retries, holds the client slot through cleanup, and handles key
+revocation. Ordinary and streaming calls use separate methods with the same
+validated input. Lifecycle rules are in
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
 
-## Remaining integration work
+## Management and account setup
 
-The entry point is empty. Management HTTP routes, shared protocol types, provider
-adapters, OAuth renewal, model discovery and request history remain to be built.
-The web panel belongs in a separate repository.
+The HTTP JSON management API lives under `/api` and requires a separate admin token.
 
-Resolve the remaining [management contract](decisions/0006-provide-management-api-without-bundled-ui.md#remaining-contract-decisions)
-and each module's open behavior before implementing it. This includes account
-availability, live configuration changes, conversation continuity, client errors,
-and startup/shutdown wiring. Numeric timeout defaults remain open.
-The [decision log](../README.md#decision-log) records agreed behavior; accepted
-designs are not a claim that the corresponding feature is implemented.
+| Resource | Operations |
+|---|---|
+| Codex accounts | Connect, inspect status, disable and delete |
+| Client access keys | Create, list, revoke and update concurrency limits |
+| Models | List available models |
+
+All client keys share the connected accounts and available models. They do not
+carry individual account or model permissions.
+
+An administrator starts OAuth connection through the management API and receives
+sign-in instructions. After browser sign-in, CLAN stores encrypted credentials
+and makes the account available. Refresh expiring tokens before requests and report
+when an account needs sign-in again.
+
+Implement one OAuth connection method. Select the concrete flow after checking
+server deployments without a browser and Docker. Auth-file imports and alternate
+connection methods are outside the first release.
+
+## State and diagnostics
+
+SQLite stores account records, encrypted OAuth credentials, access-key hashes and
+key settings. Active requests and round-robin positions live in memory.
+[ADR 0007](decisions/0007-use-sqlite.md) defines storage ownership.
+
+Use structured JSON logs for:
+
+- Request outcomes: request ID, access-key ID, model, duration and result.
+- Failures and account switches: safe reasons and account IDs.
+- Observed token usage, with unknown counts distinct from zero.
+
+Credentials, request content and response content must stay out of logs. There
+is no database request history or management endpoint for historical consumption.
+Known usage does not block new requests; a client can consume the subscription
+through sequential requests despite its concurrency limit.
+
+## Existing code
+
+The source has not yet been aligned with this design. The entry point is empty.
+The current admission coordinator combines budgets, RPM and snapshot persistence;
+replace it with simpler execution for the first-release scope.
+
+Reuse applicable account, key-verification, selection, concurrency, usage and
+credential-encryption code after checking it against these requirements. Existing
+permission rules, API-key credential variants and budget storage are
+not first-release requirements. Their presence does not expand the planned scope.
+
+## Remaining decisions and checks
+
+- Select and verify the OAuth flow for server and Docker deployment.
+- Verify the agreed generation features against Codex. Acceptance scenarios must
+  cover OpenCode tool execution and Python tool loops, as well as complete JSON
+  responses and SSE streaming.
+- Define management schemas, key/account update behavior and model catalog loading.
+- Define how attempt outcomes and usage are exposed on stream failure, and choose
+  timeout and retry settings with the execution module.
+- Agree on implementation milestones before starting them.
+
+Do not infer automatic model discovery in OpenCode from the presence of
+`GET /v1/models`; verify the client's configuration and behavior.

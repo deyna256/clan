@@ -1,4 +1,4 @@
-// Package storage persists absolute budget-window snapshots in SQLite or PostgreSQL.
+// Package storage persists absolute budget-window snapshots in SQLite.
 package storage
 
 import (
@@ -16,24 +16,9 @@ import (
 
 	"github.com/deyna256/clan/internal/accesskey"
 	"github.com/deyna256/clan/internal/budget"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
-
-// Supported database backends.
-const (
-	SQLite     = "sqlite"
-	PostgreSQL = "postgres"
-)
-
-// Config selects one backend. Empty Backend selects SQLite. DSN is a required
-// file path for SQLite or a PostgreSQL connection string. Environment loading
-// and selection of a default file path belong to the application.
-type Config struct {
-	Backend string
-	DSN     string
-}
 
 // Store owns its database connections. Construct it with [Open], then call
 // [Store.Close] when finished. Calls may overlap, but the caller must order
@@ -45,42 +30,25 @@ type Store struct {
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-// Open connects to the selected database and applies embedded migrations.
-// Failures never select another backend. Only one application instance may use
-// an installation; callers must not run overlapping opens during migration.
-func Open(ctx context.Context, config Config) (*Store, error) {
-	if strings.TrimSpace(config.DSN) == "" {
-		return nil, errors.New("storage: database target is required")
+// Open opens a SQLite file and applies embedded migrations. The application
+// supplies the path and must not run overlapping opens during migration.
+func Open(ctx context.Context, path string) (*Store, error) {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
+		return nil, errors.New("storage: invalid SQLite path")
 	}
-	var driver string
-	var dialect goose.Dialect
-	switch config.Backend {
-	case "", SQLite:
-		if strings.ContainsRune(config.DSN, 0) {
-			return nil, errors.New("storage: invalid SQLite path")
-		}
-		driver, dialect = "sqlite", goose.DialectSQLite3
-		path, err := filepath.Abs(config.DSN)
-		if err != nil {
-			return nil, errors.New("storage: invalid SQLite path")
-		}
-		target := url.URL{Scheme: "file", Path: path}
-		// Driver pragmas run on every connection, including replacements.
-		target.RawQuery = url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)"}}.Encode()
-		config.DSN = target.String()
-	case PostgreSQL:
-		driver, dialect = "pgx", goose.DialectPostgres
-	default:
-		return nil, errors.New("storage: unsupported database backend")
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, errors.New("storage: invalid SQLite path")
 	}
-	db, err := sql.Open(driver, config.DSN)
+	target := url.URL{Scheme: "file", Path: path}
+	// Driver pragmas run on every connection, including replacements.
+	target.RawQuery = url.Values{"_pragma": {"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(FULL)"}}.Encode()
+	db, err := sql.Open("sqlite", target.String())
 	if err != nil {
 		return nil, databaseError(ctx, "open database", err)
 	}
-	if dialect == goose.DialectSQLite3 {
-		// ponytail: serialize SQLite I/O; add a read pool if contention warrants it.
-		db.SetMaxOpenConns(1)
-	}
+	// ponytail: serialize SQLite I/O; add a read pool if contention warrants it.
+	db.SetMaxOpenConns(1)
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close() // Preserve the connection failure; no store escapes.
 		return nil, databaseError(ctx, "connect to database", err)
@@ -88,7 +56,7 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 	files, err := fs.Sub(migrations, "migrations")
 	if err == nil {
 		var provider *goose.Provider
-		provider, err = goose.NewProvider(dialect, db, files, goose.WithDisableGlobalRegistry(true))
+		provider, err = goose.NewProvider(goose.DialectSQLite3, db, files, goose.WithDisableGlobalRegistry(true))
 		if err == nil {
 			_, err = provider.Up(ctx)
 		}
@@ -197,7 +165,7 @@ func databaseError(ctx context.Context, operation string, err error) error {
 	if err == nil {
 		return nil
 	}
-	// Raw driver errors may contain DSNs, passwords or server-provided values.
+	// Raw driver errors may contain database paths or stored values.
 	if ctx.Err() != nil {
 		return fmt.Errorf("storage: %s: %w", operation, ctx.Err())
 	}

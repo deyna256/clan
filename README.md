@@ -4,142 +4,121 @@
 
 <p><strong>Cooperative LLM Access Network</strong></p>
 
-<p><em>One account hits its limit — the next one picks up.</em></p>
-
 </div>
 
 ---
 
-CLAN is a self-hosted gateway for your LLM accounts, including CLI subscriptions
-and API keys. It serves OpenAI- and Anthropic-compatible APIs in one installation.
+CLAN is a self-hosted LLM gateway. The first release will connect OpenCode and
+Python applications using the OpenAI SDK to Codex subscriptions through OAuth.
+Clients use CLAN access keys; CLAN manages the Codex accounts.
 
-Administrators configure external LLM services (upstreams), connect accounts, and
-issue access keys that control which services applications and people can use.
+> **Status:** design and foundation code. The gateway is not yet runnable.
+> The scope below describes the agreed first release, not completed functionality.
 
-CLAN chooses an account for the requested model and upstream. After a failure known
-to allow retry, it can try another allowed account before the client response begins.
-It does not resend requests whose upstream outcome is unknown.
+**Language:** Go. Its concurrency support and standard HTTP library fit simultaneous
+requests, streaming and cancellation.
 
-**Language:** Go. Its concurrency support and standard HTTP library suit a gateway
-handling simultaneous requests, long-lived streams, and cancellation.
-
-**HTTP:** `net/http.Server` with [chi](https://github.com/go-chi/chi) for routing
-and middleware groups. Handlers use standard `net/http` types.
-
-> **Status:** early. The design is still being worked out and there is no usable build yet.
-
-See the [documentation](#documentation) for development guides and accepted decisions.
+**HTTP:** `net/http.Server` with [chi](https://github.com/go-chi/chi) for routing.
 
 ## Principles
 
-- **Free and open forever.** CLAN and all its features will always be free and open
-  source, with no paid tiers or proprietary editions.
-- **Owner control.** The operator controls deployment, connected accounts, allowed
-  destinations, and how long data is kept. Secrets and request content stay out of default logs.
-- **Predictable behavior.** Switching models, falling back to a paid API, or changing
-  what a request means requires explicit configuration. Retries are limited and
-  allowed only when the request can safely be sent again.
-- **Faithful compatibility.** Preserve streaming, tool calls, and model options for
-  supported integrations. Document what each integration supports and reject unsupported
-  behavior rather than silently dropping it.
-- **Explainable decisions.** Show why an account was selected or excluded and what
-  happened on each attempt. Distinguish observed limits from estimates and unknowns.
-- **Simple operation.** Keep setup, configuration, and required infrastructure small.
-  Provide errors that help users fix the problem, and safe defaults.
+- **Free and open forever.** All features are free and open source, with no paid
+  tiers or proprietary editions.
+- **Small working scope.** Complete the supported client scenarios before adding
+  more protocols, tools or infrastructure.
+- **Predictable behavior.** Preserve supported request meaning. Retry only when
+  safe, and report unsupported operations explicitly.
+- **Owner control.** Administrators manage connected accounts and client access.
+  Credentials and request content stay out of logs.
+- **Clear failures.** Report safe error details and distinguish unknown consumption
+  from zero.
 
-## Confirmed scope
+## First release
 
-This is the agreed product scope. Some core modules are implemented; the gateway
-is not yet usable.
-
-| Area | Initial scope |
+| Area | Scope |
 |---|---|
-| Client APIs | OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, available simultaneously |
-| Upstream integrations | Codex OAuth; Claude OAuth/API keys; OpenAI-compatible and Anthropic-compatible services through a base URL and API key, including [MiniMax](https://platform.minimax.io/docs/api-reference/text-anthropic-api) |
-| Accounts and routing | Accounts belong to upstreams. Choose an allowed account for the requested model using round-robin; check access on every attempt |
-| Failover | Limit retries to failures that allow them. Never silently restart a response or resend a request whose outcome is unknown |
-| Access keys | Separate keys for applications and people, restricted by upstream, model and account |
-| Limits | Request-rate limits with token-bucket bursts, concurrent client requests, and token budgets over independent fixed 5-hour and 7-day windows |
-| Consumption | Count known input/output tokens, including failed attempts; show when usage is unknown. An attempt that passes budget checks may finish over budget |
-| History | Request outcomes, separate attempts, account status and safe failure details; one year of configurable retention and reports computed on demand |
-| Management | HTTP JSON API under `/api`, with a separate admin token. Generate OpenAPI from Go and publish it through a dedicated endpoint |
-| Model discovery | Expose models permitted by the caller's access key. OpenCode, Codex and Claude Code are required clients; discovery behavior depends on the client |
-| Storage | SQLite by default; PostgreSQL selected through environment configuration, with the same application features and no silent fallback |
-| Deployment | One process or container per installation, handling concurrent requests |
-| Secrets | Show access keys once, then store only hashes for checking them. Encrypt upstream credentials with a key kept outside the database |
+| Clients | OpenCode and Python applications using the OpenAI SDK |
+| Client API | `POST /v1/responses` for generation; `GET /v1/models` for available models |
+| Integration | Codex subscription access through built-in OAuth sign-in |
+| Generation | Text, instructions, client-supplied history, image input including screenshots, JSON and JSON Schema output, reasoning settings and continuation data |
+| Tools | Function definitions, calls, JSON argument fragments and results; tools run in the client |
+| Responses | Complete JSON responses and SSE streaming |
+| Accounts | One or more Codex accounts; round-robin for the requested model; temporarily exclude accounts with exhausted provider limits |
+| Client access | Separate named keys for applications or people, with shared access to connected accounts and available models |
+| Limits | Concurrent requests per key, with immediate rejection when full |
+| Management | HTTP JSON API under `/api`, protected by a separate admin token |
+| Storage | SQLite for accounts, encrypted OAuth credentials, access-key hashes and settings |
+| Diagnostics | Structured JSON logs with outcomes, safe errors, account switches and known token usage |
+| Deployment | One Go process or container per installation |
 
-The web panel will be delivered from a separate repository. This repository provides
-its backend API. Request bodies, model responses and individual stream chunks are
-not stored by default. Recording these contents is outside the initial scope.
+Clients supply conversation history with each request. CLAN does not support
+provider-stored responses or continuation through `previous_response_id`, and
+does not keep its own stored responses for later retrieval.
 
-Each integration will list the operations it supports and any client limitations.
-See the [accepted ADRs](#decision-log) for exact contracts and trade-offs,
-including budget overruns, incomplete history and possible loss of unsaved usage on a crash.
+Revoking a client key blocks new requests and cancels its active requests.
+Retries keep the same concurrency slot; resources are closed before the slot
+is released. Known token usage is diagnostic data, not a token budget.
+
+The [architecture](docs/architecture.md) defines management operations, OAuth setup
+and remaining integration checks.
 
 ## Request flow
 
-The planned request path runs inside one CLAN process. Solid arrows show outgoing
-requests; dashed arrows show results returning to the client. These are runtime
-flows, not Go package dependencies.
+This diagram shows runtime flow inside one process, not Go package dependencies.
+Solid arrows carry requests; dashed arrows carry responses.
 
 ```mermaid
 flowchart TB
-    accTitle: CLAN request flow
-    accDescr: A client request passes through an inbound adapter, request execution and a provider adapter within one CLAN process. Results return through the same blocks. Request execution owns access checks, account selection and retries.
+    accTitle: CLAN first-release request flow
+    accDescr: OpenCode or a Python application sends a Responses request to CLAN. The HTTP API validates it, request execution manages access and attempts, and the Codex integration calls Codex using OAuth. Responses return through the same modules.
 
-    client["Client application"]
+    client["OpenCode / Python OpenAI SDK"]
 
     subgraph clan["CLAN · one process"]
-        inbound["Inbound adapter<br/>Validate client requests<br/>Convert client protocol"]
-        execution["Request execution<br/>Check access and limits<br/>Filter and select accounts<br/>Manage retries"]
-        provider["Provider adapter<br/>Use account credentials<br/>Convert upstream protocol<br/>Classify errors"]
+        http["HTTP API<br/>Validate Responses input<br/>Write JSON or SSE"]
+        execution["Request execution<br/>Check key and concurrency<br/>Select account and manage attempts"]
+        codex["Codex integration<br/>Authenticate with OAuth<br/>Adapt protocol and classify outcomes"]
     end
 
-    upstream["External LLM service"]
+    upstream["Codex"]
 
-    client -->|"Request + access key"| inbound
-    inbound -->|"Common request + identity"| execution
-    execution -->|"Attempt + account + model"| provider
-    provider -->|"Authenticated request"| upstream
+    client -->|"Responses + CLAN key"| http
+    http -->|"Validated request + identity"| execution
+    execution -->|"Request + selected account"| codex
+    codex -->|"Authenticated request"| upstream
 
-    upstream -.->|"Upstream result"| provider
-    provider -.->|"Common result"| execution
-    execution -.->|"Common result"| inbound
-    inbound -.->|"Client result"| client
-
-    classDef edge fill:#f1f5f9,stroke:#64748b,color:#0f172a
-    classDef adapter fill:#eff6ff,stroke:#2563eb,color:#172554
-    classDef core fill:#ecfdf5,stroke:#059669,color:#064e3b
-    class client,upstream edge
-    class inbound,provider adapter
-    class execution core
-    style clan fill:transparent,stroke:#94a3b8,stroke-dasharray:5 5
+    upstream -.->|"Provider response / stream"| codex
+    codex -.->|"Responses data + execution metadata"| execution
+    execution -.->|"Response / stream / error"| http
+    http -.->|"Responses JSON / SSE / error"| client
 ```
 
-A result is a complete response, a stream or an error. Internally, streaming uses
-shared `Event` values through `Next`/`Close`. Validation or admission can reject a
-request before it reaches the upstream.
+Responses is the reference content format. Execution uses small metadata values
+without parsing messages or tool arguments. The Codex integration handles protocol
+differences; there is no separate universal message or event model.
 
-Request execution selects eligible accounts with round-robin and owns retries,
-cancellation, timeouts, token accounting and attempt history. Each attempt keeps
-the requested model and the caller's access rules. See
-[ADR 0003](docs/decisions/0003-separate-request-execution-from-protocols.md) for the
-full contract.
+## Outside the first release
 
-## Deferred
+- Chat Completions, Anthropic and Gemini APIs; other upstream integrations and
+  API-key authentication to providers.
+- Provider-native tools (web search, code execution, image generation and hosted
+  MCP), custom/freeform tools, namespaces and tool search.
+- WebSocket, background generation, stored responses, Conversations, Files,
+  Containers, Vector Stores and separate compact/count operations.
+- Per-key account/model permissions, RPM limits, token or monetary budgets,
+  database request history and usage reports.
+- PostgreSQL, multiple active gateway instances, a web panel, auth-file imports
+  and additional OAuth connection methods.
 
-Gemini on both API sides, named account pools, model aliases or automatic model
-switching, additional selection strategies, cost tracking and USD budgets,
-and multiple active gateway instances are outside the initial scope.
+These exclusions do not commit the project to a later delivery date.
 
 ## Documentation
 
 | I want to… | Read |
 |---|---|
-| Understand the modules and request flow | [Architecture](docs/architecture.md) |
+| Understand modules, management and open questions | [Architecture](docs/architecture.md) |
 | Write and review Go code and tests | [Development guide](docs/development.md) |
-| Open an issue or PR, or write documentation | [Contributing](CONTRIBUTING.md) |
-| Use storage and run database tests | [Storage setup](docs/storage.md) |
+| Open an issue or PR, or update documentation | [Contributing](CONTRIBUTING.md) |
 | Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |
 
 Working notes belong in the ignored `.local/` directory; see
@@ -147,21 +126,12 @@ Working notes belong in the ignored `.local/` directory; see
 
 ### Decision log
 
-| Record | Status | What it decides |
-|---|---|---|
-| [0001 — Use Go](docs/decisions/0001-use-go.md) | Accepted | Application language |
-| [0002 — Common typed representation](docs/decisions/0002-use-common-request-format.md) | Accepted | Common internal request, response and event types |
-| [0003 — Execution and protocol adapters](docs/decisions/0003-separate-request-execution-from-protocols.md) | Accepted | Protocol adapters, execution ownership and Next/Close stream contract |
-| [0004 — Replaceable account selection](docs/decisions/0004-use-replaceable-account-selection.md) | Accepted | Round-robin with a replaceable selection contract |
-| [0005 — Account and credential types](docs/decisions/0005-encapsulate-credential-types-in-account.md) | Accepted | Account credential variants and OAuth renewal before dispatch |
-| [0006 — Management API](docs/decisions/0006-provide-management-api-without-bundled-ui.md) | Accepted | Management resources, admin access and Go-generated OpenAPI |
-| [0007 — Storage backends](docs/decisions/0007-support-sqlite-and-postgresql.md) | Accepted | Two database backends, one gateway instance and secret storage |
-| [0008 — Token-budget enforcement](docs/decisions/0008-enforce-token-budgets-at-admission.md) | Accepted | Token windows, observed usage, overruns and accounting failures |
-| [0009 — Request history](docs/decisions/0009-record-request-and-attempt-history.md) | Accepted | Request/attempt history, retention, reporting and recovery |
-| [0010 — Client-request concurrency](docs/decisions/0010-limit-concurrent-client-requests.md) | Accepted | One slot per active client request; reject without queuing |
-| [0011 — Sliding-window RPM](docs/decisions/0011-use-sliding-window-rpm.md) | Superseded by 0015 | Previous exact sliding-window policy |
-| [0012 — Retry policy](docs/decisions/0012-retry-classified-transient-failures.md) | Accepted | Retry eligibility, attempt/wait limits and Retry-After |
-| [0013 — Timeout policies](docs/decisions/0013-separate-ordinary-and-streaming-timeouts.md) | Accepted | Separate overall, startup, inactivity and write timeouts |
-| [0014 — HTTP routing](docs/decisions/0014-use-chi-for-http-routing.md) | Accepted | chi over net/http, route groups and standard handlers |
-| [0015 — Token-bucket rate limits](docs/decisions/0015-use-token-bucket-rate-limits.md) | Accepted | Sustained request rate and burst capacity, counted once per client request |
+These are accepted design decisions. Their status does not imply implementation.
 
+| Record | Decision |
+|---|---|
+| [0001 — Use Go](docs/decisions/0001-use-go.md) | Application language |
+| [0002 — Use Responses as the content format](docs/decisions/0002-use-responses-as-content-format.md) | Responses content and small execution metadata |
+| [0003 — Separate execution from protocols](docs/decisions/0003-separate-request-execution-from-protocols.md) | Attempt ownership, concurrency, cancellation and streaming |
+| [0007 — Use SQLite](docs/decisions/0007-use-sqlite.md) | Persistent configuration and secret storage |
+| [0014 — Use chi](docs/decisions/0014-use-chi-for-http-routing.md) | HTTP routing over `net/http` |

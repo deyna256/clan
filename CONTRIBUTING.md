@@ -2,8 +2,9 @@
 
 Use plain English in issues, commits and documentation. Follow the
 [development guide](docs/development.md) for code and tests, the
-[ADRs](README.md#decision-log) for product behavior, and the
-[Code of Conduct](CODE_OF_CONDUCT.md) when working with others.
+[first-release scope](README.md#first-release) and [architecture](docs/architecture.md)
+for product behavior, and the [Code of Conduct](CODE_OF_CONDUCT.md) when working
+with others.
 
 ## Issues
 
@@ -92,7 +93,8 @@ description and affected documentation when the code changes.
 
 ## Documentation
 
-Keep shared documentation in Markdown and review it with the code it describes.
+Keep shared documentation in Markdown. Distinguish planned behavior from what
+the code currently implements.
 README covers purpose, scope and navigation; [architecture](docs/architecture.md)
 maps modules and flows; [development](docs/development.md) defines coding rules.
 Add task guides and reference pages when the corresponding features exist.
@@ -101,13 +103,13 @@ helps the reader. Do not create empty sections for a template.
 
 Use short ADRs for significant decisions: status, context, decision and consequences.
 Include alternatives and sources when they explain the choice. Keep necessary
-cross-module rules; link to Go contracts instead of copying signatures. Existing
-records may use extra sections for detailed contracts and validation.
+cross-module rules; link to Go contracts instead of copying implementation details.
 This follows [Nygard's ADR guidance](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
 
 New decisions are **Proposed** until agreed. **Accepted** does not mean implemented.
-When replacing a decision, retain the old record as **Superseded** and link its
-replacement. Wording fixes do not require a new ADR.
+Update decisions to match the agreed design. Remove obsolete records and fix their
+references; do not maintain an archive of superseded designs. Git retains the history.
+Do not renumber surviving ADRs to fill gaps.
 
 Update affected docs and links in the same change. Use plain English and diagrams
 that identify whether arrows mean runtime flow or code dependencies. Give each
@@ -119,8 +121,9 @@ Use `.local/` at the repository root for research, drafts and development plans;
 for example, `.local/research/` and `.local/plans/`. Create subfolders as needed.
 Git ignores this directory. Do not commit it or force-add its contents.
 
-Before removing shared research, preserve the decision's essential reasons,
-alternatives and source links in its ADR. Track unresolved task questions in issues.
+Move accepted decisions and their essential reasons into shared documentation.
+Local proposals do not become requirements without agreement. Keep research local
+and track unresolved task questions in issues or the architecture's open questions.
 Shared docs must not require or link to local notes: a fresh clone must contain
 everything needed to understand and work on the project. Ignored notes are local
 to each checkout and are not copied to other clones or worktrees.

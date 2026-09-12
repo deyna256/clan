@@ -1,8 +1,9 @@
 # Development guide
 
-These are CLAN's coding rules. Product behavior is
-defined in the [ADRs](../README.md#decision-log), and commands are in the
-[Justfile](../Justfile). LLM instructions should link here instead of copying these rules.
+These are CLAN's coding rules. Product behavior is defined in the
+[first-release scope](../README.md#first-release) and [architecture](architecture.md).
+Commands are in the [Justfile](../Justfile). LLM instructions should link here
+instead of copying these rules.
 
 ## Packages and responsibility
 
@@ -20,7 +21,7 @@ interfaces such as `io.Reader` when they fit.
 ## Domain types and validation
 
 Define a type when it prevents mistakes or gives values useful behavior.
-Separate account and upstream ID types help catch accidental mixing at compile
+Separate account and access-key ID types help catch accidental mixing at compile
 time. A new type for every primitive value is unnecessary.
 
 `type AccountID string` defines a distinct type; `type AccountID = string` is an
@@ -135,7 +136,7 @@ failure if cleanup also fails. Repeated `Close` calls are not safe for every
 resource; CLAN's stream guarantees this in
 [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md#stream-consumption-next-and-close).
 Hold the concurrency slot through cleanup, as required by
-[ADR 0010](decisions/0010-limit-concurrent-client-requests.md).
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md#accounts-slots-and-retries).
 
 ## Names, comments and control flow
 
@@ -186,7 +187,8 @@ call `t.Fatal` or setup helpers that can call it from worker goroutines. Do not
 assume goroutine execution order.
 
 Keep unit tests independent of external services. Test SQL, migrations and
-transactions with real SQLite and PostgreSQL. `just test` runs all tests;
+transactions with temporary SQLite files. No database server or connection
+environment variables are needed. `just test` runs all tests;
 `just test-unit` adds `-short`. Integration tests skip when `testing.Short()` is
 true; build tags do not separate the suites.
 
@@ -236,14 +238,13 @@ the default full run. Coverage alone does not show test quality.
 
 ## Tooling and dependencies
 
-For now, `just lint` runs `go vet ./...`. When golangci-lint is added, start with
-`govet`, `staticcheck`, `errcheck` and `unused`.
+`just lint` runs `go vet ./...`.
 Add checks when their purpose is clear. Use `just format` to format with `gofmt`
 and `just format --check` to check without changing files. Suppress a
 finding only where needed, naming the linter and explaining the exception.
 Ignoring an error needs a reason.
 
-Pin tool versions. Use the same golangci-lint version locally and in CI, compatible
+Pin tool versions and use the same versions locally and in CI, compatible
 with the project's Go version. Review upgrades separately: analyzer updates may
 report new findings even with the same checks enabled.
 
