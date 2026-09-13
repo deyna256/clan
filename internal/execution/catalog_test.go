@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -12,6 +13,34 @@ import (
 	"github.com/deyna256/clan/internal/codex"
 	"github.com/deyna256/clan/internal/execution"
 )
+
+func TestAdministrationAndClientsShareCatalog(t *testing.T) {
+	var discoveries atomic.Int32
+	f := newFixtureWithCatalog(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(200, completed), nil
+	}), roundTripFunc(func(*http.Request) (*http.Response, error) {
+		discoveries.Add(1)
+		return response(200, `{"models":[{"slug":"model","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}`), nil
+	}))
+
+	admin, err := f.executor.AvailableModels(t.Context())
+	if err != nil || len(admin) != 1 || admin[0].ID != "model" {
+		t.Fatalf("admin catalog = %v, %v; want visible model", admin, err)
+	}
+	admin[0].ID = "changed-by-caller"
+	client, err := f.executor.Models(t.Context(), f.key)
+
+	if err != nil || len(client) != 1 || client[0].ID != "model" {
+		t.Fatalf("client catalog = %v, %v; want unchanged visible model", client, err)
+	}
+	if got := discoveries.Load(); got != 1 {
+		t.Fatalf("catalog fetches = %d, want one shared fetch", got)
+	}
+	f.executor.Close()
+	if _, err := f.executor.AvailableModels(t.Context()); !errors.Is(err, execution.ErrClosed) {
+		t.Fatalf("admin catalog after shutdown = %v, want closed", err)
+	}
+}
 
 func TestCatalogRefreshesOAuthBeforeDiscoveryAndGeneration(t *testing.T) {
 	var calls []string

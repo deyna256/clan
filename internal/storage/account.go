@@ -123,7 +123,7 @@ func (s *Store) ReplaceAccountCredentials(
 
 // ReplaceAccountCredentialsIfUnchanged updates an enabled account only while
 // its stored credentials still match a previous GetAccount or ListAccounts result.
-// Deletion, disabling or another credential write returns ErrConflict.
+// Deletion, disabling (even if re-enabled) or another credential write returns ErrConflict.
 func (s *Store) ReplaceAccountCredentialsIfUnchanged(
 	ctx context.Context,
 	previous AccountRecord,
@@ -155,6 +155,35 @@ func (s *Store) ReplaceAccountCredentialsIfUnchanged(
 		return ErrConflict
 	}
 	return err
+}
+
+// EnableAccount restores eligibility without changing identity or credential values.
+func (s *Store) EnableAccount(ctx context.Context, id account.ID) error {
+	for {
+		previous, err := s.GetAccount(ctx, id)
+		if err != nil {
+			return err
+		}
+		if previous.Enabled {
+			return nil
+		}
+		// A fresh ciphertext invalidates snapshots from before disablement.
+		encrypted, err := s.encryptCredentials(id, previous.Account.Credentials())
+		if err != nil {
+			return err
+		}
+		result, err := s.db.ExecContext(ctx,
+			`UPDATE accounts SET enabled = 1, credentials = ? WHERE id = ? AND enabled = 0 AND credentials = ?`,
+			encrypted, string(id), []byte(previous.revision),
+		)
+		if err != nil {
+			return fmt.Errorf("storage: enabling account: %w", err)
+		}
+		err = requireAffected(result)
+		if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
 }
 
 // DisableAccount persists the account's disabled state.

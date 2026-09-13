@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/deyna256/clan/internal/account"
@@ -18,6 +17,7 @@ import (
 // LoginInstructions contains a secret-bearing URL for the administrator only.
 // Remote administrators must forward localhost port 1455 to the callback listener.
 type LoginInstructions struct {
+	LoginID   string
 	URL       string
 	AccountID account.ID
 	ExpiresAt time.Time
@@ -37,6 +37,7 @@ const (
 
 // LoginStatus contains no authorization URL, callback state, code or tokens.
 type LoginStatus struct {
+	LoginID   string
 	AccountID account.ID
 	State     LoginState
 	ExpiresAt time.Time
@@ -44,7 +45,7 @@ type LoginStatus struct {
 
 type pendingLogin struct {
 	// Serializes cancellation with persistence without holding the manager lock.
-	commit        sync.Mutex
+	commit        chan struct{}
 	authorization Authorization
 	identity      account.Identity
 	previous      *storage.AccountRecord
@@ -92,11 +93,13 @@ func (m *Manager) startLogin(ctx context.Context, identity account.Identity, pre
 	expires := time.Now().Add(10 * time.Minute)
 	loginCtx, cancel := context.WithDeadline(m.lifetime, expires)
 	authorization := m.client.Begin()
+	loginID := rand.Text()
 	m.login = &pendingLogin{
+		commit:        make(chan struct{}, 1),
 		authorization: authorization, identity: identity, previous: previous, ctx: loginCtx, cancel: cancel,
-		status: LoginStatus{AccountID: identity.ID, State: LoginWaiting, ExpiresAt: expires},
+		status: LoginStatus{LoginID: loginID, AccountID: identity.ID, State: LoginWaiting, ExpiresAt: expires},
 	}
-	return LoginInstructions{URL: authorization.URL, AccountID: identity.ID, ExpiresAt: expires}, nil
+	return LoginInstructions{LoginID: loginID, URL: authorization.URL, AccountID: identity.ID, ExpiresAt: expires}, nil
 }
 
 // LoginStatus returns the bounded, safe completion record for the most recent login.
@@ -121,26 +124,47 @@ func (m *Manager) expireLoginLocked() {
 	}
 }
 
-// CancelLogin cancels the pending login. It waits for an ongoing save; a
-// successful completion cannot be changed to canceled.
-func (m *Manager) CancelLogin() {
-	m.mu.Lock()
-	p := m.login
-	m.mu.Unlock()
-	if p == nil {
-		return
+// CancelLogin cancels the matching latest login, or returns ErrLoginMismatch.
+// It waits for an ongoing save subject to ctx; terminal states stay unchanged.
+func (m *Manager) CancelLogin(ctx context.Context, loginID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	p.commit.Lock()
-	defer p.commit.Unlock()
+	m.mu.Lock()
+	m.expireLoginLocked()
+	p := m.login
+	if p == nil || p.status.LoginID != loginID {
+		m.mu.Unlock()
+		return ErrLoginMismatch
+	}
+	if p.status.State != LoginWaiting && p.status.State != LoginExchanging {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.commit <- struct{}{}:
+	}
+	defer func() { <-p.commit }()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.login == p && (p.status.State == LoginWaiting || p.status.State == LoginExchanging) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.login != p {
+		return ErrLoginMismatch
+	}
+	m.expireLoginLocked()
+	if p.status.State == LoginWaiting || p.status.State == LoginExchanging {
 		p.status.State = LoginCanceled
 		p.previous = nil
 		p.identity = account.Identity{}
 		p.authorization = Authorization{}
 		p.cancel()
 	}
+	return nil
 }
 
 func (m *Manager) callback(w http.ResponseWriter, r *http.Request) {
@@ -217,8 +241,8 @@ func (m *Manager) finishLogin(p *pendingLogin, code, verifier string, denied boo
 	} else {
 		credentials, err = m.client.Exchange(ctx, code, verifier)
 	}
-	p.commit.Lock()
-	defer p.commit.Unlock()
+	p.commit <- struct{}{}
+	defer func() { <-p.commit }()
 	if err == nil {
 		err = ctx.Err()
 	}

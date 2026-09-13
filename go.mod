@@ -3,6 +3,8 @@ module github.com/deyna256/clan
 go 1.27.0
 
 require (
+	github.com/danielgtaylor/huma/v2 v2.39.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/tmaxmax/go-sse v0.11.0
 	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.58.0

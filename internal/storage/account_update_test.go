@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -9,6 +10,66 @@ import (
 	"github.com/deyna256/clan/internal/account"
 	"github.com/deyna256/clan/internal/storage"
 )
+
+func TestEnableAccountPreservesCredentialsAndInvalidatesOldWrites(t *testing.T) {
+	s, previous := credentialReplacementFixture(t)
+	if err := s.DisableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	updated := newAccount(t, "two", "Replacement").Credentials()
+
+	if err := s.EnableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.ReplaceAccountCredentialsIfUnchanged(t.Context(), previous, updated)
+
+	if !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("write after disable and enable = %v, want ErrConflict", err)
+	}
+	got, err := s.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAccountRecord(t, got, previous.Account, true)
+	if err := s.EnableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceAccountCredentialsIfUnchanged(t.Context(), got, updated); err != nil {
+		t.Fatalf("repeated enable invalidated current credentials: %v", err)
+	}
+}
+
+func TestEnableAccountRejectsInvalidMissingAndCanceledRequests(t *testing.T) {
+	s, previous := credentialReplacementFixture(t)
+	if err := s.DisableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tt := range []struct {
+		name string
+		ctx  context.Context
+		id   account.ID
+		want error
+	}{
+		{name: "invalid ID", ctx: t.Context(), want: storage.ErrInvalid},
+		{name: "missing account", ctx: t.Context(), id: "missing", want: storage.ErrNotFound},
+		{name: "canceled request", ctx: canceled, id: "one", want: context.Canceled},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := s.EnableAccount(tt.ctx, tt.id)
+
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("EnableAccount = %v, want %v", err, tt.want)
+			}
+		})
+	}
+	got, err := s.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAccountRecord(t, got, previous.Account, false)
+}
 
 func TestConditionalCredentialReplacementUsesListedSnapshotOnce(t *testing.T) {
 	requireStorage(t)

@@ -107,6 +107,9 @@ func TestManagerRefreshFailures(t *testing.T) {
 			old := saveOAuthAccount(t, f.store, "one", time.Now().Add(time.Minute))
 
 			for range 2 {
+				if err := f.manager.Enable(t.Context(), "one"); err != nil {
+					t.Fatal(err)
+				}
 				got, err := f.manager.CurrentAccount(t.Context(), "one")
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("CurrentAccount error = %v, want %v", err, tt.wantErr)
@@ -194,10 +197,13 @@ func TestManagerRetriesRetainedRotationAfterCanceledReconnect(t *testing.T) {
 		if _, err := db.Exec(`DROP TRIGGER reject_rotation`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := f.manager.StartReconnect(t.Context(), "one"); err != nil {
+		instructions, err := f.manager.StartReconnect(t.Context(), "one")
+		if err != nil {
 			t.Fatal(err)
 		}
-		f.manager.CancelLogin()
+		if err := f.manager.CancelLogin(t.Context(), instructions.LoginID); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := f.manager.CurrentAccount(t.Context(), "one"); !errors.Is(err, codexoauth.ErrUnavailable) {
 			t.Fatalf("retry delay error = %v", err)
 		}
@@ -239,6 +245,112 @@ func TestManagerLateRefreshCannotUndoDisable(t *testing.T) {
 	}
 	if record.Enabled {
 		t.Fatal("disabled account enabled again")
+	}
+}
+
+func TestManagerEnablePreservesCredentialsWithoutRefreshing(t *testing.T) {
+	var calls atomic.Int32
+	f := managerFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, errors.New("unexpected refresh")
+	}), nil)
+	saveOAuthAccount(t, f.store, "one", time.Now().Add(-time.Minute))
+	previous, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.manager.Disable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.manager.Enable(t.Context(), "one")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Enabled || got.Account != previous.Account {
+		t.Fatal("enable changed stored identity or credentials")
+	}
+	status, err := f.manager.Status(t.Context(), "one")
+	if err != nil || status.State != codexoauth.StateUnavailable {
+		t.Fatalf("enabled expired account state = %s, error = %v", status.State, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("enable made %d provider calls, want 0", calls.Load())
+	}
+}
+
+func TestManagerRepeatedEnablePreservesActiveRefresh(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	f := managerFixture(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		if err := r.Context().Err(); err != nil {
+			return nil, err
+		}
+		return tokenResponseJSON(200, `{"access_token":"new","refresh_token":"rotation","expires_in":3600}`), nil
+	}), nil)
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unblock)
+	saveOAuthAccount(t, f.store, "one", time.Now().Add(time.Minute))
+	result := make(chan error, 1)
+	go func() {
+		_, err := f.manager.CurrentAccount(t.Context(), "one")
+		result <- err
+	}()
+	<-entered
+
+	if err := f.manager.Enable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || record.Account.Credentials().RefreshToken != "rotation" {
+		t.Fatal("repeated enable abandoned a valid refresh")
+	}
+}
+
+func TestManagerLateRefreshCannotWriteAfterReenable(t *testing.T) {
+	f, entered, release := blockedOAuthFixture(t, tokenResponseJSON(200, `{"access_token":"late","refresh_token":"late-refresh","expires_in":3600}`), nil)
+	saveOAuthAccount(t, f.store, "one", time.Now().Add(time.Minute))
+	result := make(chan error, 1)
+	go func() {
+		_, err := f.manager.CurrentAccount(t.Context(), "one")
+		result <- err
+	}()
+	<-entered
+
+	if err := f.manager.Disable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.manager.Enable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !record.Enabled || record.Account.Credentials().RefreshToken != "old-refresh" {
+		t.Fatal("stale refresh changed credentials after re-enablement")
 	}
 }
 

@@ -14,12 +14,13 @@ import (
 )
 
 var (
-	ErrClosed       = errors.New("codex oauth: manager closed")
-	ErrDisabled     = errors.New("codex oauth: account disabled")
-	ErrNeedsSignIn  = errors.New("codex oauth: account needs sign-in")
-	ErrUnavailable  = errors.New("codex oauth: account temporarily unavailable")
-	ErrLoginPending = errors.New("codex oauth: login already pending")
-	ErrInvalidLogin = errors.New("codex oauth: invalid login")
+	ErrClosed        = errors.New("codex oauth: manager closed")
+	ErrDisabled      = errors.New("codex oauth: account disabled")
+	ErrNeedsSignIn   = errors.New("codex oauth: account needs sign-in")
+	ErrUnavailable   = errors.New("codex oauth: account temporarily unavailable")
+	ErrLoginPending  = errors.New("codex oauth: login already pending")
+	ErrLoginMismatch = errors.New("codex oauth: login does not match latest attempt")
+	ErrInvalidLogin  = errors.New("codex oauth: invalid login")
 )
 
 // AccountState describes availability without exposing credentials.
@@ -324,6 +325,11 @@ func (m *Manager) statusLocked(record storage.AccountRecord) AccountStatus {
 		status.State = StateUnavailable
 	}
 	return status
+}
+
+// Enable restores eligibility using stored credentials without starting a refresh.
+func (m *Manager) Enable(ctx context.Context, id account.ID) error {
+	return m.store.EnableAccount(ctx, id)
 }
 
 // Disable persists disablement before canceling in-flight work for the account.
