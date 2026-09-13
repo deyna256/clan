@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -68,11 +69,11 @@ func newApplication(
 	}
 	oauthClient, err := codexoauth.NewClient(client, issuer)
 	if err != nil {
-		return nil, errors.New("app: OAuth client configuration failed")
+		return nil, fmt.Errorf("app: configuring OAuth client: %w", err)
 	}
 	codexClient, err := codex.NewClient(client, codexURL, "0.154.0")
 	if err != nil {
-		return nil, errors.New("app: Codex client configuration failed")
+		return nil, fmt.Errorf("app: configuring Codex client: %w", err)
 	}
 	a := &application{httpClient: client, codexClient: codexClient}
 	defer func() {
@@ -82,38 +83,38 @@ func newApplication(
 	}()
 	cipher, err := credentialcipher.New(c.encryptionKey)
 	if err != nil {
-		return nil, errors.New("app: encryption configuration failed")
+		return nil, fmt.Errorf("app: configuring credential cipher: %w", err)
 	}
 	store, err := storage.Open(ctx, c.dbPath, cipher)
 	if err != nil {
-		return nil, errors.New("app: opening the database failed")
+		return nil, fmt.Errorf("app: opening the database: %w", err)
 	}
 	a.store = store
 	listen := net.ListenConfig{}
 	a.listener, err = listen.Listen(ctx, "tcp", c.listenAddr)
 	if err != nil {
-		return nil, errors.New("app: binding CLAN_LISTEN_ADDR failed")
+		return nil, fmt.Errorf("app: binding CLAN_LISTEN_ADDR: %w", err)
 	}
 	a.callback, err = listen.Listen(ctx, "tcp", c.callbackAddr)
 	if err != nil {
-		return nil, errors.New("app: binding CLAN_OAUTH_CALLBACK_ADDR failed")
+		return nil, fmt.Errorf("app: binding CLAN_OAUTH_CALLBACK_ADDR: %w", err)
 	}
 	// OAuth saves must survive the signal that cancels inbound generation requests.
 	a.oauth, err = codexoauth.NewManager(context.Background(), oauthClient, store, a.callback)
 	if err != nil {
-		return nil, errors.New("app: starting OAuth callback serving failed")
+		return nil, fmt.Errorf("app: starting OAuth callback serving: %w", err)
 	}
 	a.executor, err = execution.New(store, a.oauth, codexClient, logger)
 	if err != nil {
-		return nil, errors.New("app: starting execution failed")
+		return nil, fmt.Errorf("app: starting execution: %w", err)
 	}
 	admin, err := management.New(management.Config{AdminToken: c.adminToken}, store, a.oauth, a.executor, logger)
 	if err != nil {
-		return nil, errors.New("app: starting management failed")
+		return nil, fmt.Errorf("app: starting management: %w", err)
 	}
 	clients, err := gateway.New(a.executor, logger)
 	if err != nil {
-		return nil, errors.New("app: starting client API failed")
+		return nil, fmt.Errorf("app: starting client API: %w", err)
 	}
 	router := chi.NewRouter()
 	router.Handle("/api/*", admin)
@@ -122,7 +123,7 @@ func newApplication(
 	router.Handle("/v1", clients)
 	router.NotFound(clients.ServeHTTP)
 	if ctx.Err() != nil {
-		return nil, errors.New("app: startup canceled")
+		return nil, fmt.Errorf("app: startup canceled: %w", ctx.Err())
 	}
 	requests, cancel := context.WithCancel(context.Background())
 	a.cancelRequests = cancel
