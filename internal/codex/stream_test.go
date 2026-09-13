@@ -1,6 +1,7 @@
 package codex_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,9 +9,117 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/deyna256/clan/internal/codex"
 )
+
+func TestStreamEventIdleTimeout(t *testing.T) {
+	for _, tt := range []struct{ name, progress string }{
+		{name: "first event"},
+		{name: "comments", progress: ": keepalive\n\n"},
+		{name: "partial event", progress: "data: "},
+		{name: "empty event", progress: "data:\n\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				reader, writer := io.Pipe()
+				defer writer.Close()
+				client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Body: reader}, nil
+				})}, "https://example.test")
+				stream, err := client.Stream(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer stream.Close()
+				if tt.progress != "" {
+					done := make(chan struct{})
+					defer func() { <-done }()
+					go func() {
+						defer close(done)
+						for {
+							time.Sleep(time.Minute)
+							if _, err := io.WriteString(writer, tt.progress); err != nil {
+								return
+							}
+						}
+					}()
+				}
+				started := time.Now()
+
+				_, err = stream.Next()
+
+				var failure *codex.Failure
+				if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &failure) || failure.Category != codex.TransportFailure || failure.SafeToRetry {
+					t.Fatalf("idle error = %v, want deadline without safe retry", err)
+				}
+				if time.Since(started) != 5*time.Minute {
+					t.Errorf("idle timeout after %v, want5m", time.Since(started))
+				}
+			})
+		})
+	}
+}
+
+func TestStreamIdleIgnoresConsumerPause(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader, writer := io.Pipe()
+		defer writer.Close()
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: reader}, nil
+		})}, "https://example.test")
+		stream, err := client.Stream(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		go func() {
+			io.WriteString(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"usage\":{\"input_tokens\":3}}}\n\n")
+		}()
+
+		if _, err := stream.Next(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Minute)
+		started := time.Now()
+		_, err = stream.Next()
+
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) != 5*time.Minute {
+			t.Fatalf("next event error = %v after %v, want deadline after5m", err, time.Since(started))
+		}
+		if result := stream.Result(); !result.Usage.Input.Known || result.Usage.Input.Tokens != 3 {
+			t.Errorf("usage lost on idle timeout: %+v", result.Usage)
+		}
+	})
+}
+
+func TestGenerateHasNoDefaultTotalTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader, writer := io.Pipe()
+		defer writer.Close()
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: reader}, nil
+		})}, "https://example.test")
+		go func() {
+			for range 3 {
+				time.Sleep(4 * time.Minute)
+				if _, err := io.WriteString(writer, "data: {\"type\":\"response.in_progress\"}\n\n"); err != nil {
+					return
+				}
+			}
+			io.WriteString(writer, completeSSE)
+		}()
+		started := time.Now()
+
+		result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+
+		if err != nil || time.Since(started) != 12*time.Minute || len(result.Response) == 0 {
+			t.Fatalf("Generate = %+v, %v after %v, want complete response after12m", result, err, time.Since(started))
+		}
+	})
+}
 
 func TestStreamPreservesOrderAndAssemblesCompletedItems(t *testing.T) {
 	events := []string{

@@ -7,9 +7,11 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/deyna256/clan/internal/account"
@@ -64,6 +66,10 @@ type Client struct {
 
 // NewClient copies the HTTP client settings, disables redirects and requires a
 // protocol client version for model discovery. Empty baseURL uses DefaultBaseURL.
+// Standard transports are cloned and capped at five minutes for response headers;
+// other transports retain responsibility for their connection and header timeouts.
+// The default transport bounds TCP connection setup to 30 seconds and TLS to ten.
+// An explicit client Timeout or caller deadline still bounds the whole operation.
 // The caller must not mutate the supplied transport or cookie jar concurrently.
 func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, error) {
 	if client == nil {
@@ -83,9 +89,31 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 		return nil, errors.New("codex: client version is required")
 	}
 	c := &Client{http: *client, baseURL: strings.TrimRight(baseURL, "/"), version: clientVersion}
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	if standard, ok := transport.(*http.Transport); ok {
+		cloned := standard.Clone()
+		if cloned.DialContext == nil && cloned.Dial == nil {
+			cloned.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+		}
+		if cloned.TLSHandshakeTimeout <= 0 {
+			cloned.TLSHandshakeTimeout = 10 * time.Second
+		}
+		if cloned.ResponseHeaderTimeout <= 0 || cloned.ResponseHeaderTimeout > 5*time.Minute {
+			cloned.ResponseHeaderTimeout = 5 * time.Minute
+		}
+		transport = cloned
+	}
+	c.http.Transport = transport
 	c.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c, nil
 }
+
+// CloseIdleConnections releases pooled connections without interrupting active requests.
+// The application calls it after execution and catalog shutdown.
+func (c *Client) CloseIdleConnections() { c.http.CloseIdleConnections() }
 
 // Generate consumes the same stream as Stream and returns its terminal result.
 // The caller must first validate enabled-account model membership and ValidateModel.
@@ -112,10 +140,10 @@ func (c *Client) Stream(ctx context.Context, a account.Account, request Request)
 	if len(request.body) == 0 {
 		return nil, invalid("request")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
 	resp, err := c.do(ctx, a, http.MethodPost, "/responses", request.body)
 	if err != nil {
-		cancel()
+		cancel(nil)
 		return nil, err
 	}
 	contentType := resp.Header.Get("Content-Type")
@@ -124,7 +152,7 @@ func (c *Client) Stream(ctx context.Context, a account.Account, request Request)
 	if contentType != "" && (err != nil || mediaType != "text/event-stream") {
 		failure := httpFailure(resp)
 		resp.Body.Close()
-		cancel()
+		cancel(nil)
 		return nil, failure
 	}
 	return newStream(ctx, cancel, resp), nil
@@ -156,20 +184,41 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 		return nil, safeFailure(ctx, TransportFailure, 0, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return nil, httpFailure(resp)
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		closeBody := sync.OnceFunc(func() { resp.Body.Close() })
+		done := make(chan struct{})
+		stop := context.AfterFunc(readCtx, func() {
+			closeBody()
+			close(done)
+		})
+		defer func() {
+			closeBody()
+			if !stop() {
+				<-done
+			}
+		}()
+		failure := httpFailure(resp)
+		failure.cause = safeFailure(readCtx, failure.Category, failure.HTTPStatus, nil).cause
+		return nil, failure
 	}
 	return resp, nil
 }
 
 func safeFailure(ctx context.Context, category Category, status int, err error) *Failure {
 	cause := ctx.Err()
+	if errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		cause = context.DeadlineExceeded
+	}
 	if cause == nil {
+		var timeout net.Error
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
 			cause = context.DeadlineExceeded
 		case errors.Is(err, context.Canceled):
 			cause = context.Canceled
+		case errors.As(err, &timeout) && timeout.Timeout():
+			cause = context.DeadlineExceeded
 		}
 	}
 	return &Failure{Category: category, HTTPStatus: status, cause: cause}
@@ -178,7 +227,8 @@ func safeFailure(ctx context.Context, category Category, status int, err error) 
 func httpFailure(response *http.Response) *Failure {
 	status := response.StatusCode
 	f := &Failure{Category: ProviderFailure, HTTPStatus: status}
-	f.RetryAfter, _ = retry.ParseRetryAfter(response.Header.Get("Retry-After"), time.Now())
+	receivedAt := time.Now()
+	f.RetryAfter, _ = retry.ParseRetryAfter(response.Header.Get("Retry-After"), receivedAt)
 	switch status {
 	case http.StatusBadRequest, http.StatusNotFound, http.StatusUnprocessableEntity:
 		f.Category = InvalidRequest
@@ -189,12 +239,43 @@ func httpFailure(response *http.Response) *Failure {
 	case http.StatusTooManyRequests:
 		f.Category = ProviderLimit
 		f.SafeToRetry = true
+		if f.RetryAfter.Kind == retry.NoCooldown {
+			f.RetryAfter = quotaReset(response.Body, receivedAt)
+		}
 	default:
 		if status < 400 {
 			f.Category = InvalidResponse
 		}
 	}
 	return f
+}
+
+func quotaReset(body io.Reader, receivedAt time.Time) retry.Cooldown {
+	const maxErrorBody = 64 << 10
+	const lastUnixSecond = 253402300799 // End of year 9999, the last RFC3339 year.
+	data, err := io.ReadAll(io.LimitReader(body, maxErrorBody+1))
+	if err != nil || len(data) > maxErrorBody {
+		return retry.Cooldown{}
+	}
+	var wire struct {
+		Error struct {
+			Type     string          `json:"type"`
+			ResetsAt json.RawMessage `json:"resets_at"`
+			ResetsIn json.RawMessage `json:"resets_in_seconds"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(data, &wire) != nil || wire.Error.Type != "usage_limit_reached" {
+		return retry.Cooldown{}
+	}
+	var seconds int64
+	if json.Unmarshal(wire.Error.ResetsAt, &seconds) == nil && seconds > receivedAt.Unix() && seconds <= lastUnixSecond {
+		return retry.Cooldown{Kind: retry.RetryAt, Until: time.Unix(seconds, 0)}
+	}
+	if json.Unmarshal(wire.Error.ResetsIn, &seconds) == nil && seconds > 0 {
+		cooldown, _ := retry.ParseRetryAfter(string(wire.Error.ResetsIn), receivedAt)
+		return cooldown
+	}
+	return retry.Cooldown{}
 }
 
 func responseFailure(raw json.RawMessage, status int) *Failure {

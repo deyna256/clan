@@ -99,13 +99,15 @@ func (c *Client) FetchModels(ctx context.Context, a account.Account) ([]Model, e
 	return models, nil
 }
 
-// AccountCatalog contains a full catalog and safe discovery failure facts for one enabled account.
+// AccountCatalog contains models and discovery failures for one enabled account.
+// ChatGPTAccountID ties capabilities to the identity used for discovery.
 // Loaded distinguishes a successfully loaded empty catalog from an initial failure.
 type AccountCatalog struct {
-	AccountID account.ID
-	Models    []Model
-	Loaded    bool
-	Failure   *Failure
+	AccountID        account.ID
+	ChatGPTAccountID string
+	Models           []Model
+	Loaded           bool
+	Failure          *Failure
 }
 
 // CatalogSnapshot owns its data and includes enabled accounts only.
@@ -126,7 +128,7 @@ var ErrCatalogClosed = errors.New("codex: catalog is closed")
 // Each shared refresh runs for at most five seconds and survives individual waiter cancellation.
 // The owner must call Close to stop and wait for refreshes during shutdown.
 type Catalog struct {
-	client   *Client
+	fetch    func(context.Context, account.Account) ([]Model, error)
 	mu       sync.Mutex
 	wg       sync.WaitGroup
 	closed   bool
@@ -148,11 +150,11 @@ type catalogRefresh struct {
 }
 
 // NewCatalog creates an initially empty catalog. SetAccounts supplies enabled accounts.
-func NewCatalog(client *Client) (*Catalog, error) {
-	if client == nil || client.baseURL == "" {
-		return nil, errors.New("codex: client is required")
+func NewCatalog(fetch func(context.Context, account.Account) ([]Model, error)) (*Catalog, error) {
+	if fetch == nil {
+		return nil, errors.New("codex: model fetch function is required")
 	}
-	return &Catalog{client: client, accounts: make(map[account.ID]*catalogEntry)}, nil
+	return &Catalog{fetch: fetch, accounts: make(map[account.ID]*catalogEntry)}, nil
 }
 
 // SetAccounts replaces enabled membership atomically. Pass only enabled accounts,
@@ -256,7 +258,8 @@ func (c *Catalog) Snapshot(ctx context.Context) (CatalogSnapshot, error) {
 	failed := false
 	for _, id := range ids {
 		entry := c.accounts[id]
-		catalog := AccountCatalog{AccountID: id, Models: cloneModels(entry.models), Loaded: entry.loaded}
+		catalog := AccountCatalog{AccountID: id, ChatGPTAccountID: entry.account.Credentials().ChatGPTAccountID,
+			Models: cloneModels(entry.models), Loaded: entry.loaded}
 		if entry.failure != nil {
 			failure := *entry.failure
 			catalog.Failure = &failure
@@ -295,7 +298,7 @@ func (c *Catalog) Close() {
 func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Account, job *catalogRefresh) {
 	defer close(job.done)
 	defer job.cancel()
-	models, err := c.client.FetchModels(ctx, a)
+	models, err := c.fetch(ctx, a)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.accounts[a.Identity().ID] != entry || entry.refresh != job {

@@ -87,7 +87,7 @@ flowchart TB
     upstream["Codex"]
 
     client -->|"Responses + CLAN key"| http
-    http -->|"Validated request + identity"| execution
+    http -->|"Validated request + CLAN key"| execution
     execution -->|"Request + selected account"| codex
     codex -->|"Authenticated request"| upstream
 

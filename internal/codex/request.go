@@ -35,7 +35,7 @@ func (r Request) Model() string { return r.model }
 // Streaming reports the client's requested response format.
 func (r Request) Streaming() bool { return r.stream }
 
-// OmittedMaxOutputTokens tells HTTP to warn once for this request. The cap is not enforced.
+// OmittedMaxOutputTokens reports a client cap removed for Codex compatibility.
 func (r Request) OmittedMaxOutputTokens() bool { return r.omittedCap }
 
 // ValidateModel checks this request against one account's catalog entry.

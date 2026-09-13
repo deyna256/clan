@@ -61,7 +61,7 @@ listener must also be reachable inside the container network.
 Bind the callback listener before returning sign-in instructions. Use PKCE and
 single-use state tied to the pending login. Report success only after credentials
 are stored. Device Code, auth-file imports and alternate connection methods are
-outside the first release. Live refresh and Docker forwarding still need validation;
+outside the first release. Docker forwarding still needs validation;
 see the [recorded checks](client-contract.md#checks-so-far).
 
 ### Token refresh and reconnect
@@ -112,7 +112,7 @@ periodic worker. Each catalog HTTP request has a five-second timeout, separate
 from generation timeouts. After a failed first load, recovery may wait for the
 next refresh interval.
 
-The application owns catalog shutdown: cancel refreshes and wait for their cleanup,
+Execution owns catalog shutdown: cancel refreshes and wait for their cleanup,
 including work started for accounts that have since been removed or updated.
 
 ## State and diagnostics
@@ -140,14 +140,19 @@ round-robin, observed usage types and Retry-After parsing.
 [SQLite storage](../internal/storage/storage.go) persists accounts and key settings.
 
 The [Codex client](../internal/codex/client.go) implements Responses generation,
-SSE streaming and authenticated model discovery. Its catalog refreshes on demand;
-the application owns closing it during shutdown.
+SSE streaming and authenticated model discovery. Its catalog refreshes on demand.
 
 The [OAuth manager](../internal/codexoauth/manager.go) handles browser login,
 on-demand refresh and persisted credential replacement.
 
-The entry point is empty. Gateway and management HTTP routes, request execution
-and application wiring are not implemented yet.
+The [executor](../internal/execution/execution.go) joins key admission, OAuth,
+catalog validation, selection and attempts. It owns the catalog and active request
+cleanup. Management must use its mutation methods for revocation, account removal
+and concurrency edits. Close execution before the OAuth manager and storage;
+then close the Codex client's idle connections.
+
+The entry point is empty. Gateway and management HTTP routes and application
+wiring are not implemented yet.
 
 ## Remaining decisions and checks
 
@@ -155,9 +160,8 @@ and application wiring are not implemented yet.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
-- Define management schemas and key/account update behavior.
-- Choose timeout and retry settings with the execution module, using the agreed
-  [failure details](decisions/0003-separate-request-execution-from-protocols.md#failure-details).
+- Define management schemas and HTTP server settings, including downstream write
+  timeouts. Execution behavior is defined in [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
 
 Do not infer automatic model discovery in OpenCode from the presence of
 `GET /v1/models`; verify the client's configuration and behavior.
