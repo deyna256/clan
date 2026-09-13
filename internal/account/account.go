@@ -19,9 +19,10 @@ type Identity struct {
 // OAuthCredentials holds token data without checking its freshness.
 // These secrets must not be logged or sent to clients.
 type OAuthCredentials struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    time.Time // Zero means unknown expiry.
+	ChatGPTAccountID string
+	AccessToken      string
+	RefreshToken     string
+	ExpiresAt        time.Time // Zero means unknown expiry.
 }
 
 // Account is an immutable snapshot. Construct it with [New]; its zero value is invalid.
@@ -40,10 +41,22 @@ func New(identity Identity, credentials OAuthCredentials) (Account, error) {
 	if strings.TrimSpace(identity.Name) == "" {
 		return Account{}, errors.New("account: name is required")
 	}
-	if strings.TrimSpace(credentials.AccessToken) == "" {
-		return Account{}, errors.New("account: OAuth access token is required")
+	if err := ValidateCredentials(credentials); err != nil {
+		return Account{}, err
 	}
 	return Account{identity: identity, credentials: credentials}, nil
+}
+
+// ValidateCredentials checks the structural fields required for a stored Codex
+// account without checking freshness or provider acceptance.
+func ValidateCredentials(credentials OAuthCredentials) error {
+	if strings.TrimSpace(credentials.ChatGPTAccountID) == "" {
+		return errors.New("account: ChatGPT account ID is required")
+	}
+	if strings.TrimSpace(credentials.AccessToken) == "" {
+		return errors.New("account: OAuth access token is required")
+	}
+	return nil
 }
 
 // Identity returns the account's metadata.

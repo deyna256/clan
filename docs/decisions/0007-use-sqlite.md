@@ -1,6 +1,6 @@
 # ADR 0007: Use SQLite for the first release
 
-Status: Accepted. Reviewed: 2026-09-12.
+Status: Accepted. Reviewed: 2026-09-13.
 
 ## Context
 
@@ -23,5 +23,12 @@ Never include credentials in logs or client errors.
 SQLite avoids a separate database service. PostgreSQL would add deployment and
 test work without serving an initial requirement, so it is deferred.
 
-Account and key persistence is still to be implemented. Define schemas,
-migrations, database location and key provisioning with that implementation.
+The [store](../../internal/storage/storage.go) uses `database/sql` with the pure-Go
+`modernc.org/sqlite` driver and one connection for small configuration operations.
+It initializes schema version 1 in a transaction using `PRAGMA user_version` and
+rejects unknown versions or conflicting unversioned databases. Opening a store
+authenticates existing credential bundles before allowing writes.
+
+External write locks can delay context cancellation until the five-second SQLite
+busy timeout expires. Database location and encryption-key provisioning belong to
+application startup.

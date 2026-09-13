@@ -78,9 +78,10 @@ through sequential requests despite its concurrency limit.
 The code contains OAuth account snapshots, named access keys and secret
 verification, credential encryption, per-key concurrency slots, model-based
 round-robin, observed usage types and Retry-After parsing.
+[SQLite storage](../internal/storage/storage.go) persists accounts and key settings.
 
 The entry point is empty. HTTP routes, Codex integration, request execution,
-management and SQLite persistence are not implemented yet.
+and management are not implemented yet.
 
 ## Remaining decisions and checks
 
