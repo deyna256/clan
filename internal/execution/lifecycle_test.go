@@ -42,10 +42,10 @@ func TestConcurrentAdmissionsAndIndependentKeys(t *testing.T) {
 		var active *execution.Stream
 		for range cap(results) {
 			r := <-results
+			t.Cleanup(func() { r.stream.Close() })
 			if r.err == nil {
 				admitted++
 				active = r.stream
-				t.Cleanup(func() { r.stream.Close() })
 			} else if errors.Is(r.err, concurrency.ErrLimitReached) {
 				rejected++
 			} else {
@@ -72,6 +72,9 @@ func TestTerminalDeliveryRetainsSlotUntilClose(t *testing.T) {
 
 	if event, err := s.Next(); err != nil || !strings.Contains(string(event), "response.completed") {
 		t.Fatalf("terminal event = %s, error = %v", event, err)
+	}
+	if _, err := s.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("read after terminal = %v, want EOF", err)
 	}
 	if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("admission during terminal delivery = %v, want limit", err)
@@ -133,7 +136,74 @@ func TestOrdinaryDeliveryRetainsSlotUntilClose(t *testing.T) {
 	}
 }
 
-func TestCancellationAndRevocationReleaseOrdinaryResults(t *testing.T) {
+func TestStreamReadFailureRetainsSlotUntilClose(t *testing.T) {
+	f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, ""), nil
+	}))
+	s := f.open(t, f.key)
+
+	if _, err := s.Next(); err == nil {
+		t.Fatal("empty upstream stream returned no error")
+	}
+	if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+		t.Fatalf("admission before error delivery Close = %v, want limit", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.open(t, f.key)
+}
+
+func TestOpeningFailureRetainsSlotUntilClose(t *testing.T) {
+	f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusBadGateway, `{}`), nil
+	}))
+
+	stream, err := f.executor.Stream(t.Context(), f.key, "failed-open", f.request)
+	defer stream.Close()
+
+	var failure *codex.Failure
+	if stream == nil || !errors.As(err, &failure) || failure.HTTPStatus != http.StatusBadGateway {
+		t.Fatalf("opening failure = %v, %v, want retained stream and HTTP 502 failure", stream, err)
+	}
+	if stream.Context().Err() != nil || stream.Context().Done() == nil {
+		t.Fatal("opening failure lost its active execution context")
+	}
+	if event, nextErr := stream.Next(); event != nil || !errors.Is(nextErr, err) {
+		t.Fatalf("failed stream Next = %s, %v, want original opening failure", event, nextErr)
+	}
+	if result := stream.Result(); len(result.Response) != 0 || result.Usage.Input.Known {
+		t.Fatalf("failed opening result = %+v, want no response or invented usage", result)
+	}
+	overlap, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request)
+	defer overlap.Close()
+	if !errors.Is(err, concurrency.ErrLimitReached) || overlap != nil {
+		t.Fatalf("admission before failed delivery Close = %v, %v, want nil stream and limit", overlap, err)
+	}
+	stream.ResponseStarted()
+	stream.DeliveryFailed()
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := f.executor.Stream(t.Context(), f.key, "next", f.request)
+	defer next.Close()
+	if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusBadGateway || next == nil {
+		t.Fatalf("admission after failed delivery Close = %v, %v, want a new admitted failure", next, err)
+	}
+}
+
+func TestZeroResultContext(t *testing.T) {
+	var result execution.Result
+	if ctx := result.Context(); ctx == nil || ctx.Err() != nil || ctx.Done() != nil {
+		t.Fatalf("zero result context = %v, want an uncanceled context without a Done channel", ctx)
+	}
+	result.DeliveryFailed()
+	if err := result.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCancellationAndRevocationRetainOrdinaryResultsUntilDeliveryCloses(t *testing.T) {
 	for _, action := range []string{"cancel", "revoke"} {
 		t.Run(action, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -151,16 +221,40 @@ func TestCancellationAndRevocationReleaseOrdinaryResults(t *testing.T) {
 					t.Fatal("ordinary result logged before delivery finished")
 				}
 
+				revoked := make(chan error, 1)
 				if action == "cancel" {
 					cancel()
-					synctest.Wait()
-				} else if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
-					t.Fatal(err)
+				} else {
+					go func() { revoked <- f.executor.RevokeKey(t.Context(), "key") }()
+				}
+				<-result.Context().Done()
+				synctest.Wait()
+				if f.logs.Len() != 0 {
+					t.Fatal("canceled result logged before delivery finished")
+				}
+				select {
+				case err := <-revoked:
+					t.Fatalf("revocation returned before delivery Close: %v", err)
+				default:
+				}
+				if action == "cancel" {
+					if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+						t.Fatalf("admission before canceled delivery Close = %v, want limit", err)
+					}
+				}
+				if err := result.Close(); err != nil {
+					t.Fatalf("Close after %s = %v", action, err)
+				}
+				if action == "revoke" {
+					if err := <-revoked; err != nil {
+						t.Fatal(err)
+					}
 				}
 
 				entries := logEntries(t, f.logs.String())
-				if len(entries) != 1 || entries[0]["request_id"] != "held" || entries[0]["input_tokens"] != float64(7) {
-					t.Fatalf("cleanup logs = %v, want one held result with known usage", entries)
+				last := entries[len(entries)-1]
+				if last["request_id"] != "held" || last["input_tokens"] != float64(7) || last["result"] != "canceled" {
+					t.Fatalf("cleanup log = %v, want canceled held result with known usage", last)
 				}
 				if action == "cancel" {
 					f.open(t, f.key)
@@ -208,6 +302,7 @@ func TestSlotSpansRetryAndAttemptCleanup(t *testing.T) {
 		}
 		unblock()
 		s := <-opened
+		t.Cleanup(func() { s.Close() })
 		if err := <-failed; err != nil {
 			t.Fatal(err)
 		}
@@ -237,8 +332,8 @@ func TestRevocationDuringInitializationWaitsForCleanup(t *testing.T) {
 		}))
 		requestDone := make(chan error, 1)
 		go func() {
-			_, err := f.executor.Stream(t.Context(), f.key, "initializing", f.request)
-			requestDone <- err
+			stream, err := f.executor.Stream(t.Context(), f.key, "initializing", f.request)
+			requestDone <- errors.Join(err, stream.Close())
 		}()
 		<-entered
 
@@ -289,11 +384,20 @@ func TestRevocationClosesUnreadStreamBeforeReturning(t *testing.T) {
 			t.Fatalf("admission after revocation = %v", err)
 		}
 		unblock()
-		if err := <-revoked; err != nil {
-			t.Fatal(err)
+		synctest.Wait()
+		select {
+		case err := <-revoked:
+			t.Fatalf("revocation returned before downstream delivery Close: %v", err)
+		default:
 		}
 		if _, err := s.Next(); !errors.Is(err, context.Canceled) {
 			t.Fatalf("unread revoked stream = %v, want cancellation", err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-revoked; err != nil {
+			t.Fatal(err)
 		}
 		if body.closes.Load() != 1 {
 			t.Fatalf("body closes = %d, want 1", body.closes.Load())
@@ -315,6 +419,7 @@ func TestCancellationRetainsSlotUntilConcurrentCloseFinishes(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		s, err := f.executor.Stream(ctx, f.key, "cancel", f.request)
+		t.Cleanup(func() { s.Close() })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -374,22 +479,26 @@ func TestAdmissionRacingRevocationCannotEscapeCancellation(t *testing.T) {
 		}()
 
 		close(start)
-		if err := <-revoked; err != nil {
-			t.Fatal(err)
-		}
+		<-earlier.Context().Done()
 		for range cap(results) {
 			r := <-results
 			if r.err == nil {
 				if _, err := r.stream.Next(); !errors.Is(err, context.Canceled) {
 					t.Errorf("admitted stream survived successful revocation: %v", err)
 				}
-				r.stream.Close()
 			} else if !errors.Is(r.err, execution.ErrUnauthorized) && !errors.Is(r.err, context.Canceled) {
 				t.Errorf("racing admission = %v, want rejection or cancellation", r.err)
 			}
+			r.stream.Close()
 		}
 		if _, err := earlier.Next(); !errors.Is(err, context.Canceled) {
 			t.Errorf("earlier admission survived revocation: %v", err)
+		}
+		if err := earlier.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-revoked; err != nil {
+			t.Fatal(err)
 		}
 		if _, err := f.executor.Stream(t.Context(), f.key, "later", f.request); !errors.Is(err, execution.ErrUnauthorized) {
 			t.Errorf("later admission = %v, want unauthorized", err)
@@ -471,6 +580,9 @@ func TestAccountRemovalCancelsWithoutFailover(t *testing.T) {
 				default:
 				}
 				unblock()
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
 				if err := <-removed; err != nil {
 					t.Fatal(err)
 				}
@@ -487,7 +599,9 @@ func TestAccountRemovalCancelsWithoutFailover(t *testing.T) {
 				if err != nil || len(models) != 0 {
 					t.Fatalf("models after removing enabled accounts = %v, %v", models, err)
 				}
-				if _, err := f.executor.Stream(t.Context(), f.key, "removed", f.request); !errors.Is(err, execution.ErrNoAccounts) {
+				stream, err := f.executor.Stream(t.Context(), f.key, "removed", f.request)
+				defer stream.Close()
+				if !errors.Is(err, execution.ErrNoAccounts) {
 					t.Fatalf("generation after account removal = %v", err)
 				}
 				record, err := f.store.GetAccount(t.Context(), "one")
@@ -547,7 +661,13 @@ func TestEnableRestoresEligibilityWithoutRevivingCanceledWork(t *testing.T) {
 		return response(http.StatusOK, "data: {\"type\":\"response.created\"}\n\n"), nil
 	}))
 	previous := f.open(t, f.key)
-	if err := f.executor.DisableAccount(t.Context(), "one"); err != nil {
+	disabled := make(chan error, 1)
+	go func() { disabled <- f.executor.DisableAccount(t.Context(), "one") }()
+	<-previous.Context().Done()
+	if err := previous.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-disabled; err != nil {
 		t.Fatal(err)
 	}
 	models, err := f.executor.AvailableModels(t.Context())
@@ -602,6 +722,15 @@ func TestCloseWaitsForActiveCleanupAndRejectsNewWork(t *testing.T) {
 			t.Fatalf("model discovery during Close = %v", err)
 		}
 		unblock()
+		synctest.Wait()
+		select {
+		case <-closed:
+			t.Fatal("executor Close returned before downstream delivery Close")
+		default:
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
 		<-closed
 		if _, err := s.Next(); !errors.Is(err, context.Canceled) {
 			t.Fatalf("stream after executor Close = %v", err)

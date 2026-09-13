@@ -1,0 +1,62 @@
+package app
+
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+)
+
+func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
+	env := map[string]string{
+		"CLAN_ADMIN_TOKEN":    "separate-admin-token",
+		"CLAN_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(make([]byte, 32)),
+	}
+	getenv := func(name string) string { return env[name] }
+	c, err := loadConfig(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.listenAddr != "127.0.0.1:8080" || c.callbackAddr != "127.0.0.1:1455" || c.dbPath != "./clan.db" {
+		t.Fatalf("incorrect defaults: listen=%s callback=%s database=%s", c.listenAddr, c.callbackAddr, c.dbPath)
+	}
+	env["CLAN_LISTEN_ADDR"] = "[::1]:9000"
+	env["CLAN_OAUTH_CALLBACK_ADDR"] = ":1455"
+	env["CLAN_DB_PATH"] = "/tmp/config-test.db"
+
+	c, err = loadConfig(getenv)
+
+	if err != nil || c.listenAddr != "[::1]:9000" || c.callbackAddr != ":1455" || c.dbPath != "/tmp/config-test.db" {
+		t.Fatalf("overrides were not loaded: %v", err)
+	}
+}
+
+func TestLoadConfigRejectsInvalidValuesWithoutDisclosingThem(t *testing.T) {
+	for _, tt := range []struct{ name, variable, value string }{
+		{name: "missing admin", variable: "CLAN_ADMIN_TOKEN"},
+		{name: "admin whitespace", variable: "CLAN_ADMIN_TOKEN", value: "secret-marker token"},
+		{name: "admin client key", variable: "CLAN_ADMIN_TOKEN", value: "clan_secret-marker"},
+		{name: "missing key", variable: "CLAN_ENCRYPTION_KEY"},
+		{name: "malformed key", variable: "CLAN_ENCRYPTION_KEY", value: "secret-marker"},
+		{name: "short key", variable: "CLAN_ENCRYPTION_KEY", value: base64.StdEncoding.EncodeToString(make([]byte, 31))},
+		{name: "long key", variable: "CLAN_ENCRYPTION_KEY", value: base64.StdEncoding.EncodeToString(make([]byte, 33))},
+		{name: "key newline", variable: "CLAN_ENCRYPTION_KEY", value: base64.StdEncoding.EncodeToString(make([]byte, 32)) + "\n"},
+		{name: "blank database", variable: "CLAN_DB_PATH", value: " "},
+		{name: "missing port", variable: "CLAN_LISTEN_ADDR", value: "secret-marker"},
+		{name: "invalid port", variable: "CLAN_LISTEN_ADDR", value: "localhost:65536"},
+		{name: "invalid callback", variable: "CLAN_OAUTH_CALLBACK_ADDR", value: "localhost:-1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{
+				"CLAN_ADMIN_TOKEN":    "admin-token",
+				"CLAN_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(make([]byte, 32)),
+			}
+			env[tt.variable] = tt.value
+
+			_, err := loadConfig(func(name string) string { return env[name] })
+
+			if err == nil || !strings.Contains(err.Error(), tt.variable) || strings.Contains(err.Error(), "secret-marker") {
+				t.Fatalf("invalid configuration error = %v", err)
+			}
+		})
+	}
+}

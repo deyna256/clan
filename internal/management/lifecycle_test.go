@@ -83,6 +83,15 @@ func TestMutationWaitsForCleanup(t *testing.T) {
 					cancel()
 				default:
 					unblock()
+					synctest.Wait()
+					select {
+					case response := <-done:
+						t.Fatalf("mutation returned before downstream delivery Close: %d", response.Code)
+					default:
+					}
+					if err := stream.Close(); err != nil {
+						t.Fatal(err)
+					}
 				}
 				response := <-done
 				requireStatus(t, response, tt.status)

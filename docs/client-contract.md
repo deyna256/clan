@@ -3,8 +3,8 @@
 The first release connects OpenCode and the OpenAI Python SDK to Codex through
 `POST /v1/responses` (JSON or SSE) and `GET /v1/models`.
 
-The gateway is not runnable yet. These are required checks, not completed
-compatibility guarantees. Test failures and cancellation locally; verify supported
+The gateway can [run locally](running.md). These are required checks, not completed
+client compatibility guarantees. Test failures and cancellation locally; verify supported
 generation scenarios with the real clients and Codex before release.
 
 ## Required acceptance matrix
@@ -25,6 +25,59 @@ order and expose the terminal completed, incomplete or failed state; deltas alon
 do not prove completion.
 
 JSON and SSE use the same [final response assembly](decisions/0003-separate-request-execution-from-protocols.md#final-response-assembly).
+
+## HTTP behavior
+
+Both client routes require `Authorization: Bearer <client_key>`. Authentication
+precedes body parsing and is checked again at admission. Listing models does not
+occupy a generation slot. Handler responses have a server-generated `X-Request-ID`;
+HTTP server rejections before routing do not.
+
+POST requires uncompressed `application/json`; a charset parameter is allowed.
+Bodies are limited to 16 MiB. Query parameters are unsupported. Unknown routes
+return 404; unsupported methods return 405 with `Allow`.
+
+| Limit | Value |
+|---|---|
+| Request headers | `net/http.MaxHeaderBytes` set to 16 KiB; five seconds to read |
+| Generation request body | 60 seconds to read |
+| JSON delivery | 30 seconds to write and flush |
+| SSE delivery | 30 seconds per event and flush, cleared while waiting for Codex |
+| Idle keep-alive connection | 60 seconds |
+
+There is no total generation deadline. Upstream timing is defined in
+[ADR 0003](decisions/0003-separate-request-execution-from-protocols.md#generation-timeouts).
+
+Complete JSON uses HTTP 200 for `completed`, `incomplete` and `failed` responses.
+Cancellation and cleanup failures take precedence over a terminal result.
+Check `status` before using output. Without a valid terminal response, errors use
+an OpenAI envelope: `{"error":{"message":"...","type":"...","code":"...","param":null}}`.
+
+| Status | Meaning |
+|---|---|
+| 400 | Invalid request or unsupported model/option |
+| 401 | Missing, invalid or revoked client key |
+| 408 / 413 / 415 | Body timeout / body too large / unsupported content type or encoding |
+| 429 | Key concurrency limit or provider quota |
+| 500 | Internal failure |
+| 502 | Upstream connection or protocol failure |
+| 503 | No eligible account or service unavailable |
+| 504 | Upstream timeout |
+
+SSE starts only after the first valid event. It preserves event order and returns
+each terminal event once. An interrupted upstream produces one safe `error` event
+when the client connection remains writable; a failed client write ends delivery.
+There is no `[DONE]` marker or synthetic completion. Local errors include a
+`sequence_number` following the largest observed counter. Provider error events
+with missing or invalid counters receive one; valid counters are preserved.
+
+`GET /v1/models` returns an OpenAI list with `id`, `object: "model"`, `owned_by:
+"openai"` and `created: 0` for each entry. Zero means the creation date is unknown.
+The list does not describe model capabilities.
+
+POST error responses set `X-Should-Retry: false`. The Python SDK respects this
+header; use `max_retries=0` to disable its retries explicitly. OpenCode can retry
+at its own layer, so CLAN cannot guarantee that clients never replay a request.
 
 Generation requires a model ID in an enabled account's full catalog. Hidden
 entries may be requested explicitly; unknown IDs are rejected without dispatch.
@@ -134,8 +187,11 @@ and [Codex at b4c864dd](https://github.com/openai/codex/tree/b4c864dd6497ae764e6
   still requiring valid SSE and a terminal event.
 - **OAuth module tests:** local provider responses and temporary SQLite cover
   callback validation, token rotation, failed persistence and concurrent cancellation.
+- **Gateway checks:** local HTTP providers and SQLite cover login, key creation,
+  JSON/SSE, restart, revocation and shutdown. The built binary also passed startup,
+  authenticated OpenAPI access and SIGTERM shutdown. These checks did not call Codex.
 - **Pending:** live images, opaque reasoning replay, remaining tool-choice and
-  format variants, remote/Docker callback forwarding, and the running gateway.
+  format variants and remote/Docker callback forwarding.
   These module checks do not establish OpenCode or Python SDK compatibility.
   The full client matrix belongs to
   [#36](https://github.com/deyna256/clan/issues/36), after OAuth and HTTP integration.
@@ -151,7 +207,7 @@ Configure model IDs and capabilities explicitly. OpenCode does not automatically
 load a custom provider's models from `/v1/models`; see its
 [provider loading code](https://github.com/anomalyco/opencode/blob/3104c1428ec91f809e5ab86631300de41eb6952e/packages/opencode/src/provider/provider.ts).
 
-For the future running gateway, start with this project-local `opencode.json`.
+Start with this project-local `opencode.json`.
 Set `CLAN_BASE_URL` to its URL ending in `/v1` and `CLAN_API_KEY` to a client key.
 Replace `MODEL_ID` in all three places with a model from `/v1/models` and set its
 capabilities to match. This configuration has been source-reviewed, not tested
@@ -213,10 +269,12 @@ reply = client.responses.create(
     store=False,
     include=["reasoning.encrypted_content"],
 )
+if reply.status != "completed":
+    raise RuntimeError(f"Generation ended with status {reply.status}")
 history.extend(item.model_dump(exclude_none=True) for item in reply.output)
 print(reply.output_text)
 # Append function_call_output with the original call_id, then send full history.
 ```
 
-This example is for the future running gateway. `max_retries=0` disables SDK
+`max_retries=0` disables SDK
 retries so client tests can observe CLAN's retry behavior directly.

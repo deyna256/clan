@@ -56,8 +56,8 @@ func (s *refreshState) needsSignInFor(record storage.AccountRecord) bool {
 	return s != nil && s.needsSignIn && s.previous.Account.Credentials() == record.Account.Credentials()
 }
 
-// Manager owns callback serving and bounded OAuth jobs. Close it before closing
-// its store. Account snapshots returned by CurrentAccount contain secrets.
+// Manager owns callback serving and bounded OAuth jobs. Close or successfully
+// Shutdown it before closing its store. CurrentAccount snapshots contain secrets.
 type Manager struct {
 	client *Client
 	store  *storage.Store
@@ -72,6 +72,7 @@ type Manager struct {
 	login     *pendingLogin
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+	done      chan struct{}
 	closeErr  error
 }
 
@@ -87,7 +88,7 @@ func NewManager(ctx context.Context, client *Client, store *storage.Store, liste
 	lifetime, cancel := context.WithCancel(ctx)
 	m := &Manager{
 		client: client, store: store, lifetime: lifetime, cancel: cancel,
-		refreshes: make(map[account.ID]*refreshState),
+		refreshes: make(map[account.ID]*refreshState), done: make(chan struct{}),
 	}
 	m.server = &http.Server{
 		Handler:           http.HandlerFunc(m.callback),
@@ -107,26 +108,55 @@ func NewManager(ctx context.Context, client *Client, store *storage.Store, liste
 
 // Close cancels and joins all manager jobs and closes the callback listener.
 func (m *Manager) Close() error {
+	m.cancel()
+	m.stop()
+	<-m.done
+	return m.closeErr
+}
+
+// Shutdown stops intake and drains existing OAuth jobs before canceling their lifetime.
+// If ctx expires, it cancels the jobs and returns without joining them. The caller
+// must still join with Close or a successful Shutdown before closing the store.
+// Concurrent calls share cleanup; Close or an expired Shutdown cancels all jobs.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.stop()
+	select {
+	case <-m.done:
+		return m.closeErr
+	default:
+	}
+	select {
+	case <-m.done:
+		return m.closeErr
+	case <-ctx.Done():
+		m.cancel()
+		return ctx.Err()
+	}
+}
+
+func (m *Manager) stop() {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
 		m.closed = true
-		m.cancel()
 		m.mu.Unlock()
-		m.closeErr = m.server.Close()
-		m.wg.Wait()
-		m.mu.Lock()
-		clear(m.refreshes)
-		if m.login != nil {
-			m.login.authorization = Authorization{}
-			m.login.previous = nil
-			m.login.identity = account.Identity{}
-			if m.login.status.State == LoginWaiting || m.login.status.State == LoginExchanging {
-				m.login.status.State = LoginCanceled
+		go func() {
+			defer close(m.done)
+			defer m.cancel()
+			m.closeErr = m.server.Close()
+			m.wg.Wait()
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			clear(m.refreshes)
+			if m.login != nil {
+				m.login.authorization = Authorization{}
+				m.login.previous = nil
+				m.login.identity = account.Identity{}
+				if m.login.status.State == LoginWaiting || m.login.status.State == LoginExchanging {
+					m.login.status.State = LoginCanceled
+				}
 			}
-		}
-		m.mu.Unlock()
+		}()
 	})
-	return m.closeErr
 }
 
 // CurrentAccount refreshes on demand and returns only persisted, unexpired

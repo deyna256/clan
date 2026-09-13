@@ -42,14 +42,14 @@ func (f modelFetcher) fetchModels(ctx context.Context, previous account.Account)
 
 // Models authenticates a key and returns the shared visible catalog without taking a generation slot.
 func (e *Executor) Models(ctx context.Context, key string) ([]codex.Model, error) {
-	if err := e.checkKey(ctx, key); err != nil {
+	if err := e.CheckKey(ctx, key); err != nil {
 		return nil, err
 	}
 	models, err := e.AvailableModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := e.checkKey(ctx, key); err != nil {
+	if err := e.CheckKey(ctx, key); err != nil {
 		return nil, err
 	}
 	return models, nil
@@ -62,7 +62,8 @@ func (e *Executor) AvailableModels(ctx context.Context) ([]codex.Model, error) {
 	return snapshot.Listed, err
 }
 
-func (e *Executor) checkKey(ctx context.Context, key string) error {
+// CheckKey authenticates without acquiring a generation slot or fetching models.
+func (e *Executor) CheckKey(ctx context.Context, key string) error {
 	e.gate.RLock()
 	defer e.gate.RUnlock()
 	if e.closed {

@@ -1,8 +1,7 @@
 # Management API
 
-The `internal/management` handler serves HTTP JSON under `/api`. Application
-wiring is still pending; the entry point does not start this API yet.
-The generated contract is available at `GET /api/openapi.json` when mounted.
+The management API serves HTTP JSON under `/api` on the gateway listener.
+The generated contract is available at `GET /api/openapi.json`.
 
 ## Authentication
 

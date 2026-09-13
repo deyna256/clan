@@ -188,6 +188,17 @@ func (s *Stream) Err() error {
 	return s.err
 }
 
+// CleanupError reports an upstream cleanup failure after the stream has ended.
+// It waits for an overlapping Next to finish; Close can interrupt that read.
+func (s *Stream) CleanupError() error {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	if !s.ended {
+		return nil
+	}
+	return s.closeErr
+}
+
 // Close interrupts upstream I/O and waits for the reader/iterator to release its resources.
 func (s *Stream) Close() error {
 	s.closeBody()

@@ -11,8 +11,44 @@ import (
 	"time"
 
 	"github.com/deyna256/clan/internal/codex"
+	"github.com/deyna256/clan/internal/concurrency"
 	"github.com/deyna256/clan/internal/execution"
 )
+
+func TestCheckKeyAuthenticatesWithoutDiscoveryOrSlotAcquisition(t *testing.T) {
+	var calls atomic.Int32
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return response(http.StatusOK, completed), nil
+	})
+	f := newFixtureWithCatalog(t, transport, transport)
+	if err := f.executor.SetConcurrency(t.Context(), "key", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.executor.CheckKey(t.Context(), f.key); err != nil {
+		t.Fatalf("valid key with no available slots = %v", err)
+	}
+	if _, err := f.executor.Stream(t.Context(), f.key, "zero", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+		t.Fatalf("generation with no available slots = %v, want limit", err)
+	}
+	if err := f.executor.CheckKey(t.Context(), "invalid"); !errors.Is(err, execution.ErrUnauthorized) {
+		t.Fatalf("invalid key = %v, want unauthorized", err)
+	}
+	if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrUnauthorized) {
+		t.Fatalf("revoked key = %v, want unauthorized", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls = %d, want none", calls.Load())
+	}
+	f.executor.Close()
+	if err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrClosed) {
+		t.Fatalf("key check after shutdown = %v, want closed", err)
+	}
+}
 
 func TestAdministrationAndClientsShareCatalog(t *testing.T) {
 	var discoveries atomic.Int32
@@ -116,7 +152,7 @@ func TestModelsRequireValidKeyWithoutUsingGenerationCapacity(t *testing.T) {
 	f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return response(200, completed), nil
 	}))
-	f.open(t, f.key)
+	stream := f.open(t, f.key)
 
 	models, err := f.executor.Models(t.Context(), f.key)
 	if err != nil || len(models) != 1 || models[0].ID != "model" {
@@ -124,6 +160,9 @@ func TestModelsRequireValidKeyWithoutUsingGenerationCapacity(t *testing.T) {
 	}
 	if _, err := f.executor.Models(t.Context(), "invalid-key"); !errors.Is(err, execution.ErrUnauthorized) {
 		t.Fatalf("invalid key received catalog: %v", err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
 		t.Fatal(err)

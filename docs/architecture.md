@@ -1,7 +1,7 @@
 # Architecture
 
 This is the first-release design. The [README](../README.md#first-release) defines
-its supported features. The gateway is not yet runnable.
+its supported features. See [Running CLAN](running.md) for startup configuration.
 
 ## Responsibilities
 
@@ -84,7 +84,8 @@ provider refresh; do not expose it before persistence succeeds.
 Only explicit reconnect may change the ChatGPT account or workspace. Refresh
 preserves its ID. Disablement, deletion and newer credentials invalidate pending
 results through [conditional storage updates](decisions/0007-use-sqlite.md).
-The manager owns shutdown of the callback listener and OAuth jobs.
+The manager owns the callback listener and OAuth jobs. Normal shutdown stops new
+OAuth work and lets current jobs persist credentials within the shutdown deadline.
 
 ## Model catalog
 
@@ -152,13 +153,21 @@ on-demand refresh and persisted credential replacement.
 The [executor](../internal/execution/execution.go) joins key admission, OAuth,
 catalog validation, selection and attempts. It owns the catalog and active request
 cleanup. Management must use its mutation methods for revocation, account removal
-and concurrency edits. Close execution before the OAuth manager and storage;
-then close the Codex client's idle connections.
+and concurrency edits. Join execution and OAuth work before closing idle HTTP
+connections, then close storage last.
 
 The [management handler](../internal/management/management.go) exposes these
 operations through authenticated HTTP JSON. It borrows the shared services;
-the application owns their shutdown. The entry point is still empty: client
-HTTP routes and application wiring remain to be implemented.
+the application owns their shutdown. The [application](../internal/app/app.go)
+wires these services and the [client handler](../internal/gateway/gateway.go)
+into one HTTP server. Client delivery holds the request slot until completion or
+abort. Logs include whether the HTTP response started and whether delivery failed.
+
+On SIGINT or SIGTERM, stop intake and cancel generations immediately. Allow at most
+30 seconds for HTTP handlers, execution and OAuth cleanup; close SQLite last.
+If cleanup cannot finish, exit with an error without closing storage under live
+workers. OAuth token rotation and database writes are not one transaction, so a
+forced exit may still require a new sign-in.
 
 ## Remaining decisions and checks
 
@@ -166,8 +175,6 @@ HTTP routes and application wiring remain to be implemented.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
-- Define HTTP server settings, including downstream write
-  timeouts. Execution behavior is defined in [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
 
 Do not infer automatic model discovery in OpenCode from the presence of
 `GET /v1/models`; verify the client's configuration and behavior.
