@@ -1,6 +1,6 @@
 # ADR 0003: Separate request execution from protocols
 
-Status: Accepted. Reviewed: 2026-09-12.
+Status: Accepted. Reviewed: 2026-09-13.
 
 ## Context
 
@@ -22,8 +22,20 @@ An ordinary result carries Responses JSON and observed usage. A stream carries
 Responses events and the small metadata execution needs. Preserve known usage
 on success, incomplete generation and failure; unknown usage is not zero.
 
-Failures provide safe details and facts for retry and account cooldown decisions.
-The integration does not select another account or retry generation internally.
+### Failure details
+
+An attempt failure exposes a category, the upstream HTTP status when received,
+whether a repeat is known to be safe, and retry timing when known. Categories
+distinguish invalid requests, account problems, provider limits, transport failures
+and invalid provider responses. A 5xx status alone does not prove a safe repeat.
+
+Keep observed usage on the attempt result or stream, not a second copy on the
+error. Preserve cancellation so `errors.Is(err, context.Canceled)` works. Error
+messages and logs use safe descriptions, not raw provider error bodies.
+
+The integration reports these facts. Execution decides retries and temporary
+account exclusion; the integration does neither internally. Reuse the existing
+`internal/retry` parser for `Retry-After`.
 
 ### Accounts, slots and retries
 
@@ -56,6 +68,19 @@ Do not introduce a separate item/part/delta event hierarchy.
 - Preserve event order and known usage, including data received at the end.
 - A read returns an event or an end/error. Known usage remains available when
   failure ends the stream. Exact Go result types will follow these requirements.
+
+### Final response assembly
+
+Keep complete items from `response.output_item.done` in output order. Use the
+terminal response's `output` when present and non-empty; otherwise fill it from
+those items. Do not build a second accumulator for text and argument deltas.
+
+Both methods use this final response: ordinary calls return its JSON, and
+streaming calls include it in the terminal event. Preserve the terminal status
+and observed usage. Collected items alone never turn an interrupted stream into
+a successful response.
+
+This follows [CLIProxyAPI's completed-item approach](https://github.com/router-for-me/CLIProxyAPI/blob/ac02da6c05e18f465aa7e3ed5b0a65a2f060917d/internal/runtime/executor/codex_executor_execute.go).
 
 ## Consequences
 

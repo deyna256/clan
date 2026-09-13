@@ -55,6 +55,10 @@ Clients supply conversation history with each request. CLAN does not support
 provider-stored responses or continuation through `previous_response_id`, and
 does not keep its own stored responses for later retrieval.
 
+For Codex compatibility, CLAN removes `max_output_tokens` and logs a warning.
+The requested output limit is not enforced. See the
+[client contract](docs/client-contract.md) for setup and acceptance checks.
+
 Revoking a client key blocks new requests and cancels its active requests.
 Retries keep the same concurrency slot; resources are closed before the slot
 is released. Known token usage is diagnostic data, not a token budget.
@@ -117,6 +121,7 @@ These exclusions do not commit the project to a later delivery date.
 | I want to… | Read |
 |---|---|
 | Understand modules, management and open questions | [Architecture](docs/architecture.md) |
+| Check client setup and compatibility requirements | [Client contract](docs/client-contract.md) |
 | Write and review Go code and tests | [Development guide](docs/development.md) |
 | Open an issue or PR, or update documentation | [Contributing](CONTRIBUTING.md) |
 | Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |

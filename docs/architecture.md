@@ -52,9 +52,52 @@ sign-in instructions. After browser sign-in, CLAN stores encrypted credentials
 and makes the account available. Refresh expiring tokens before requests and report
 when an account needs sign-in again.
 
-Implement one OAuth connection method. Select the concrete flow after checking
-server deployments without a browser and Docker. Auth-file imports and alternate
-connection methods are outside the first release.
+Use browser OAuth with a callback as the only built-in sign-in method. Codex uses
+`http://localhost:1455/auth/callback`. For a remote server, forward port 1455 from
+the administrator's machine over SSH, as described in the
+[Codex authentication guide](https://learn.chatgpt.com/docs/auth#login-on-headless-devices).
+Docker must publish the callback port on the host's loopback interface; its
+listener must also be reachable inside the container network.
+
+Bind the callback listener before returning sign-in instructions. Use PKCE and
+single-use state tied to the pending login. Report success only after credentials
+are stored. Device Code, auth-file imports and alternate connection methods are
+outside the first release. Local browser login has been checked; production OAuth,
+refresh and Docker forwarding still need validation. See the
+[recorded checks](client-contract.md#checks-so-far).
+
+## Model catalog
+
+Load models from Codex using each enabled account's OAuth credentials and combine
+their catalogs. Do not maintain model lists by subscription plan. The
+[Codex models endpoint](https://github.com/openai/codex/blob/b4c864dd6497ae764e6a826300b34f7ca77ba965/codex-rs/codex-api/src/endpoint/models.rs)
+provides the protocol reference. Temporary account cooldowns affect request
+routing, not model visibility.
+
+Expose only models with `visibility: list` in `GET /v1/models`. Accept generation
+requests only for IDs in an enabled account's full catalog, including hidden
+entries. Select by round-robin among eligible accounts whose catalogs contain
+that ID. Reject unknown IDs without dispatch; do not substitute another model.
+New models become usable after a catalog refresh. Catalog membership does not
+guarantee that Codex will accept a request.
+
+Keep each account's last successful catalog in memory when a refresh fails
+temporarily. Disabled and deleted accounts stop contributing immediately.
+If an account's first load fails, return the other accounts' known models and log
+a safe warning. Return HTTP 503 if discovery failures leave no successfully
+loaded catalog for any enabled account. A successfully loaded empty catalog is
+not a discovery failure.
+
+Load the catalog on first use, then refresh on demand at most once every five
+minutes per account with unchanged credentials, including after failed attempts.
+Credential changes allow an earlier refresh; changing the ChatGPT account ID also
+discards the old catalog. Concurrent callers share one refresh. There is no
+periodic worker. Each catalog HTTP request has a five-second timeout, separate
+from generation timeouts. After a failed first load, recovery may wait for the
+next refresh interval.
+
+The application owns catalog shutdown: cancel refreshes and wait for their cleanup,
+including work started for accounts that have since been removed or updated.
 
 ## State and diagnostics
 
@@ -84,14 +127,13 @@ management and SQLite persistence are not implemented yet.
 
 ## Remaining decisions and checks
 
-- Select and verify the OAuth flow for server and Docker deployment.
+- Verify browser OAuth callback forwarding for server and Docker deployment.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
-- Define management schemas, key/account update behavior and model catalog loading.
-- Define how attempt outcomes and usage are exposed on stream failure, and choose
-  timeout and retry settings with the execution module.
-- Agree on implementation milestones before starting them.
+- Define management schemas and key/account update behavior.
+- Choose timeout and retry settings with the execution module, using the agreed
+  [failure details](decisions/0003-separate-request-execution-from-protocols.md#failure-details).
 
 Do not infer automatic model discovery in OpenCode from the presence of
 `GET /v1/models`; verify the client's configuration and behavior.
