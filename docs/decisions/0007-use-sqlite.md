@@ -27,6 +27,11 @@ credentials, including refreshed tokens, before saving them. Keep the encryption
 key outside the database and separate from the admin token.
 Never include credentials in logs or client errors.
 
+OAuth completion replaces credentials only if the account is still enabled and
+the stored credentials match the snapshot that started the operation. Use one
+conditional update so deletion or newer credentials cannot be undone by a late
+result. The encrypted record serves as its revision; no schema field is needed.
+
 ## Alternatives and consequences
 
 SQLite avoids a separate database service. PostgreSQL would add deployment and
@@ -41,3 +46,6 @@ authenticates existing credential bundles before allowing writes.
 External write locks can delay context cancellation until the five-second SQLite
 busy timeout expires. Database location and encryption-key provisioning belong to
 application startup.
+
+Provider token rotation and SQLite persistence cannot form one transaction.
+A process crash between them may require a new sign-in.
