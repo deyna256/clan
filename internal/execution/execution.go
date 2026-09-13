@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/deyna256/clan/internal/accesskey"
@@ -24,6 +25,7 @@ var (
 	ErrClosed       = errors.New("execution: closed")
 	ErrNoAccounts   = errors.New("execution: no eligible accounts")
 	ErrUnavailable  = errors.New("execution: service unavailable")
+	ErrDelivery     = errors.New("execution: response delivery failed")
 )
 
 // Executor coordinates one installation. Construct it with New; do not copy it.
@@ -44,15 +46,16 @@ type Executor struct {
 }
 
 type requestState struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	done      chan struct{}
-	keyID     accesskey.ID
-	accountID account.ID // Protected by Executor.mu.
-	id        string
-	model     string
-	started   time.Time
-	slot      concurrency.Slot
+	ctx             context.Context
+	cancel          context.CancelFunc
+	done            chan struct{}
+	keyID           accesskey.ID
+	accountID       account.ID // Protected by Executor.mu.
+	id              string
+	model           string
+	started         time.Time
+	slot            concurrency.Slot
+	responseStarted atomic.Bool
 }
 
 // New borrows the store, OAuth manager, client and logger; Close owns only execution and catalog work.
@@ -73,8 +76,12 @@ func New(store *storage.Store, oauth *codexoauth.Manager, client *codex.Client, 
 // Its zero value is safe to close; copies share the same cleanup.
 type Result struct {
 	codex.Result
-	stream *Stream
+	stream     *Stream
+	cleanupErr error
 }
+
+// CleanupError reports failure to close the upstream response before delivery.
+func (r Result) CleanupError() error { return r.cleanupErr }
 
 // Close releases the slot after delivery. It is safe to repeat or call concurrently.
 func (r Result) Close() error {
@@ -82,6 +89,28 @@ func (r Result) Close() error {
 		return nil
 	}
 	return r.stream.Close()
+}
+
+// Context reports execution cancellation. A zero result has no active request.
+func (r Result) Context() context.Context {
+	if r.stream == nil {
+		return context.Background()
+	}
+	return r.stream.Context()
+}
+
+// DeliveryFailed records a downstream encoding or write failure before Close.
+func (r Result) DeliveryFailed() {
+	if r.stream != nil {
+		r.stream.DeliveryFailed()
+	}
+}
+
+// ResponseStarted records HTTP response commitment before body delivery.
+func (r Result) ResponseStarted() {
+	if r.stream != nil {
+		r.stream.ResponseStarted()
+	}
 }
 
 // Generate returns a complete Responses result, retaining observed usage on failure.
@@ -96,7 +125,8 @@ func (e *Executor) Generate(ctx context.Context, key, requestID string, input co
 			if errors.Is(err, io.EOF) {
 				err = nil
 			}
-			return Result{Result: stream.Result(), stream: stream}, err
+			cleanupErr := stream.attempt.Close()
+			return Result{Result: stream.Result(), stream: stream, cleanupErr: cleanupErr}, errors.Join(err, cleanupErr)
 		}
 	}
 }
@@ -121,7 +151,7 @@ func (e *Executor) Stream(ctx context.Context, key, requestID string, input code
 		return nil, err
 	}
 	s := &Stream{attempt: attempt, owner: e, request: r}
-	s.stop = context.AfterFunc(r.ctx, s.finish)
+	s.stop = context.AfterFunc(r.ctx, s.abort)
 	if err := r.ctx.Err(); err != nil {
 		s.Close()
 		return nil, err
@@ -134,7 +164,7 @@ func (e *Executor) admit(ctx context.Context, rawKey, id, model string) (state *
 	var keyID accesskey.ID
 	defer func() {
 		if err != nil {
-			e.logResult(ctx, id, keyID, model, time.Since(started), codex.Result{}, err)
+			e.logResult(ctx, id, keyID, model, time.Since(started), codex.Result{}, err, false)
 		}
 	}()
 	e.gate.RLock()
@@ -180,7 +210,7 @@ func (e *Executor) authenticate(ctx context.Context, rawKey string) (storage.Acc
 
 func (e *Executor) finish(r *requestState, result codex.Result, err error) {
 	r.cancel()
-	e.logResult(r.ctx, r.id, r.keyID, r.model, time.Since(r.started), result, err)
+	e.logResult(r.ctx, r.id, r.keyID, r.model, time.Since(r.started), result, err, r.responseStarted.Load())
 	e.mu.Lock()
 	r.slot.Release()
 	delete(e.active, r)

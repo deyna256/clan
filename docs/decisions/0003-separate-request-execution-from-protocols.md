@@ -24,7 +24,8 @@ on success, incomplete generation and failure; unknown usage is not zero.
 
 Execution returns an ordinary result with `Close`, just as it does for a stream.
 The caller closes it after delivery or a write failure, even when generation
-returned an error. Cancellation also releases held resources.
+returned an error. Cancellation interrupts upstream and downstream I/O; the
+caller still calls `Close` after delivery or abort to release the slot.
 
 ### Failure details
 
@@ -101,7 +102,7 @@ A timeout does not establish replay safety.
 Use `Next` to read Responses events sequentially and `Close` to release resources.
 Do not introduce a separate item/part/delta event hierarchy.
 
-- The caller owns cleanup, including early return and downstream write failure.
+- The caller owns cleanup, including EOF, errors and downstream write failure.
 - Cancellation interrupts blocked I/O. `Close` is safe to repeat and does not
   require draining the stream.
 - Distinguish protocol completion from transport EOF. A connection closing early
@@ -123,6 +124,19 @@ and observed usage. Collected items alone never turn an interrupted stream into
 a successful response.
 
 This follows [CLIProxyAPI's completed-item approach](https://github.com/router-for-me/CLIProxyAPI/blob/ac02da6c05e18f465aa7e3ed5b0a65a2f060917d/internal/runtime/executor/codex_executor_execute.go).
+
+### HTTP delivery
+
+A valid terminal response uses HTTP 200, including `incomplete` and `failed`.
+Clients inspect its status. An absent terminal, cancellation or cleanup failure
+does not become a successful JSON response just because some output was collected.
+
+For SSE, wait for the first valid event before sending HTTP 200. After commitment,
+report a provider or protocol failure with one safe Responses error event when
+the connection remains writable. Do not duplicate terminal failures, invent
+completion or append `[DONE]`. A failed write aborts delivery without appending
+another event. HTTP owns client error encoding and sequence numbers for local
+errors. See the [client contract](../client-contract.md#http-behavior).
 
 ## Consequences
 

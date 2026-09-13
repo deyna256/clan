@@ -67,6 +67,12 @@ func (m *Manager) StartLogin(ctx context.Context, name string) (LoginInstruction
 // StartReconnect signs in again for an existing enabled account. Its provider
 // identity may change, but concurrently updated credentials cannot be overwritten.
 func (m *Manager) StartReconnect(ctx context.Context, id account.ID) (LoginInstructions, error) {
+	m.mu.Lock()
+	closed := m.closed || m.lifetime.Err() != nil
+	m.mu.Unlock()
+	if closed {
+		return LoginInstructions{}, ErrClosed
+	}
 	record, err := m.store.GetAccount(ctx, id)
 	if err != nil {
 		return LoginInstructions{}, err
@@ -247,7 +253,7 @@ func (m *Manager) finishLogin(p *pendingLogin, code, verifier string, denied boo
 		err = ctx.Err()
 	}
 	m.mu.Lock()
-	active := m.login == p && p.status.State == LoginExchanging && !m.closed
+	active := m.login == p && p.status.State == LoginExchanging
 	m.mu.Unlock()
 	if !active {
 		return

@@ -29,6 +29,14 @@ type Config struct {
 	AdminToken string
 }
 
+// ValidateConfig checks the management credential without starting any services.
+func ValidateConfig(config Config) error {
+	if !validToken(config.AdminToken) || strings.HasPrefix(config.AdminToken, "clan_") {
+		return errors.New("management: a separate valid admin token is required")
+	}
+	return nil
+}
+
 type service struct {
 	store    *storage.Store
 	oauth    *codexoauth.Manager
@@ -45,8 +53,8 @@ func New(
 	executor *execution.Executor,
 	logger *slog.Logger,
 ) (http.Handler, error) {
-	if !validToken(config.AdminToken) || strings.HasPrefix(config.AdminToken, "clan_") {
-		return nil, errors.New("management: a separate valid admin token is required")
+	if err := ValidateConfig(config); err != nil {
+		return nil, err
 	}
 	if store == nil || oauth == nil || executor == nil || logger == nil {
 		return nil, errors.New("management: dependencies are required")

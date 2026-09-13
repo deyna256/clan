@@ -1,2 +1,4 @@
 /.local/
 /.agents/
+/clan.db
+/clan.db-*
