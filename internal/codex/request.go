@@ -130,7 +130,7 @@ func ParseRequest(data []byte) (Request, error) {
 	fields["stream"] = json.RawMessage("true")
 	fields["store"] = json.RawMessage("false")
 	delete(fields, "max_output_tokens")
-	r.body, err = json.Marshal(fields)
+	r.body, err = marshalJSON(fields)
 	return r, err
 }
 
@@ -152,6 +152,16 @@ func validateToolChoice(raw json.RawMessage) error {
 
 func invalid(field string) error { return &ValidationError{Field: field} }
 
+func marshalJSON(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
+}
+
 func object(raw []byte, path, names string) (map[string]json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -166,8 +176,9 @@ func object(raw []byte, path, names string) (map[string]json.RawMessage, error) 
 }
 
 func allowed(fields map[string]json.RawMessage, path, names string) error {
+	validNames := strings.Fields(names)
 	for name := range fields {
-		if !slices.Contains(strings.Fields(names), name) {
+		if !slices.Contains(validNames, name) {
 			return invalid(path + "." + name)
 		}
 	}

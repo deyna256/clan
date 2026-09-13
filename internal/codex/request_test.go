@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/deyna256/clan/internal/account"
@@ -141,6 +142,43 @@ func TestRequestStringAndNullableControls(t *testing.T) {
 				t.Errorf("null controls activate capabilities: %v", err)
 			}
 			assertJSON(t, body, tt.want)
+		})
+	}
+}
+
+func TestRequestDoesNotHTMLEscapeContent(t *testing.T) {
+	for _, tt := range []struct{ name, input, want string }{
+		{
+			name:  "string input",
+			input: `{"model":"m","input":"<tag>&value</tag>"}`,
+			want:  `{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"<tag>&value</tag>"}]}],"stream":true,"store":false}`,
+		},
+		{
+			name:  "nested content and schemas",
+			input: `{"model":"m","input":[{"role":"user","content":"<&>"}],"instructions":"<&>","tools":[{"type":"function","name":"f","description":"<&>","parameters":{"description":"<&>"}}],"reasoning":{"effort":"<&>"},"text":{"format":{"type":"json_schema","name":"A","schema":{"description":"<&>"}}}}`,
+			want:  `{"model":"m","input":[{"role":"user","content":"<&>"}],"instructions":"<&>","tools":[{"type":"function","name":"f","description":"<&>","parameters":{"description":"<&>"}}],"reasoning":{"effort":"<&>"},"text":{"format":{"type":"json_schema","name":"A","schema":{"description":"<&>"}}},"stream":true,"store":false}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var body []byte
+			client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var err error
+				body, err = io.ReadAll(r.Body)
+				return httpResponse(200, "text/event-stream", completeSSE), err
+			})}, "https://example.test")
+			r := request(t, tt.input)
+
+			_, err := client.Generate(t.Context(), testAccount(t, "one"), r)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertJSON(t, body, tt.want)
+			for _, escaped := range []string{`\u003c`, `\u003e`, `\u0026`} {
+				if strings.Contains(string(body), escaped) {
+					t.Errorf("request contains HTML escape %s: %s", escaped, body)
+				}
+			}
 		})
 	}
 }

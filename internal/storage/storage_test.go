@@ -101,58 +101,112 @@ func TestStoreRoundTripsAccountsAndKeysAfterReopen(t *testing.T) {
 	assertKeyRecord(t, found, keyTwo, hashTwo, 0)
 }
 
-func TestStoreRejectsDuplicateAndInvalidWritesWithoutReplacement(t *testing.T) {
+func TestDuplicateAccountIDPreservesOriginalRecord(t *testing.T) {
 	requireStorage(t)
 	store := openStore(t, filepath.Join(t.TempDir(), "clan.db"), newCipher(t))
 	original := newAccount(t, "account", "Original")
-	if err := store.CreateAccount(context.Background(), original, true); err != nil {
+	if err := store.CreateAccount(t.Context(), original, true); err != nil {
 		t.Fatal(err)
 	}
 	duplicate := newAccountWithCredentials(t, "account", "Changed", account.OAuthCredentials{
-		ChatGPTAccountID: "provider-other",
-		AccessToken:      "new-access",
-		RefreshToken:     "new-refresh",
+		ChatGPTAccountID: "provider-other", AccessToken: "new-access", RefreshToken: "new-refresh",
 	})
-	if err := store.CreateAccount(context.Background(), duplicate, false); !errors.Is(err, storage.ErrConflict) {
+
+	err := store.CreateAccount(t.Context(), duplicate, false)
+
+	if !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("duplicate account ID error = %v, want ErrConflict", err)
 	}
-	if got, err := store.GetAccount(context.Background(), "account"); err != nil {
-		t.Fatal(err)
-	} else {
-		assertAccountRecord(t, got, original, true)
-	}
-
-	key, hash := newKey(t, "key", "Original", true, fixtureKeyOne)
-	if err := store.CreateAccessKey(context.Background(), key, hash, 2); err != nil {
-		t.Fatal(err)
-	}
-	duplicateID, otherHash := newKey(t, "key", "Changed", false, fixtureKeyTwo)
-	if err := store.CreateAccessKey(context.Background(), duplicateID, otherHash, 9); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("duplicate key ID error = %v, want ErrConflict", err)
-	}
-	if _, err := store.FindAccessKeyByHash(context.Background(), otherHash); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("hash from rejected duplicate key = %v, want ErrNotFound", err)
-	}
-	otherID, _ := newKey(t, "other", "Changed", false, fixtureKeyTwo)
-	if err := store.CreateAccessKey(context.Background(), otherID, hash, 9); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("duplicate key hash error = %v, want ErrConflict", err)
-	}
-	if err := store.UpdateAccessKeyConcurrency(context.Background(), "key", -2); !errors.Is(err, storage.ErrInvalid) {
-		t.Fatalf("invalid concurrency error = %v, want ErrInvalid", err)
-	}
-	if err := store.CreateAccount(context.Background(), account.Account{}, true); !errors.Is(err, storage.ErrInvalid) {
-		t.Fatalf("zero account error = %v, want ErrInvalid", err)
-	}
-	storedKey, err := store.FindAccessKeyByHash(context.Background(), hash)
+	got, err := store.GetAccount(t.Context(), "account")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertKeyRecord(t, storedKey, key, hash, 2)
-	if got, err := store.GetAccount(context.Background(), "account"); err != nil {
+	assertAccountRecord(t, got, original, true)
+}
+
+func TestDuplicateAccessKeyIDPreservesOriginalRecord(t *testing.T) {
+	requireStorage(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "clan.db"), newCipher(t))
+	key, hash := newKey(t, "key", "Original", true, fixtureKeyOne)
+	if err := store.CreateAccessKey(t.Context(), key, hash, 2); err != nil {
 		t.Fatal(err)
-	} else {
-		assertAccountRecord(t, got, original, true)
 	}
+	duplicate, otherHash := newKey(t, "key", "Changed", false, fixtureKeyTwo)
+
+	err := store.CreateAccessKey(t.Context(), duplicate, otherHash, 9)
+
+	if !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("duplicate key ID error = %v, want ErrConflict", err)
+	}
+	if _, err := store.FindAccessKeyByHash(t.Context(), otherHash); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("hash from rejected duplicate key = %v, want ErrNotFound", err)
+	}
+	got, err := store.FindAccessKeyByHash(t.Context(), hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertKeyRecord(t, got, key, hash, 2)
+}
+
+func TestDuplicateAccessKeyHashPreservesOriginalRecord(t *testing.T) {
+	requireStorage(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "clan.db"), newCipher(t))
+	key, hash := newKey(t, "key", "Original", true, fixtureKeyOne)
+	if err := store.CreateAccessKey(t.Context(), key, hash, 2); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := newKey(t, "other", "Changed", false, fixtureKeyTwo)
+
+	err := store.CreateAccessKey(t.Context(), other, hash, 9)
+
+	if !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("duplicate key hash error = %v, want ErrConflict", err)
+	}
+	got, err := store.FindAccessKeyByHash(t.Context(), hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertKeyRecord(t, got, key, hash, 2)
+}
+
+func TestInvalidConcurrencyUpdatePreservesAccessKey(t *testing.T) {
+	requireStorage(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "clan.db"), newCipher(t))
+	key, hash := newKey(t, "key", "Original", true, fixtureKeyOne)
+	if err := store.CreateAccessKey(t.Context(), key, hash, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.UpdateAccessKeyConcurrency(t.Context(), "key", -2)
+
+	if !errors.Is(err, storage.ErrInvalid) {
+		t.Fatalf("invalid concurrency error = %v, want ErrInvalid", err)
+	}
+	got, err := store.FindAccessKeyByHash(t.Context(), hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertKeyRecord(t, got, key, hash, 2)
+}
+
+func TestZeroAccountWritePreservesExistingAccount(t *testing.T) {
+	requireStorage(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "clan.db"), newCipher(t))
+	original := newAccount(t, "account", "Original")
+	if err := store.CreateAccount(t.Context(), original, true); err != nil {
+		t.Fatal(err)
+	}
+
+	err := store.CreateAccount(t.Context(), account.Account{}, true)
+
+	if !errors.Is(err, storage.ErrInvalid) {
+		t.Fatalf("zero account error = %v, want ErrInvalid", err)
+	}
+	got, err := store.GetAccount(t.Context(), "account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAccountRecord(t, got, original, true)
 }
 
 func TestCredentialReplacementFailurePreservesRecord(t *testing.T) {
@@ -470,11 +524,10 @@ func TestOpenRejectsSwappedCredentialBlobs(t *testing.T) {
 	}
 }
 
-func TestSchemaInitializationRejectsConflictsAndNewerVersions(t *testing.T) {
+func TestOpenRejectsUnversionedSchemaWithoutChangingData(t *testing.T) {
 	requireStorage(t)
-	ctx := context.Background()
-	conflictPath := filepath.Join(t.TempDir(), "conflict.db")
-	db := openRaw(t, conflictPath)
+	path := filepath.Join(t.TempDir(), "conflict.db")
+	db := openRaw(t, path)
 	if _, err := db.Exec(`CREATE TABLE unrelated (value TEXT)`); err != nil {
 		t.Fatal(err)
 	}
@@ -484,10 +537,13 @@ func TestSchemaInitializationRejectsConflictsAndNewerVersions(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.Open(ctx, conflictPath, newCipher(t)); err == nil {
+
+	_, err := storage.Open(t.Context(), path, newCipher(t))
+
+	if err == nil {
 		t.Fatal("Open() adopted a conflicting unversioned table")
 	}
-	db = openRaw(t, conflictPath)
+	db = openRaw(t, path)
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -502,42 +558,51 @@ func TestSchemaInitializationRejectsConflictsAndNewerVersions(t *testing.T) {
 	if value != "keep" {
 		t.Fatalf("conflicting database value = %q, want keep", value)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
+}
 
-	patternPath := filepath.Join(t.TempDir(), "sqlite-name.db")
-	db = openRaw(t, patternPath)
+func TestOpenRejectsTableResemblingSQLiteMetadata(t *testing.T) {
+	requireStorage(t)
+	path := filepath.Join(t.TempDir(), "sqlite-name.db")
+	db := openRaw(t, path)
 	if _, err := db.Exec(`CREATE TABLE sqliteXexample (value TEXT)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.Open(ctx, patternPath, newCipher(t)); err == nil {
+
+	_, err := storage.Open(t.Context(), path, newCipher(t))
+
+	if err == nil {
 		t.Fatal("Open() adopted a table whose name only resembles SQLite metadata")
 	}
+}
 
-	newerPath := filepath.Join(t.TempDir(), "newer.db")
-	store := openStore(t, newerPath, newCipher(t))
-	if err := store.CreateAccount(ctx, newAccount(t, "account", "Primary"), true); err != nil {
+func TestOpenRejectsNewerSchemaWithoutChangingCredentials(t *testing.T) {
+	requireStorage(t)
+	path := filepath.Join(t.TempDir(), "newer.db")
+	store := openStore(t, path, newCipher(t))
+	if err := store.CreateAccount(t.Context(), newAccount(t, "account", "Primary"), true); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	beforeNewer := readAccountBlob(t, newerPath, "account")
-	db = openRaw(t, newerPath)
+	before := readAccountBlob(t, path, "account")
+	db := openRaw(t, path)
 	if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.Open(ctx, newerPath, newCipher(t)); err == nil {
+
+	_, err := storage.Open(t.Context(), path, newCipher(t))
+
+	if err == nil {
 		t.Fatal("Open() accepted a newer schema version")
 	}
-	if got := readAccountBlob(t, newerPath, "account"); !bytes.Equal(got, beforeNewer) {
+	if got := readAccountBlob(t, path, "account"); !bytes.Equal(got, before) {
 		t.Fatal("newer schema rejection changed the existing account")
 	}
 }

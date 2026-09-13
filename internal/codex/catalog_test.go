@@ -16,6 +16,7 @@ import (
 
 	"github.com/deyna256/clan/internal/account"
 	"github.com/deyna256/clan/internal/codex"
+	"github.com/deyna256/clan/internal/retry"
 )
 
 func catalog(t *testing.T, client *codex.Client, accounts ...account.Account) *codex.Catalog {
@@ -64,6 +65,37 @@ func TestFetchModelsUsesAuthenticatedCodexCatalog(t *testing.T) {
 	}
 	if r.Header.Get("Authorization") != "Bearer secret-one" || r.Header.Get("ChatGPT-Account-Id") != "chatgpt-one" {
 		t.Error("missing catalog credentials")
+	}
+}
+
+func TestFetchModelsFailureRetainsRetryTiming(t *testing.T) {
+	retryAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	for _, tt := range []struct{ name, body string }{
+		{name: "invalid JSON", body: `{`},
+		{name: "missing models", body: `{}`},
+		{name: "blank ID", body: `{"models":[{"slug":"","visibility":"list"}]}`},
+		{name: "duplicate ID", body: `{"models":[{"slug":"m","visibility":"list"},{"slug":"m","visibility":"list"}]}`},
+		{name: "invalid visibility", body: `{"models":[{"slug":"m","visibility":"invalid"}]}`},
+		{name: "invalid modality", body: `{"models":[{"slug":"m","visibility":"list","input_modalities":["invalid"]}]}`},
+		{name: "blank effort", body: `{"models":[{"slug":"m","visibility":"list","supported_reasoning_levels":[{"effort":""}]}]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				response := httpResponse(200, "application/json", tt.body)
+				response.Header.Set("Retry-After", retryAt.Format(http.TimeFormat))
+				return response, nil
+			})}, "https://example.test")
+
+			_, err := client.FetchModels(t.Context(), testAccount(t, "one"))
+
+			var failure *codex.Failure
+			if !errors.As(err, &failure) || failure.Category != codex.InvalidResponse || failure.HTTPStatus != 200 || failure.SafeToRetry {
+				t.Fatalf("catalog failure = %v, want invalid response with status 200 and no safe replay", err)
+			}
+			if failure.RetryAfter.Kind != retry.RetryAt || !failure.RetryAfter.Until.Equal(retryAt) {
+				t.Errorf("retry timing = %+v, want %v", failure.RetryAfter, retryAt)
+			}
+		})
 	}
 }
 

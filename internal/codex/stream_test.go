@@ -101,6 +101,42 @@ func TestTerminalOutputIsAuthoritativeAndIncompleteIsDistinct(t *testing.T) {
 	}
 }
 
+func TestTerminalDoesNotHTMLEscapeContent(t *testing.T) {
+	item := `{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<tag>&value</tag>"}]}`
+	want := `{"id":"r","status":"completed","output":[` + item + `]}`
+	for _, tt := range []struct{ name, output string }{
+		{name: "completed items", output: `[]`},
+		{name: "terminal output", output: `[` + item + `]`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wire := `data: {"type":"response.output_item.done","output_index":0,"item":` + item + "}\n\n" +
+				`data: {"type":"response.completed","response":{"id":"r","output":` + tt.output + "}}\n\n"
+			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return httpResponse(200, "text/event-stream", wire), nil
+			})}, "https://example.test")
+			stream, err := client.Stream(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stream.Close()
+			if _, err := stream.Next(); err != nil {
+				t.Fatal(err)
+			}
+
+			event, err := stream.Next()
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertJSON(t, event, `{"type":"response.completed","response":`+want+`}`)
+			assertJSON(t, stream.Result().Response, want)
+			if !strings.Contains(string(event), "<tag>&value</tag>") || !strings.Contains(string(stream.Result().Response), "<tag>&value</tag>") {
+				t.Errorf("terminal content was HTML escaped: %s", event)
+			}
+		})
+	}
+}
+
 func TestFailedTerminalKeepsUsageAndSanitizesError(t *testing.T) {
 	for _, tt := range []struct {
 		code     string
@@ -163,6 +199,56 @@ func TestErrorEventUsesSafeResponsesShape(t *testing.T) {
 			assertJSON(t, event, `{"type":"error","sequence_number":7,"code":"provider_limit","message":"codex: provider_limit","param":null}`)
 			if _, err = stream.Next(); err == nil {
 				t.Error("failed event ended successfully")
+			}
+		})
+	}
+}
+
+func TestErrorEventOmitsInvalidSequenceNumbers(t *testing.T) {
+	for _, tt := range []struct{ name, sequence, want string }{
+		{name: "zero", sequence: `0`, want: `0`},
+		{name: "large integer", sequence: `9223372036854775807`, want: `9223372036854775807`},
+		{name: "null", sequence: `null`},
+		{name: "negative", sequence: `-1`},
+		{name: "fraction", sequence: `1.5`},
+		{name: "overflow", sequence: `9223372036854775808`},
+		{name: "string", sequence: `"secret"`},
+		{name: "object", sequence: `{"message":"secret"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			wire := `data: {"type":"error","code":"rate_limit_exceeded","message":"secret","sequence_number":` + tt.sequence + "}\n\n"
+			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return httpResponse(200, "text/event-stream", wire), nil
+			})}, "https://example.test")
+			stream, err := client.Stream(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stream.Close()
+
+			event, err := stream.Next()
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields struct {
+				Sequence json.RawMessage `json:"sequence_number"`
+			}
+			if err := json.Unmarshal(event, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if string(fields.Sequence) != tt.want {
+				t.Errorf("sequence_number = %s, want %q", fields.Sequence, tt.want)
+			}
+			want := `{"type":"error","code":"provider_limit","message":"codex: provider_limit","param":null`
+			if tt.want != "" {
+				want += `,"sequence_number":` + tt.want
+			}
+			assertJSON(t, event, want+`}`)
+			_, err = stream.Next()
+			var failure *codex.Failure
+			if !errors.As(err, &failure) || failure.Category != codex.ProviderLimit || failure.SafeToRetry {
+				t.Fatalf("terminal failure = %v, want provider limit without safe replay", err)
 			}
 		})
 	}

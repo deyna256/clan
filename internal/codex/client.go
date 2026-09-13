@@ -120,9 +120,10 @@ func (c *Client) Stream(ctx context.Context, a account.Account, request Request)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil || mediaType != "text/event-stream" {
+		failure := httpFailure(resp)
 		resp.Body.Close()
 		cancel()
-		return nil, &Failure{Category: InvalidResponse, HTTPStatus: resp.StatusCode}
+		return nil, failure
 	}
 	return newStream(ctx, cancel, resp), nil
 }
@@ -154,9 +155,7 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		failure := httpFailure(resp.StatusCode)
-		failure.RetryAfter, _ = retry.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-		return nil, failure
+		return nil, httpFailure(resp)
 	}
 	return resp, nil
 }
@@ -174,8 +173,10 @@ func safeFailure(ctx context.Context, category Category, status int, err error) 
 	return &Failure{Category: category, HTTPStatus: status, cause: cause}
 }
 
-func httpFailure(status int) *Failure {
+func httpFailure(response *http.Response) *Failure {
+	status := response.StatusCode
 	f := &Failure{Category: ProviderFailure, HTTPStatus: status}
+	f.RetryAfter, _ = retry.ParseRetryAfter(response.Header.Get("Retry-After"), time.Now())
 	switch status {
 	case http.StatusBadRequest, http.StatusNotFound, http.StatusUnprocessableEntity:
 		f.Category = InvalidRequest

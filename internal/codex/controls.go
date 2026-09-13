@@ -34,9 +34,9 @@ func validateTools(raw json.RawMessage) (json.RawMessage, error) {
 				return nil, err
 			}
 		}
-		tools[i], _ = json.Marshal(fields)
+		tools[i], _ = marshalJSON(fields)
 	}
-	return json.Marshal(tools)
+	return marshalJSON(tools)
 }
 
 func (r *Request) validateReasoning(raw json.RawMessage) (json.RawMessage, error) {
@@ -57,7 +57,7 @@ func (r *Request) validateReasoning(raw json.RawMessage) (json.RawMessage, error
 		}
 		r.summary = true
 	}
-	return json.Marshal(fields)
+	return marshalJSON(fields)
 }
 
 func (r *Request) validateText(raw json.RawMessage) (json.RawMessage, error) {
@@ -78,7 +78,7 @@ func (r *Request) validateText(raw json.RawMessage) (json.RawMessage, error) {
 			return nil, err
 		}
 	}
-	return json.Marshal(fields)
+	return marshalJSON(fields)
 }
 
 func validateFormat(raw json.RawMessage) (json.RawMessage, error) {
@@ -113,5 +113,5 @@ func validateFormat(raw json.RawMessage) (json.RawMessage, error) {
 			return nil, err
 		}
 	}
-	return json.Marshal(format)
+	return marshalJSON(format)
 }

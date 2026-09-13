@@ -9,6 +9,7 @@ import (
 	"iter"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -133,13 +134,14 @@ func (s *Stream) Next() (json.RawMessage, error) {
 				detail = nested
 			}
 			failure := responseFailure(detail, s.status)
-			code, _ := json.Marshal(string(failure.Category))
-			message, _ := json.Marshal(failure.Error())
+			code, _ := marshalJSON(string(failure.Category))
+			message, _ := marshalJSON(failure.Error())
 			clean := map[string]json.RawMessage{"type": fields["type"], "code": code, "message": message, "param": json.RawMessage("null")}
-			if sequence, ok := fields["sequence_number"]; ok {
+			sequence := fields["sequence_number"]
+			if number, err := strconv.ParseInt(string(sequence), 10, 64); err == nil && number >= 0 {
 				clean["sequence_number"] = sequence
 			}
-			raw, _ = json.Marshal(clean)
+			raw, _ = marshalJSON(clean)
 			s.finish(failure)
 			return raw, nil
 		}
@@ -164,7 +166,9 @@ func (s *Stream) Close() error {
 	s.items = nil
 	if !s.ended {
 		s.ended = true
-		s.err = safeFailure(s.ctx, TransportFailure, s.status, nil)
+		failure := safeFailure(s.ctx, TransportFailure, s.status, nil)
+		failure.RetryAfter = s.retryAfter
+		s.err = failure
 	}
 	return s.closeErr
 }
@@ -173,7 +177,7 @@ func (s *Stream) closeBody() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		if s.body.Close() != nil {
-			s.closeErr = &Failure{Category: TransportFailure, HTTPStatus: s.status}
+			s.closeErr = &Failure{Category: TransportFailure, HTTPStatus: s.status, RetryAfter: s.retryAfter}
 		}
 	})
 }
@@ -211,7 +215,7 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 			return nil, nil, invalid("response.status")
 		}
 	} else {
-		response["status"], _ = json.Marshal(status)
+		response["status"], _ = marshalJSON(status)
 	}
 	var output []json.RawMessage
 	if raw, ok := response["output"]; ok {
@@ -239,7 +243,7 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 		for _, index := range indexes {
 			output = append(output, s.items[index])
 		}
-		response["output"], _ = json.Marshal(output)
+		response["output"], _ = marshalJSON(output)
 	}
 	var failure error
 	if status == "failed" {
@@ -247,17 +251,17 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 		response["error"] = safeErrorJSON(classified)
 		failure = classified
 	}
-	s.result.Response, err = json.Marshal(response)
+	s.result.Response, err = marshalJSON(response)
 	if err != nil {
 		return nil, nil, err
 	}
 	fields["response"] = s.result.Response
-	raw, err := json.Marshal(fields)
+	raw, err := marshalJSON(fields)
 	return raw, failure, err
 }
 
 func safeErrorJSON(failure *Failure) json.RawMessage {
-	raw, _ := json.Marshal(map[string]string{"code": string(failure.Category), "message": failure.Error()})
+	raw, _ := marshalJSON(map[string]string{"code": string(failure.Category), "message": failure.Error()})
 	return raw
 }
 

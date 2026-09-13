@@ -14,7 +14,7 @@ func (r *Request) validateInput(raw json.RawMessage) (json.RawMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal([]any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": text}}}})
+		return marshalJSON([]any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": text}}}})
 	}
 	items, err := array(raw, "input")
 	if err != nil {
@@ -100,12 +100,12 @@ func (r *Request) validateInput(raw json.RawMessage) (json.RawMessage, error) {
 				return nil, err
 			}
 		}
-		items[i], err = json.Marshal(fields)
+		items[i], err = marshalJSON(fields)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return json.Marshal(items)
+	return marshalJSON(items)
 }
 
 func (r *Request) validateContent(raw json.RawMessage, path string, outputText bool) error {

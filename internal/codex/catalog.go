@@ -41,13 +41,16 @@ func (c *Client) FetchModels(ctx context.Context, a account.Account) ([]Model, e
 		return nil, err
 	}
 	defer response.Body.Close()
+	invalidResponse := httpFailure(response)
 	data, err := readPayload(response.Body)
 	if err != nil {
 		category := TransportFailure
 		if errors.Is(err, errPayloadTooLarge) {
 			category = InvalidResponse
 		}
-		return nil, safeFailure(ctx, category, response.StatusCode, err)
+		failure := safeFailure(ctx, category, response.StatusCode, err)
+		failure.RetryAfter = invalidResponse.RetryAfter
+		return nil, failure
 	}
 	var wire struct {
 		Models []struct {
@@ -64,13 +67,13 @@ func (c *Client) FetchModels(ctx context.Context, a account.Account) ([]Model, e
 		} `json:"models"`
 	}
 	if json.Unmarshal(data, &wire) != nil || wire.Models == nil {
-		return nil, &Failure{Category: InvalidResponse, HTTPStatus: response.StatusCode}
+		return nil, invalidResponse
 	}
 	models := make([]Model, 0, len(wire.Models))
 	seen := make(map[string]bool)
 	for _, item := range wire.Models {
 		if strings.TrimSpace(item.ID) == "" || seen[item.ID] || !slices.Contains([]string{"list", "hide", "none"}, item.Visibility) {
-			return nil, &Failure{Category: InvalidResponse, HTTPStatus: response.StatusCode}
+			return nil, invalidResponse
 		}
 		seen[item.ID] = true
 		model := Model{ID: item.ID, Name: item.Name, Listed: item.Visibility == "list",
@@ -82,12 +85,12 @@ func (c *Client) FetchModels(ctx context.Context, a account.Account) ([]Model, e
 		}
 		for _, modality := range model.InputModalities {
 			if !slices.Contains([]string{"text", "image", "audio"}, modality) {
-				return nil, &Failure{Category: InvalidResponse, HTTPStatus: response.StatusCode}
+				return nil, invalidResponse
 			}
 		}
 		for _, effort := range item.Reasoning {
 			if strings.TrimSpace(effort.Effort) == "" {
-				return nil, &Failure{Category: InvalidResponse, HTTPStatus: response.StatusCode}
+				return nil, invalidResponse
 			}
 			model.ReasoningEfforts = append(model.ReasoningEfforts, effort.Effort)
 		}

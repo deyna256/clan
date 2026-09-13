@@ -111,6 +111,7 @@ type failedReader struct{}
 func (failedReader) Read([]byte) (int, error) { return 0, errors.New("secret read error") }
 
 func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
+	retryAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
 	tests := []struct {
 		name        string
 		status      int
@@ -126,14 +127,19 @@ func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := &watchedBody{Reader: tt.reader}
 			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: tt.status, Header: http.Header{"Content-Type": []string{tt.contentType}}, Body: body}, nil
+				return &http.Response{StatusCode: tt.status, Header: http.Header{
+					"Content-Type": {tt.contentType}, "Retry-After": {retryAt.Format(http.TimeFormat)},
+				}, Body: body}, nil
 			})}, "https://example.test")
 
 			_, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			var failure *codex.Failure
 			if !errors.As(err, &failure) || failure.Category != tt.category {
-				t.Errorf("error = %v, want %s", err, tt.category)
+				t.Fatalf("error = %v, want %s", err, tt.category)
+			}
+			if failure.RetryAfter.Kind != retry.RetryAt || !failure.RetryAfter.Until.Equal(retryAt) {
+				t.Errorf("retry timing = %+v, want %v", failure.RetryAfter, retryAt)
 			}
 			if body.closed.Load() != 1 {
 				t.Errorf("body closed %d times", body.closed.Load())
@@ -151,9 +157,12 @@ func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
 }
 
 func TestStreamCleanupFailureRetainsTerminalResult(t *testing.T) {
+	retryAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
 	body := &watchedBody{Reader: strings.NewReader(completeSSE), closeErr: errors.New("secret close failure")}
 	client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: body}, nil
+		return &http.Response{StatusCode: 200, Header: http.Header{
+			"Content-Type": {"text/event-stream"}, "Retry-After": {retryAt.Format(http.TimeFormat)},
+		}, Body: body}, nil
 	})}, "https://example.test")
 
 	result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
@@ -162,8 +171,38 @@ func TestStreamCleanupFailureRetainsTerminalResult(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Category != codex.TransportFailure {
 		t.Fatalf("cleanup error = %v", err)
 	}
+	if failure.RetryAfter.Kind != retry.RetryAt || !failure.RetryAfter.Until.Equal(retryAt) {
+		t.Errorf("retry timing = %+v, want %v", failure.RetryAfter, retryAt)
+	}
 	if strings.Contains(err.Error(), "secret") || len(result.Response) == 0 || body.closed.Load() != 1 {
 		t.Errorf("lost result or unsafe cleanup: %v", err)
+	}
+}
+
+func TestCloseBeforeReadRetainsRetryTiming(t *testing.T) {
+	retryAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		response := httpResponse(200, "text/event-stream", completeSSE)
+		response.Header.Set("Retry-After", retryAt.Format(http.TimeFormat))
+		return response, nil
+	})}, "https://example.test")
+	stream, err := client.Stream(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = stream.Next()
+
+	var failure *codex.Failure
+	if !errors.Is(err, context.Canceled) || !errors.As(err, &failure) || failure.HTTPStatus != 200 || failure.SafeToRetry {
+		t.Fatalf("closed stream failure = %v, want cancellation with status 200 and no safe replay", err)
+	}
+	if failure.RetryAfter.Kind != retry.RetryAt || !failure.RetryAfter.Until.Equal(retryAt) {
+		t.Errorf("retry timing = %+v, want %v", failure.RetryAfter, retryAt)
 	}
 }
 
@@ -256,10 +295,12 @@ func TestHTTPClientTimeoutPreservesDeadline(t *testing.T) {
 
 func TestFetchModelsPreservesHTTPClientTimeoutDuringRead(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
+		retryAt := time.Now().Add(10 * time.Second)
 		client := testClient(t, &http.Client{
 			Timeout: time.Second,
 			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				response := httpResponse(200, "application/json", "")
+				response.Header.Set("Retry-After", "10")
 				response.Body = &blockingBody{ctx: r.Context(), entered: make(chan struct{}), closed: make(chan struct{})}
 				return response, nil
 			}),
@@ -270,6 +311,10 @@ func TestFetchModelsPreservesHTTPClientTimeoutDuringRead(t *testing.T) {
 
 		if !errors.Is(err, context.DeadlineExceeded) || t.Context().Err() != nil {
 			t.Fatalf("catalog timeout = %v, caller context = %v", err, t.Context().Err())
+		}
+		var failure *codex.Failure
+		if !errors.As(err, &failure) || failure.RetryAfter.Kind != retry.RetryAt || !failure.RetryAfter.Until.Equal(retryAt) {
+			t.Errorf("retry timing = %+v, want header receipt time plus ten seconds", failure)
 		}
 	})
 }
