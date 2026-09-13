@@ -118,8 +118,10 @@ func (c *Client) Stream(ctx context.Context, a account.Account, request Request)
 		cancel()
 		return nil, err
 	}
-	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil || mediaType != "text/event-stream" {
+	contentType := resp.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	// Codex may omit this header; the stream parser still validates its body.
+	if contentType != "" && (err != nil || mediaType != "text/event-stream") {
 		failure := httpFailure(resp)
 		resp.Body.Close()
 		cancel()

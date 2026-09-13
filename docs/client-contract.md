@@ -122,13 +122,22 @@ and [Codex at b4c864dd](https://github.com/openai/codex/tree/b4c864dd6497ae764e6
 - **Local client checks:** eleven fake HTTP requests covered Python JSON/schema,
   history/function replay, image serialization, minimal SSE completion,
   EOF/incomplete behavior and `models.list`. These did not call Codex.
-- **Live check, 2026-09-13:** browser callback and authorization-code exchange
-  succeeded. The Codex client fetched seven models using `client_version=0.154.0`.
-  A refresh token and access-token expiry were present; credentials stayed in memory.
+- **Live OAuth check, 2026-09-13:** browser sign-in, encrypted SQLite persistence,
+  model discovery and token refresh passed through the production modules.
+  The catalog returned seven models using `client_version=0.154.0`. Refresh
+  preserved the ChatGPT account ID, and generation with renewed credentials passed.
+- **Live generation on `gpt-5.6-luna`:** complete JSON, SSE, full-history replay,
+  a function loop with five argument fragments, JSON Schema and `json_object`
+  passed. Tool choices checked were a named function and `none`. Cancellation
+  after the first text delta closed the local stream and preserved unknown usage.
+  Codex omitted `Content-Type`; the adapter now accepts a missing header while
+  still requiring valid SSE and a terminal event.
 - **OAuth module tests:** local provider responses and temporary SQLite cover
   callback validation, token rotation, failed persistence and concurrent cancellation.
-- **Pending:** live token refresh, remote/Docker callback forwarding,
-  and generation through a running gateway. The full client matrix belongs to
+- **Pending:** live images, opaque reasoning replay, remaining tool-choice and
+  format variants, remote/Docker callback forwarding, and the running gateway.
+  These module checks do not establish OpenCode or Python SDK compatibility.
+  The full client matrix belongs to
   [#36](https://github.com/deyna256/clan/issues/36), after OAuth and HTTP integration.
 
 ## OpenCode

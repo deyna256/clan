@@ -156,6 +156,45 @@ func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
 	}
 }
 
+func TestMissingContentTypeStillRequiresCompleteSSE(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		valid      bool
+	}{
+		{name: "complete SSE", body: "event: response.completed\n" + completeSSE, valid: true},
+		{name: "truncated SSE", body: "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n"},
+		{name: "HTML", body: "<!doctype html><title>Unavailable</title>"},
+		{name: "JSON", body: `{"id":"r","status":"completed","output":[]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := &watchedBody{Reader: strings.NewReader(tt.body)}
+			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
+			})}, "https://example.test")
+
+			result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+
+			if tt.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertJSON(t, result.Response, `{"id":"resp_1","status":"completed","output":[]}`)
+			} else {
+				var failure *codex.Failure
+				if !errors.As(err, &failure) || failure.Category != codex.InvalidResponse || failure.HTTPStatus != 200 || failure.SafeToRetry {
+					t.Fatalf("invalid stream error = %v, want invalid response without safe replay", err)
+				}
+				if len(result.Response) != 0 {
+					t.Error("invalid stream produced a terminal response")
+				}
+			}
+			if body.closed.Load() != 1 {
+				t.Errorf("body closed %d times, want 1", body.closed.Load())
+			}
+		})
+	}
+}
+
 func TestStreamCleanupFailureRetainsTerminalResult(t *testing.T) {
 	retryAt := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
 	body := &watchedBody{Reader: strings.NewReader(completeSSE), closeErr: errors.New("secret close failure")}
