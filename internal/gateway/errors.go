@@ -60,7 +60,7 @@ func classify(err error) clientError {
 		default:
 			return clientError{status: 502, Type: "server_error", Code: "upstream_error", Message: "The upstream response could not be completed."}
 		}
-	case errors.Is(err, execution.ErrNoAccounts), errors.Is(err, execution.ErrClosed), errors.Is(err, execution.ErrUnavailable), errors.Is(err, context.Canceled):
+	case errors.Is(err, codex.ErrCatalogUnavailable), errors.Is(err, execution.ErrNoAccounts), errors.Is(err, execution.ErrClosed), errors.Is(err, execution.ErrUnavailable), errors.Is(err, context.Canceled):
 		return unavailable()
 	case errors.As(err, &network) && network.Timeout():
 		return clientError{status: 408, Type: "invalid_request_error", Code: "request_timeout", Message: "The request body was not received in time."}

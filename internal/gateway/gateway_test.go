@@ -264,6 +264,34 @@ func TestModelsDoNotUseGenerationSlots(t *testing.T) {
 	}
 }
 
+func TestUnavailableCatalogReturnsServiceUnavailable(t *testing.T) {
+	var generations atomic.Int32
+	f := newFixtureWithTransport(t, func(http.ResponseWriter, *http.Request) {
+		generations.Add(1)
+	}, func(transport http.RoundTripper) http.RoundTripper {
+		return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path == "/models" {
+				return nil, errors.New("private-catalog-failure")
+			}
+			return transport.RoundTrip(r)
+		})
+	})
+
+	resp := f.request(t, "GET", "/v1/models", "")
+	body := readBody(t, resp)
+
+	var envelope struct{ Error struct{ Code string } }
+	if resp.StatusCode != 503 || json.Unmarshal([]byte(body), &envelope) != nil || envelope.Error.Code != "service_unavailable" {
+		t.Fatalf("unavailable catalog = %d, %s; want 503 service_unavailable", resp.StatusCode, body)
+	}
+	if strings.Contains(body+f.logs.String(), "private-catalog-failure") {
+		t.Fatal("catalog failure detail leaked")
+	}
+	if generations.Load() != 0 {
+		t.Fatal("model discovery triggered generation")
+	}
+}
+
 func TestFailedTerminalCannotHideUpstreamCleanupFailure(t *testing.T) {
 	f := newFixtureWithTransport(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\"}}}\n\n")
