@@ -26,6 +26,11 @@ useful. Separate agreed behavior from proposals; do not invent implementation
 details to fill out the description. Keep credentials and private request content
 out of examples and logs.
 
+Give each issue one type label: `bug`, `feature`, `maintenance`, `docs` or
+`question`. Add `ui` for interface work and `good first issue` for small,
+self-contained tasks. Close duplicates and declined issues with the matching close
+reason instead of a label. Track release scope with milestones.
+
 ## Branches
 
 For issue work, branch from `main` and use only the issue number as the branch name.
