@@ -17,6 +17,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
+	strictjson "sigs.k8s.io/json"
 
 	"github.com/deyna256/clan/internal/codexoauth"
 	"github.com/deyna256/clan/internal/execution"
@@ -65,6 +66,9 @@ func New(
 		writeProblem(w, problem(http.StatusMethodNotAllowed, "method-not-allowed", "The method is not supported."))
 	})
 	humaConfig := huma.DefaultConfig("CLAN management", "1.0.0")
+	format := huma.DefaultJSONFormat
+	format.Unmarshal = decodeJSON
+	humaConfig.Formats = map[string]huma.Format{"application/json": format, "json": format}
 	humaConfig.OpenAPIPath, humaConfig.DocsPath, humaConfig.SchemasPath = "", "", ""
 	humaConfig.CreateHooks = nil
 	humaConfig.Servers = []*huma.Server{{URL: "/api"}}
@@ -88,6 +92,8 @@ func New(
 				return
 			}
 		}
+		request, _ := humachi.Unwrap(ctx)
+		request.URL.RawQuery = query.Encode()
 		if ctx.Operation().RequestBody != nil {
 			mediaType, _, err := mime.ParseMediaType(ctx.Header("Content-Type"))
 			if err != nil || mediaType != "application/json" {
@@ -129,6 +135,15 @@ func validToken(token string) bool {
 	return true
 }
 
+func decodeJSON(data []byte, value any) error {
+	strictErrors, err := strictjson.UnmarshalStrict(data, value,
+		strictjson.DisallowDuplicateFields, strictjson.DisallowUnknownFields)
+	if err != nil {
+		return err
+	}
+	return errors.Join(strictErrors...)
+}
+
 func authenticate(token string) func(http.Handler) http.Handler {
 	want := sha256.Sum256([]byte(token))
 	return func(next http.Handler) http.Handler {
@@ -150,7 +165,8 @@ func authenticate(token string) func(http.Handler) http.Handler {
 }
 
 func register[I, O any](api huma.API, operation huma.Operation, handler func(context.Context, *I) (*O, error)) {
-	operation.MaxBodyBytes = 64 << 10
+	// Huma rejects bodies at the threshold, so include the 64 KiB boundary.
+	operation.MaxBodyBytes = (64 << 10) + 1
 	operation.BodyReadTimeout = 5 * time.Second
 	operation.Errors = []int{400, 401, 404, 408, 409, 413, 415, 422, 500, 503}
 	huma.Register(api, operation, func(ctx context.Context, input *I) (*O, error) {

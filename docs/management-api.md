@@ -40,6 +40,7 @@ other successful operations return 204. Paths use CLAN IDs, never secret keys.
 ## Client keys
 
 Creation requires a nonblank `name` and an integer `concurrency_limit`.
+JSON field names are case-sensitive. Unknown and repeated fields are rejected.
 The limit has no default: -1 is unlimited, 0 blocks new requests, and positive
 values cap concurrency. Missing, null and values below -1 are rejected.
 

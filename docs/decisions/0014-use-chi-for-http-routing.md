@@ -18,6 +18,10 @@ OpenAPI from the same Go declarations. Serve one authenticated JSON specificatio
 Keep Huma types out of execution, OAuth and storage; client Responses routes
 retain their own protocol contract.
 
+Use `sigs.k8s.io/json` for management request decoding to reject duplicate and
+unknown fields and match JSON field names exactly. Configure it per API; do not
+change Huma's global validation settings.
+
 ## Alternatives and consequences
 
 `http.ServeMux` is viable; chi adds convenient route groups and middleware
@@ -27,6 +31,8 @@ See the [chi interface](https://github.com/go-chi/chi#router-interface).
 Huma avoids separate handwritten validation and schema definitions. It adds
 handler conventions at the management boundary; it does not replace service
 interfaces. See [Huma OpenAPI generation](https://huma.rocks/features/openapi-generation/).
+The [Kubernetes JSON decoder](https://pkg.go.dev/sigs.k8s.io/json#UnmarshalStrict)
+provides these strict checks without a custom parser.
 
 Choose middleware for actual requirements and test JSON/SSE delivery and
 cancellation through the HTTP stack.

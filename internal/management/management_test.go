@@ -90,6 +90,13 @@ func TestAuthenticationAndValidation(t *testing.T) {
 		{name: "empty patch", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `{}`, status: 422},
 		{name: "null patch", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `null`, status: 422},
 		{name: "unknown property", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `{"concurrency_limit":1,"credential-marker":"credential-marker"}`, status: 422},
+		{name: "uppercase fields", method: "POST", path: "/api/client-keys", token: authorization, body: `{"NAME":"test","CONCURRENCY_LIMIT":0}`, status: 422},
+		{name: "case alias changes limit", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `{"concurrency_limit":0,"CONCURRENCY_LIMIT":-1}`, status: 422},
+		{name: "null case alias", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `{"concurrency_limit":0,"CONCURRENCY_LIMIT":null}`, status: 422},
+		{name: "duplicate limit", method: "PATCH", path: "/api/client-keys/id", token: authorization, body: `{"concurrency_limit":0,"concurrency_limit":-1}`, status: 400},
+		{name: "escaped duplicate", method: "POST", path: "/api/oauth/login", token: authorization, body: `{"name":"test","\u006eame":"credential-marker"}`, status: 400},
+		{name: "login case alias", method: "POST", path: "/api/oauth/login", token: authorization, body: `{"name":"test","NAME":"credential-marker"}`, status: 422},
+		{name: "cancel case alias", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: `{"login_id":"old","LOGIN_ID":"credential-marker"}`, status: 422},
 		{name: "missing cancel ID", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: `{}`, status: 422},
 		{name: "null cancel ID", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: `{"login_id":null}`, status: 422},
 		{name: "malformed JSON", method: "POST", path: "/api/oauth/login", token: authorization, body: `{"credential-marker`, status: 400},
@@ -283,6 +290,28 @@ func TestBodyReadDeadline(t *testing.T) {
 	requireStatus(t, response.ResponseRecorder, 408)
 	if response.deadline.Before(before.Add(5*time.Second)) || response.deadline.After(time.Now().Add(5*time.Second)) {
 		t.Fatalf("body read deadline = %v, want five seconds", response.deadline)
+	}
+}
+
+func TestBodySizeBoundary(t *testing.T) {
+	f := newFixture(t, nil)
+	for _, tt := range []struct {
+		name   string
+		size   int
+		status int
+	}{
+		{name: "below", size: 65535, status: 409},
+		{name: "at", size: 65536, status: 409},
+		{name: "above", size: 65537, status: 413},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"login_id":"unknown"}`
+			body += strings.Repeat(" ", tt.size-len(body))
+
+			response := call(f.handler, "POST", "/api/oauth/login/cancel", authorization, body)
+
+			requireStatus(t, response, tt.status)
+		})
 	}
 }
 
