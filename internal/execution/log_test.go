@@ -2,6 +2,7 @@ package execution_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,7 +19,8 @@ func TestLogsContainOutcomeAndUsageWithoutContentOrCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := f.executor.Generate(t.Context(), f.key, "request-123", request); err != nil {
+	generated, err := f.executor.Generate(t.Context(), f.key, "request-123", request)
+	if err := errors.Join(err, generated.Close()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,6 +52,9 @@ func TestFailureLogsKeepPartialUsageWithoutInventingZeros(t *testing.T) {
 	}))
 
 	result, err := f.executor.Generate(t.Context(), f.key, "partial", f.request)
+	if closeErr := result.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
 
 	if err == nil || !result.Usage.Input.Known || result.Usage.Input.Tokens != 11 {
 		t.Fatalf("result = %+v, error = %v", result, err)

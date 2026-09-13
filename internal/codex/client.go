@@ -66,8 +66,8 @@ type Client struct {
 
 // NewClient copies the HTTP client settings, disables redirects and requires a
 // protocol client version for model discovery. Empty baseURL uses DefaultBaseURL.
-// Standard transports are cloned and capped at five minutes for response headers;
-// other transports retain responsibility for their connection and header timeouts.
+// Opening a response, including sending the request, takes at most five minutes.
+// Standard transports are cloned; shorter transport timeouts remain in effect.
 // The default transport bounds TCP connection setup to 30 seconds and TLS to ten.
 // An explicit client Timeout or caller deadline still bounds the whole operation.
 // The caller must not mutate the supplied transport or cookie jar concurrently.
@@ -100,9 +100,6 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 		}
 		if cloned.TLSHandshakeTimeout <= 0 {
 			cloned.TLSHandshakeTimeout = 10 * time.Second
-		}
-		if cloned.ResponseHeaderTimeout <= 0 || cloned.ResponseHeaderTimeout > 5*time.Minute {
-			cloned.ResponseHeaderTimeout = 5 * time.Minute
 		}
 		transport = cloned
 	}
@@ -179,7 +176,7 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, safeFailure(ctx, TransportFailure, 0, err)
 	}
@@ -203,6 +200,41 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 		return nil, failure
 	}
 	return resp, nil
+}
+
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithCancelCause(req.Context())
+	done := make(chan struct{})
+	timer := time.AfterFunc(5*time.Minute, func() {
+		cancel(context.DeadlineExceeded)
+		close(done)
+	})
+	resp, err := c.http.Do(req.WithContext(ctx))
+	if !timer.Stop() {
+		<-done
+	}
+	if ctx.Err() != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		err = context.Cause(ctx)
+	}
+	if err != nil {
+		cancel(nil)
+		return nil, err
+	}
+	resp.Body = &responseBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+type responseBody struct {
+	io.ReadCloser
+	cancel context.CancelCauseFunc
+}
+
+func (b *responseBody) Close() error {
+	b.cancel(nil)
+	return b.ReadCloser.Close()
 }
 
 func safeFailure(ctx context.Context, category Category, status int, err error) *Failure {

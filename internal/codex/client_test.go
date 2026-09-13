@@ -301,6 +301,45 @@ func TestHTTPResponseHeaderTimeout(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestWriteTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		deadline, want time.Duration
+	}{
+		{name: "opening timeout", want: 5 * time.Minute},
+		{name: "earlier caller deadline", deadline: time.Second, want: time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				clientConn, serverConn := net.Pipe()
+				defer serverConn.Close()
+				client := testClient(t, &http.Client{Transport: &http.Transport{
+					DialContext: func(context.Context, string, string) (net.Conn, error) { return clientConn, nil },
+				}}, "http://provider.test")
+				defer client.CloseIdleConnections()
+				ctx := t.Context()
+				if tt.deadline != 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, tt.deadline)
+					defer cancel()
+				}
+				input, a := request(t, `{"model":"m","input":"hello"}`), testAccount(t, "one")
+				started := time.Now()
+
+				_, err := client.Stream(ctx, a, input)
+
+				var failure *codex.Failure
+				if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &failure) || failure.SafeToRetry {
+					t.Fatalf("write error = %v, want deadline without safe retry", err)
+				}
+				if time.Since(started) != tt.want {
+					t.Fatalf("request stalled for %v, want %v", time.Since(started), tt.want)
+				}
+			})
+		})
+	}
+}
+
 type watchedBody struct {
 	io.Reader
 	closed   atomic.Int32

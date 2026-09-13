@@ -33,7 +33,6 @@ func TestStreamEventIdleTimeout(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer stream.Close()
 				if tt.progress != "" {
 					done := make(chan struct{})
 					defer func() { <-done }()
@@ -47,6 +46,7 @@ func TestStreamEventIdleTimeout(t *testing.T) {
 						}
 					}()
 				}
+				defer stream.Close()
 				started := time.Now()
 
 				_, err = stream.Next()

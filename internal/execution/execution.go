@@ -69,19 +69,34 @@ func New(store *storage.Store, oauth *codexoauth.Manager, client *codex.Client, 
 		active: make(map[*requestState]struct{}), cooldowns: make(map[account.ID]time.Time)}, nil
 }
 
+// Result holds the ordinary response and its key slot until Close.
+// Its zero value is safe to close; copies share the same cleanup.
+type Result struct {
+	codex.Result
+	stream *Stream
+}
+
+// Close releases the slot after delivery. It is safe to repeat or call concurrently.
+func (r Result) Close() error {
+	if r.stream == nil {
+		return nil
+	}
+	return r.stream.Close()
+}
+
 // Generate returns a complete Responses result, retaining observed usage on failure.
-func (e *Executor) Generate(ctx context.Context, key, requestID string, input codex.Request) (codex.Result, error) {
+// The caller must Close the result after delivery, even when an error is returned.
+func (e *Executor) Generate(ctx context.Context, key, requestID string, input codex.Request) (Result, error) {
 	stream, err := e.Stream(ctx, key, requestID, input)
 	if err != nil {
-		return codex.Result{}, err
+		return Result{}, err
 	}
-	defer stream.Close()
 	for {
-		if _, err := stream.Next(); err != nil {
+		if _, err := stream.next(); err != nil {
 			if errors.Is(err, io.EOF) {
 				err = nil
 			}
-			return stream.Result(), err
+			return Result{Result: stream.Result(), stream: stream}, err
 		}
 	}
 }

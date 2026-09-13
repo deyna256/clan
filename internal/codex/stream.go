@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -179,6 +180,14 @@ func (s *Stream) Result() Result {
 	return Result{Response: slices.Clone(s.result.Response), Usage: s.result.Usage}
 }
 
+// Err returns the known terminal failure, including when Next returned its final event.
+// It returns nil before completion or on success and waits for an overlapping Next.
+func (s *Stream) Err() error {
+	s.readMu.Lock()
+	defer s.readMu.Unlock()
+	return s.err
+}
+
 // Close interrupts upstream I/O and waits for the reader/iterator to release its resources.
 func (s *Stream) Close() error {
 	s.closeBody()
@@ -256,11 +265,7 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 		}
 	}
 	if len(output) == 0 {
-		indexes := make([]int, 0, len(s.items))
-		for index := range s.items {
-			indexes = append(indexes, index)
-		}
-		slices.Sort(indexes)
+		indexes := slices.Sorted(maps.Keys(s.items))
 		output = make([]json.RawMessage, 0, len(indexes))
 		for _, index := range indexes {
 			output = append(output, s.items[index])

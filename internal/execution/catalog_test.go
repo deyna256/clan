@@ -39,7 +39,8 @@ func TestCatalogRefreshesOAuthBeforeDiscoveryAndGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = f.executor.Generate(t.Context(), f.key, "fresh", f.request)
+	result, err := f.executor.Generate(t.Context(), f.key, "fresh", f.request)
+	defer result.Close()
 
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +72,8 @@ func TestSelectionUsesAccountCapabilitiesAndAllowsHiddenModel(t *testing.T) {
 	if err != nil || len(models) != 0 {
 		t.Fatalf("listed models = %v, error = %v", models, err)
 	}
-	_, err = f.executor.Generate(t.Context(), f.key, "capability", request)
+	result, err := f.executor.Generate(t.Context(), f.key, "capability", request)
+	defer result.Close()
 
 	if err != nil {
 		t.Fatal(err)
@@ -140,6 +142,8 @@ func TestRevokedKeyCannotReceiveInFlightCatalog(t *testing.T) {
 func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
 		generationCalls := 0
 		f := newFixtureWithCatalog(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
 			generationCalls++
@@ -153,7 +157,10 @@ func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 			return response(200, `{"models":[{"slug":"replacement-model","visibility":"list"}]}`), nil
 		}))
 		finished := make(chan error, 1)
-		go func() { _, err := f.executor.Generate(t.Context(), f.key, "overlap", f.request); finished <- err }()
+		go func() {
+			result, err := f.executor.Generate(t.Context(), f.key, "overlap", f.request)
+			finished <- errors.Join(err, result.Close())
+		}()
 		<-entered
 		record, err := f.store.GetAccount(t.Context(), "one")
 		if err != nil {
@@ -165,7 +172,7 @@ func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		close(release)
+		unblock()
 		if err := <-finished; err == nil {
 			t.Fatal("old catalog authorized replacement identity")
 		}
@@ -183,6 +190,8 @@ func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 func TestCloseCancelsAndJoinsCatalogWork(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		entered, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
 		f := newFixtureWithCatalog(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return response(200, completed), nil
 		}), roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -205,7 +214,7 @@ func TestCloseCancelsAndJoinsCatalogWork(t *testing.T) {
 			t.Fatal("Close returned before catalog cleanup")
 		default:
 		}
-		close(release)
+		unblock()
 		<-closed
 
 		if err := <-modelsDone; !errors.Is(err, codex.ErrCatalogClosed) {

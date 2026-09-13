@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -248,11 +249,7 @@ func (c *Catalog) Snapshot(ctx context.Context) (CatalogSnapshot, error) {
 	}
 	defer c.mu.Unlock()
 	result := CatalogSnapshot{Accounts: make([]AccountCatalog, 0, len(c.accounts)), Listed: []Model{}}
-	ids := make([]account.ID, 0, len(c.accounts))
-	for id := range c.accounts {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
+	ids := slices.Sorted(maps.Keys(c.accounts))
 	listed := make(map[string]bool)
 	loaded := false
 	failed := false

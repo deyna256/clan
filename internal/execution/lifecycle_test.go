@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/deyna256/clan/internal/codex"
 	"github.com/deyna256/clan/internal/concurrency"
 	"github.com/deyna256/clan/internal/execution"
 	"github.com/deyna256/clan/internal/storage"
@@ -82,6 +83,96 @@ func TestTerminalDeliveryRetainsSlotUntilClose(t *testing.T) {
 		t.Fatalf("usage after Close = %+v, want known 7", got)
 	}
 	f.open(t, f.key)
+}
+
+func TestOrdinaryDeliveryRetainsSlotUntilClose(t *testing.T) {
+	for _, tt := range []struct {
+		name, wire string
+		failed     bool
+	}{
+		{name: "completed", wire: completed},
+		{name: "partial failure", wire: "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"usage\":{\"input_tokens\":7}}}\n\n", failed: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return response(http.StatusOK, tt.wire), nil
+			}))
+
+			result, err := f.executor.Generate(t.Context(), f.key, "ordinary", f.request)
+			defer result.Close()
+
+			if (err != nil) != tt.failed {
+				t.Fatalf("Generate error = %v, want failure %v", err, tt.failed)
+			}
+			if tt.failed {
+				var failure *codex.Failure
+				if !errors.As(err, &failure) || failure.Category != codex.InvalidResponse {
+					t.Fatalf("partial failure = %v, want invalid response", err)
+				}
+			}
+			overlap, err := f.executor.Generate(t.Context(), f.key, "overlap", f.request)
+			defer overlap.Close()
+			if !errors.Is(err, concurrency.ErrLimitReached) {
+				t.Fatalf("admission during ordinary delivery = %v, want limit", err)
+			}
+			if err := overlap.Close(); err != nil {
+				t.Fatalf("Close rejected result = %v", err)
+			}
+			copied := result
+			if err := result.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := copied.Close(); err != nil {
+				t.Fatalf("repeated Close = %v", err)
+			}
+			if got := result.Usage.Input; !got.Known || got.Tokens != 7 {
+				t.Fatalf("usage after Close = %+v, want known 7", got)
+			}
+			f.open(t, f.key)
+		})
+	}
+}
+
+func TestCancellationAndRevocationReleaseOrdinaryResults(t *testing.T) {
+	for _, action := range []string{"cancel", "revoke"} {
+		t.Run(action, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return response(http.StatusOK, completed), nil
+				}))
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				result, err := f.executor.Generate(ctx, f.key, "held", f.request)
+				defer result.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if f.logs.Len() != 0 {
+					t.Fatal("ordinary result logged before delivery finished")
+				}
+
+				if action == "cancel" {
+					cancel()
+					synctest.Wait()
+				} else if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
+					t.Fatal(err)
+				}
+
+				entries := logEntries(t, f.logs.String())
+				if len(entries) != 1 || entries[0]["request_id"] != "held" || entries[0]["input_tokens"] != float64(7) {
+					t.Fatalf("cleanup logs = %v, want one held result with known usage", entries)
+				}
+				if action == "cancel" {
+					f.open(t, f.key)
+				} else if _, err := f.executor.Stream(t.Context(), f.key, "revoked", f.request); !errors.Is(err, execution.ErrUnauthorized) {
+					t.Fatalf("admission after revocation = %v, want unauthorized", err)
+				}
+				if err := result.Close(); err != nil {
+					t.Fatalf("Close after %s = %v", action, err)
+				}
+			})
+		})
+	}
 }
 
 func TestSlotSpansRetryAndAttemptCleanup(t *testing.T) {

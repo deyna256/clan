@@ -2,8 +2,6 @@ package execution
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"sync"
 
 	"github.com/deyna256/clan/internal/codex"
@@ -12,20 +10,27 @@ import (
 // Stream holds one key slot through delivery and cleanup. Next has one reader;
 // Close may overlap Next, is repeatable and interrupts upstream I/O.
 type Stream struct {
-	attempt  *codex.Stream
-	owner    *Executor
-	request  *requestState
-	stop     func() bool
-	once     sync.Once
-	closeErr error
+	attempt     *codex.Stream
+	owner       *Executor
+	request     *requestState
+	stop        func() bool
+	once        sync.Once
+	failureOnce sync.Once
+	closeErr    error
 }
 
 // Next forwards an event without retrying an already opened stream.
 func (s *Stream) Next() (json.RawMessage, error) {
-	event, err := s.attempt.Next()
+	event, err := s.next()
 	if err != nil {
 		s.Close()
 	}
+	return event, err
+}
+
+func (s *Stream) next() (json.RawMessage, error) {
+	event, err := s.attempt.Next()
+	s.noteFailure(s.attempt.Err())
 	return event, err
 }
 
@@ -42,14 +47,14 @@ func (s *Stream) Close() error {
 func (s *Stream) finish() {
 	s.once.Do(func() {
 		s.closeErr = s.attempt.Close()
-		// After Close, Next only reports the terminal outcome; it cannot read I/O.
-		_, err := s.attempt.Next()
-		if errors.Is(err, io.EOF) {
-			err = nil
-		}
-		if err != nil {
-			s.owner.noteFailure(s.request, s.request.accountID, err)
-		}
+		err := s.attempt.Err()
+		s.noteFailure(err)
 		s.owner.finish(s.request, s.attempt.Result(), err)
 	})
+}
+
+func (s *Stream) noteFailure(err error) {
+	if err != nil {
+		s.failureOnce.Do(func() { s.owner.noteFailure(s.request, s.request.accountID, err) })
+	}
 }

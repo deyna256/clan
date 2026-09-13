@@ -22,6 +22,10 @@ An ordinary result carries Responses JSON and observed usage. A stream carries
 Responses events and the small metadata execution needs. Preserve known usage
 on success, incomplete generation and failure; unknown usage is not zero.
 
+Execution returns an ordinary result with `Close`, just as it does for a stream.
+The caller closes it after delivery or a write failure, even when generation
+returned an error. Cancellation also releases held resources.
+
 ### Failure details
 
 An attempt failure exposes a category, the upstream HTTP status when received,
@@ -44,8 +48,8 @@ account exclusion; the integration does neither internally. Reuse the existing
   provider limits. Return a clear error when none are eligible.
 - Check the client key and enforce its concurrency limit. Reject requests without
   queuing when all slots are occupied.
-- Keep one slot across attempts. Close attempt resources before retrying, and
-  release the slot only after request cleanup.
+- Keep one slot across attempts and client delivery. Close attempt resources
+  before retrying, and release the slot only after request cleanup.
 - Retry only after a failure known to permit a safe repeat and before the client
   response starts. Do not replay a request whose upstream outcome is unknown.
 - Make at most three generation attempts, each on a different account. Retry
@@ -58,7 +62,8 @@ After a provider-limit failure, exclude the whole account until the provider's
 retry time. The adapter reads `Retry-After` and Codex quota reset fields; when no
 usable time is available, use 60 seconds. Keep cooldowns in memory. Expiry makes
 the account eligible for normal selection without a background probe. Existing
-requests on that account continue.
+requests on that account continue. Apply a known terminal quota failure when it
+is received; do not wait for client delivery or restart the cooldown during cleanup.
 
 ### Key revocation
 
@@ -81,9 +86,10 @@ zero blocks new admissions. Use key revocation to cancel active requests.
 ### Generation timeouts
 
 Use the same upstream timeouts for ordinary and streaming calls: both consume
-Codex SSE. Allow 30 seconds to establish a TCP connection, five minutes for
-response headers after sending the request, and five minutes to wait for the
-first or next SSE event. Do not impose a fixed total generation duration.
+Codex SSE. Allow 30 seconds to establish a TCP connection and five minutes to
+open a response, including connection setup, request transmission and response
+headers. Once open, allow five minutes to wait for the first or next SSE event.
+Do not impose a fixed total generation duration.
 Caller cancellation and earlier deadlines still apply.
 
 The SSE idle timeout matches the [Codex default](https://learn.chatgpt.com/docs/config-file/config-reference).
