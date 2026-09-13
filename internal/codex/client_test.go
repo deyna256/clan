@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/deyna256/clan/internal/codex"
@@ -206,6 +208,70 @@ func TestHTTPCancellation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream request did not cancel")
 	}
+}
+
+func TestHTTPClientTimeoutPreservesDeadline(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		headers bool
+		status  int
+	}{
+		{name: "before headers"},
+		{name: "during stream", headers: true, status: http.StatusOK},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				client := testClient(t, &http.Client{
+					Timeout: time.Second,
+					Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+						if !tt.headers {
+							<-r.Context().Done()
+							return nil, r.Context().Err()
+						}
+						response := httpResponse(200, "text/event-stream", "")
+						response.Body = &blockingBody{ctx: r.Context(), entered: make(chan struct{}), closed: make(chan struct{})}
+						return response, nil
+					}),
+				}, "https://secret.example")
+				a := testAccount(t, "one")
+				r := request(t, `{"model":"m","input":"hi"}`)
+
+				_, err := client.Generate(t.Context(), a, r)
+
+				if !errors.Is(err, context.DeadlineExceeded) || t.Context().Err() != nil {
+					t.Fatalf("client timeout = %v, caller context = %v", err, t.Context().Err())
+				}
+				var failure *codex.Failure
+				if !errors.As(err, &failure) || failure.Category != codex.TransportFailure || failure.HTTPStatus != tt.status || failure.SafeToRetry {
+					t.Fatalf("timeout failure = %+v, want unsafe transport failure with status %d", failure, tt.status)
+				}
+				var urlError *url.Error
+				if errors.As(err, &urlError) || strings.Contains(err.Error(), "secret") {
+					t.Errorf("transport details leaked: %v", err)
+				}
+			})
+		})
+	}
+}
+
+func TestFetchModelsPreservesHTTPClientTimeoutDuringRead(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client := testClient(t, &http.Client{
+			Timeout: time.Second,
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				response := httpResponse(200, "application/json", "")
+				response.Body = &blockingBody{ctx: r.Context(), entered: make(chan struct{}), closed: make(chan struct{})}
+				return response, nil
+			}),
+		}, "https://example.test")
+		a := testAccount(t, "one")
+
+		_, err := client.FetchModels(t.Context(), a)
+
+		if !errors.Is(err, context.DeadlineExceeded) || t.Context().Err() != nil {
+			t.Fatalf("catalog timeout = %v, caller context = %v", err, t.Context().Err())
+		}
+	})
 }
 
 type blockingBody struct {

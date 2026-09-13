@@ -144,6 +144,100 @@ func TestCatalogCachesFailuresAndRetainsStaleOnInterruptedRefresh(t *testing.T) 
 	})
 }
 
+func TestCatalogRefreshFailureInvalidatesOnlyPermanentFailures(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		loaded bool
+	}{
+		{name: "unauthorized", status: 401, loaded: false},
+		{name: "forbidden", status: 403, loaded: false},
+		{name: "rate limited", status: 429, loaded: true},
+		{name: "unavailable", status: 503, loaded: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					if calls.Add(1) == 1 {
+						return httpResponse(200, "application/json", modelJSON), nil
+					}
+					return httpResponse(tt.status, "application/json", "failure"), nil
+				})
+				client := testClient(t, &http.Client{Transport: transport}, "https://example.test")
+				c := catalog(t, client, testAccount(t, "one"))
+				first, err := c.Snapshot(t.Context())
+				if err != nil || len(first.Listed) != 1 {
+					t.Fatalf("initial catalog = %+v, %v; want a populated catalog", first, err)
+				}
+				time.Sleep(5 * time.Minute)
+
+				snapshot, err := c.Snapshot(t.Context())
+
+				if tt.loaded && err != nil {
+					t.Errorf("transient refresh error = %v, want nil", err)
+				}
+				if !tt.loaded && !errors.Is(err, codex.ErrCatalogUnavailable) {
+					t.Errorf("permanent refresh error = %v, want ErrCatalogUnavailable", err)
+				}
+				if len(snapshot.Accounts) != 1 {
+					t.Fatalf("accounts = %+v, want one account", snapshot.Accounts)
+				}
+				got := snapshot.Accounts[0]
+				if got.Loaded != tt.loaded {
+					t.Errorf("Loaded = %v, want %v", got.Loaded, tt.loaded)
+				}
+				if got.Failure == nil || got.Failure.HTTPStatus != tt.status {
+					t.Errorf("failure = %+v, want HTTP status %d", got.Failure, tt.status)
+				}
+				if tt.loaded {
+					if !reflect.DeepEqual(got.Models, first.Accounts[0].Models) ||
+						!reflect.DeepEqual(snapshot.Listed, first.Listed) {
+						t.Errorf("transient refresh lost last-good models: %+v", snapshot)
+					}
+				} else if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
+					t.Errorf("permanent refresh retained old models: %+v", snapshot)
+				}
+			})
+		})
+	}
+}
+
+func TestCatalogSuccessfulEmptyRefreshReplacesPopulatedCatalog(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return httpResponse(200, "application/json", modelJSON), nil
+			}
+			return httpResponse(200, "application/json", `{"models":[]}`), nil
+		})
+		client := testClient(t, &http.Client{Transport: transport}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+		first, err := c.Snapshot(t.Context())
+		if err != nil || len(first.Listed) != 1 {
+			t.Fatalf("initial catalog = %+v, %v; want a populated catalog", first, err)
+		}
+		time.Sleep(5 * time.Minute)
+
+		snapshot, err := c.Snapshot(t.Context())
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Accounts) != 1 {
+			t.Fatalf("accounts = %+v, want one account", snapshot.Accounts)
+		}
+		got := snapshot.Accounts[0]
+		if !got.Loaded || got.Failure != nil {
+			t.Errorf("empty refresh = %+v, want loaded without failure", got)
+		}
+		if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
+			t.Errorf("empty refresh retained old models: %+v", snapshot)
+		}
+	})
+}
+
 func TestCatalogSharesRefreshWithoutSharingWaiterCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -286,6 +380,50 @@ func TestCatalogCredentialRotationRejectsOldCompletionAndKeepsLastGood(t *testin
 			t.Errorf("rotation request count: %d", calls.Load())
 		}
 	})
+}
+
+func TestCatalogChangedChatGPTAccountClearsLastGoodOnDiscoveryFailure(t *testing.T) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("ChatGPT-Account-Id") == "chatgpt-one" {
+			return httpResponse(200, "application/json", modelJSON), nil
+		}
+		return httpResponse(503, "application/json", "temporary"), nil
+	})
+	client := testClient(t, &http.Client{Transport: transport}, "https://example.test")
+	a := testAccount(t, "one")
+	c := catalog(t, client, a)
+	first, err := c.Snapshot(t.Context())
+	if err != nil || len(first.Listed) != 1 {
+		t.Fatalf("initial catalog = %+v, %v; want a populated catalog", first, err)
+	}
+	credentials := a.Credentials()
+	credentials.ChatGPTAccountID = "chatgpt-two"
+	replacement, err := account.New(a.Identity(), credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.SetAccounts([]account.Account{replacement}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := c.Snapshot(t.Context())
+
+	if !errors.Is(err, codex.ErrCatalogUnavailable) {
+		t.Errorf("replacement discovery error = %v, want ErrCatalogUnavailable", err)
+	}
+	if len(snapshot.Accounts) != 1 || snapshot.Accounts[0].AccountID != a.Identity().ID {
+		t.Fatalf("accounts = %+v, want the same local account ID", snapshot.Accounts)
+	}
+	got := snapshot.Accounts[0]
+	if got.Loaded {
+		t.Error("replacement account inherited loaded state")
+	}
+	if got.Failure == nil || got.Failure.HTTPStatus != 503 {
+		t.Errorf("failure = %+v, want HTTP status 503", got.Failure)
+	}
+	if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
+		t.Errorf("replacement account inherited old models: %+v", snapshot)
+	}
 }
 
 func TestCatalogSeparatesVisibleUnionFromAccountCapabilities(t *testing.T) {

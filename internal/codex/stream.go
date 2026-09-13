@@ -78,7 +78,7 @@ func (s *Stream) Next() (json.RawMessage, error) {
 			if s.ctx.Err() != nil || (s.body.err != nil && !errors.Is(s.body.err, io.EOF)) {
 				category = TransportFailure
 			}
-			s.finish(safeFailure(s.ctx, category, s.status))
+			s.finish(safeFailure(s.ctx, category, s.status, s.body.err))
 			return nil, s.err
 		}
 		if event.Data == "" {
@@ -164,7 +164,7 @@ func (s *Stream) Close() error {
 	s.items = nil
 	if !s.ended {
 		s.ended = true
-		s.err = safeFailure(s.ctx, TransportFailure, s.status)
+		s.err = safeFailure(s.ctx, TransportFailure, s.status, nil)
 	}
 	return s.closeErr
 }

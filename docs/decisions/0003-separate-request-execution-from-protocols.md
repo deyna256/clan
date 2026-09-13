@@ -67,7 +67,8 @@ Do not introduce a separate item/part/delta event hierarchy.
   is a failure; reaching a generation limit is an incomplete outcome.
 - Preserve event order and known usage, including data received at the end.
 - A read returns an event or an end/error. Known usage remains available when
-  failure ends the stream. Exact Go result types will follow these requirements.
+  failure ends the stream. See [Result](../../internal/codex/client.go) and
+  [Stream](../../internal/codex/stream.go) for the Go contracts.
 
 ### Final response assembly
 

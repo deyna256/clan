@@ -47,7 +47,7 @@ func (c *Client) FetchModels(ctx context.Context, a account.Account) ([]Model, e
 		if errors.Is(err, errPayloadTooLarge) {
 			category = InvalidResponse
 		}
-		return nil, safeFailure(ctx, category, response.StatusCode)
+		return nil, safeFailure(ctx, category, response.StatusCode, err)
 	}
 	var wire struct {
 		Models []struct {

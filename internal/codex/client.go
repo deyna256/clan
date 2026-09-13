@@ -137,7 +137,7 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, safeFailure(ctx, TransportFailure, 0)
+		return nil, safeFailure(ctx, TransportFailure, 0, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
 	req.Header.Set("ChatGPT-Account-Id", credentials.ChatGPTAccountID)
@@ -150,7 +150,7 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, safeFailure(ctx, TransportFailure, 0)
+		return nil, safeFailure(ctx, TransportFailure, 0, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
@@ -161,8 +161,17 @@ func (c *Client) do(ctx context.Context, a account.Account, method, path string,
 	return resp, nil
 }
 
-func safeFailure(ctx context.Context, category Category, status int) *Failure {
-	return &Failure{Category: category, HTTPStatus: status, cause: ctx.Err()}
+func safeFailure(ctx context.Context, category Category, status int, err error) *Failure {
+	cause := ctx.Err()
+	if cause == nil {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			cause = context.DeadlineExceeded
+		case errors.Is(err, context.Canceled):
+			cause = context.Canceled
+		}
+	}
+	return &Failure{Category: category, HTTPStatus: status, cause: cause}
 }
 
 func httpFailure(status int) *Failure {
