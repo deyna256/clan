@@ -237,10 +237,12 @@ func TestModelsDoNotUseGenerationSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	stream, err := f.executor.Stream(t.Context(), f.key, "occupied", request)
+	if stream != nil {
+		defer stream.Close()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
 
 	resp := f.request(t, "GET", "/v1/models", "")
 	body := readBody(t, resp)
@@ -265,15 +267,7 @@ func TestModelsDoNotUseGenerationSlots(t *testing.T) {
 func TestFailedTerminalCannotHideUpstreamCleanupFailure(t *testing.T) {
 	f := newFixtureWithTransport(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"r\",\"status\":\"failed\",\"output\":[],\"error\":{\"code\":\"server_error\"}}}\n\n")
-	}, func(transport http.RoundTripper) http.RoundTripper {
-		return roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			resp, err := transport.RoundTrip(r)
-			if err == nil && r.URL.Path == "/responses" {
-				resp.Body = closeFailureBody{resp.Body}
-			}
-			return resp, err
-		})
-	})
+	}, failResponseCleanup)
 
 	resp := f.request(t, "POST", "/v1/responses", input)
 	body := readBody(t, resp)
@@ -295,4 +289,14 @@ type closeFailureBody struct{ io.ReadCloser }
 
 func (b closeFailureBody) Close() error {
 	return errors.Join(b.ReadCloser.Close(), errors.New("private-close-detail"))
+}
+
+func failResponseCleanup(transport http.RoundTripper) http.RoundTripper {
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		resp, err := transport.RoundTrip(r)
+		if err == nil && r.URL.Path == "/responses" {
+			resp.Body = closeFailureBody{resp.Body}
+		}
+		return resp, err
+	})
 }

@@ -130,11 +130,17 @@ func TestCooldownExpiresOnDemand(t *testing.T) {
 				if err == nil {
 					t.Fatal("rate limit succeeded")
 				}
+				if err := limited.Close(); err != nil {
+					t.Fatal(err)
+				}
 				time.Sleep(tt.delay - time.Nanosecond)
 				early, err := f.executor.Generate(t.Context(), f.key, "early", f.request)
 				defer early.Close()
 				if !errors.Is(err, execution.ErrNoAccounts) {
 					t.Fatalf("early retry = %v", err)
+				}
+				if err := early.Close(); err != nil {
+					t.Fatal(err)
 				}
 				if calls != 1 {
 					t.Fatalf("cooldown sent %d upstream requests", calls)
@@ -283,6 +289,9 @@ func TestOverlappingFailuresCannotShortenCooldown(t *testing.T) {
 		defer early.Close()
 		if !errors.Is(err, execution.ErrNoAccounts) {
 			t.Fatalf("shorter failure replaced longer cooldown: %v", err)
+		}
+		if err := early.Close(); err != nil {
+			t.Fatal(err)
 		}
 		time.Sleep(time.Minute)
 		ready, err := f.executor.Generate(t.Context(), f.key, "ready", f.request)

@@ -26,6 +26,8 @@ Execution returns an ordinary result with `Close`, just as it does for a stream.
 The caller closes it after delivery or a write failure, even when generation
 returned an error. Cancellation interrupts upstream and downstream I/O; the
 caller still calls `Close` after delivery or abort to release the slot.
+This also applies when admission succeeds but opening the upstream attempt fails:
+the returned result or stream owns the slot until error delivery ends.
 
 ### Failure details
 

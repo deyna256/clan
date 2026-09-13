@@ -118,10 +118,10 @@ func (r Result) ResponseStarted() {
 func (e *Executor) Generate(ctx context.Context, key, requestID string, input codex.Request) (Result, error) {
 	stream, err := e.Stream(ctx, key, requestID, input)
 	if err != nil {
-		return Result{}, err
+		return Result{stream: stream}, err
 	}
 	for {
-		if _, err := stream.next(); err != nil {
+		if _, err := stream.Next(); err != nil {
 			if errors.Is(err, io.EOF) {
 				err = nil
 			}
@@ -131,8 +131,8 @@ func (e *Executor) Generate(ctx context.Context, key, requestID string, input co
 	}
 }
 
-// Stream returns a live attempt. HTTP must wait for this call before starting its response.
-// The caller must Close after delivery or a write failure, including after a terminal event.
+// Stream returns an admitted request, including when opening its attempt fails.
+// The caller must Close every nonnil stream after delivery or abort, even on error.
 func (e *Executor) Stream(ctx context.Context, key, requestID string, input codex.Request) (*Stream, error) {
 	if strings.TrimSpace(requestID) == "" {
 		return nil, errors.New("execution: request ID is required")
@@ -146,15 +146,13 @@ func (e *Executor) Stream(ctx context.Context, key, requestID string, input code
 			slog.String("request_id", requestID), slog.String("key_id", string(r.keyID)), slog.String("model", r.model))
 	}
 	attempt, err := e.open(r, input)
-	if err != nil {
-		e.finish(r, codex.Result{}, err)
-		return nil, err
-	}
-	s := &Stream{attempt: attempt, owner: e, request: r}
+	s := &Stream{attempt: attempt, owner: e, request: r, openErr: err}
 	s.stop = context.AfterFunc(r.ctx, s.abort)
+	if err != nil {
+		return s, err
+	}
 	if err := r.ctx.Err(); err != nil {
-		s.Close()
-		return nil, err
+		return s, err
 	}
 	return s, nil
 }

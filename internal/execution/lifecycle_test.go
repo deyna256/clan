@@ -42,10 +42,10 @@ func TestConcurrentAdmissionsAndIndependentKeys(t *testing.T) {
 		var active *execution.Stream
 		for range cap(results) {
 			r := <-results
+			t.Cleanup(func() { r.stream.Close() })
 			if r.err == nil {
 				admitted++
 				active = r.stream
-				t.Cleanup(func() { r.stream.Close() })
 			} else if errors.Is(r.err, concurrency.ErrLimitReached) {
 				rejected++
 			} else {
@@ -152,6 +152,44 @@ func TestStreamReadFailureRetainsSlotUntilClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.open(t, f.key)
+}
+
+func TestOpeningFailureRetainsSlotUntilClose(t *testing.T) {
+	f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusBadGateway, `{}`), nil
+	}))
+
+	stream, err := f.executor.Stream(t.Context(), f.key, "failed-open", f.request)
+	defer stream.Close()
+
+	var failure *codex.Failure
+	if stream == nil || !errors.As(err, &failure) || failure.HTTPStatus != http.StatusBadGateway {
+		t.Fatalf("opening failure = %v, %v, want retained stream and HTTP 502 failure", stream, err)
+	}
+	if stream.Context().Err() != nil || stream.Context().Done() == nil {
+		t.Fatal("opening failure lost its active execution context")
+	}
+	if event, nextErr := stream.Next(); event != nil || !errors.Is(nextErr, err) {
+		t.Fatalf("failed stream Next = %s, %v, want original opening failure", event, nextErr)
+	}
+	if result := stream.Result(); len(result.Response) != 0 || result.Usage.Input.Known {
+		t.Fatalf("failed opening result = %+v, want no response or invented usage", result)
+	}
+	overlap, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request)
+	defer overlap.Close()
+	if !errors.Is(err, concurrency.ErrLimitReached) || overlap != nil {
+		t.Fatalf("admission before failed delivery Close = %v, %v, want nil stream and limit", overlap, err)
+	}
+	stream.ResponseStarted()
+	stream.DeliveryFailed()
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := f.executor.Stream(t.Context(), f.key, "next", f.request)
+	defer next.Close()
+	if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusBadGateway || next == nil {
+		t.Fatalf("admission after failed delivery Close = %v, %v, want a new admitted failure", next, err)
+	}
 }
 
 func TestZeroResultContext(t *testing.T) {
@@ -264,6 +302,7 @@ func TestSlotSpansRetryAndAttemptCleanup(t *testing.T) {
 		}
 		unblock()
 		s := <-opened
+		t.Cleanup(func() { s.Close() })
 		if err := <-failed; err != nil {
 			t.Fatal(err)
 		}
@@ -293,8 +332,8 @@ func TestRevocationDuringInitializationWaitsForCleanup(t *testing.T) {
 		}))
 		requestDone := make(chan error, 1)
 		go func() {
-			_, err := f.executor.Stream(t.Context(), f.key, "initializing", f.request)
-			requestDone <- err
+			stream, err := f.executor.Stream(t.Context(), f.key, "initializing", f.request)
+			requestDone <- errors.Join(err, stream.Close())
 		}()
 		<-entered
 
@@ -380,6 +419,7 @@ func TestCancellationRetainsSlotUntilConcurrentCloseFinishes(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		s, err := f.executor.Stream(ctx, f.key, "cancel", f.request)
+		t.Cleanup(func() { s.Close() })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -446,10 +486,10 @@ func TestAdmissionRacingRevocationCannotEscapeCancellation(t *testing.T) {
 				if _, err := r.stream.Next(); !errors.Is(err, context.Canceled) {
 					t.Errorf("admitted stream survived successful revocation: %v", err)
 				}
-				r.stream.Close()
 			} else if !errors.Is(r.err, execution.ErrUnauthorized) && !errors.Is(r.err, context.Canceled) {
 				t.Errorf("racing admission = %v, want rejection or cancellation", r.err)
 			}
+			r.stream.Close()
 		}
 		if _, err := earlier.Next(); !errors.Is(err, context.Canceled) {
 			t.Errorf("earlier admission survived revocation: %v", err)
@@ -559,7 +599,9 @@ func TestAccountRemovalCancelsWithoutFailover(t *testing.T) {
 				if err != nil || len(models) != 0 {
 					t.Fatalf("models after removing enabled accounts = %v, %v", models, err)
 				}
-				if _, err := f.executor.Stream(t.Context(), f.key, "removed", f.request); !errors.Is(err, execution.ErrNoAccounts) {
+				stream, err := f.executor.Stream(t.Context(), f.key, "removed", f.request)
+				defer stream.Close()
+				if !errors.Is(err, execution.ErrNoAccounts) {
 					t.Fatalf("generation after account removal = %v", err)
 				}
 				record, err := f.store.GetAccount(t.Context(), "one")

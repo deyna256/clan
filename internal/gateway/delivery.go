@@ -14,7 +14,6 @@ type delivery struct {
 	controller *http.ResponseController
 	ctx        context.Context
 	mu         sync.Mutex
-	aborted    bool
 	stop       func() bool
 	done       chan struct{}
 }
@@ -23,7 +22,6 @@ func newDelivery(w http.ResponseWriter, ctx context.Context) *delivery {
 	d := &delivery{w: w, controller: http.NewResponseController(w), ctx: ctx, done: make(chan struct{})}
 	d.stop = context.AfterFunc(ctx, func() {
 		d.mu.Lock()
-		d.aborted = true
 		// The regular write deadline remains the fallback if aborting fails.
 		_ = d.controller.SetWriteDeadline(time.Now())
 		d.mu.Unlock()
@@ -41,7 +39,7 @@ func (d *delivery) close() {
 func (d *delivery) begin() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.aborted || d.ctx.Err() != nil {
+	if d.ctx.Err() != nil {
 		return false
 	}
 	return d.controller.SetWriteDeadline(time.Now().Add(30*time.Second)) == nil
@@ -53,7 +51,7 @@ func (d *delivery) flush() bool {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.aborted || d.ctx.Err() != nil {
+	if d.ctx.Err() != nil {
 		return false
 	}
 	return d.controller.SetWriteDeadline(time.Time{}) == nil

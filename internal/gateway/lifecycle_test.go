@@ -15,14 +15,16 @@ import (
 	"time"
 )
 
-func TestIncompleteUploadReturnsAnErrorAfterReadCancelsRequest(t *testing.T) {
+func TestUploadFailuresReturnClientErrors(t *testing.T) {
 	for _, tt := range []struct {
-		name      string
-		halfClose bool
-		want      int
+		name, framing, body string
+		halfClose           bool
+		want                int
 	}{
-		{name: "body deadline", want: 408},
-		{name: "truncated body", halfClose: true, want: 400},
+		{name: "body deadline", framing: "Content-Length: 10", body: "{", want: 408},
+		{name: "truncated body", framing: "Content-Length: 10", body: "{", halfClose: true, want: 400},
+		{name: "invalid chunk size", framing: "Transfer-Encoding: chunked", body: "XYZ\r\n", want: 400},
+		{name: "invalid chunk ending", framing: "Transfer-Encoding: chunked", body: "1\r\n{XX", want: 400},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, "data: %s\n\n", completed) })
@@ -39,7 +41,7 @@ func TestIncompleteUploadReturnsAnErrorAfterReadCancelsRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err = fmt.Fprintf(conn, "POST /v1/responses HTTP/1.1\r\nHost: gateway\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n{", f.key)
+			_, err = fmt.Fprintf(conn, "POST /v1/responses HTTP/1.1\r\nHost: gateway\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\n%s\r\n\r\n%s", f.key, tt.framing, tt.body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +58,7 @@ func TestIncompleteUploadReturnsAnErrorAfterReadCancelsRequest(t *testing.T) {
 			body := readBody(t, resp)
 
 			if resp.StatusCode != tt.want || !strings.Contains(body, `"error":`) {
-				t.Fatalf("incomplete upload response = %d, %s; want %d", resp.StatusCode, body, tt.want)
+				t.Fatalf("upload failure response = %d, %s; want %d", resp.StatusCode, body, tt.want)
 			}
 		})
 	}
@@ -74,53 +76,82 @@ func (w shortReadDeadlineWriter) SetReadDeadline(deadline time.Time) error {
 }
 
 func TestRevocationInterruptsWriteAndWaitsForDeliveryCleanup(t *testing.T) {
-	f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, "data: %s\n\n", completed) })
-	w := &blockedWriter{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), interrupted: make(chan struct{}), release: make(chan struct{})}
-	unblock := sync.OnceFunc(func() { close(w.release) })
-	defer unblock()
-	r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(input))
-	r.Header.Set("Authorization", "Bearer "+f.key)
-	r.Header.Set("Content-Type", "application/json")
-	done := make(chan struct{})
-	go func() { f.handler.ServeHTTP(w, r); close(done) }()
-	select {
-	case <-w.entered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("response write did not start")
-	}
+	for _, tt := range []struct {
+		name, body     string
+		upstream, want int
+	}{
+		{name: "JSON completion", body: input, upstream: 200, want: 200},
+		{name: "JSON open failure", body: input, upstream: 502, want: 502},
+		{name: "SSE open failure", body: `{"model":"model","input":"hello","stream":true}`, upstream: 502, want: 502},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.upstream)
+				if tt.upstream == 200 {
+					fmt.Fprintf(w, "data: %s\n\n", completed)
+				}
+			})
+			w := &blockedWriter{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), interrupted: make(chan struct{}), release: make(chan struct{})}
+			unblock := sync.OnceFunc(func() { close(w.release) })
+			defer unblock()
+			r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(tt.body)).WithContext(t.Context())
+			r.Header.Set("Authorization", "Bearer "+f.key)
+			r.Header.Set("Content-Type", "application/json")
+			done := make(chan struct{})
+			go func() { f.handler.ServeHTTP(w, r); close(done) }()
+			select {
+			case <-w.entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("response write did not start")
+			}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	revoked := make(chan error, 1)
-	go func() { revoked <- f.executor.RevokeKey(ctx, "key") }()
-	select {
-	case <-w.interrupted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("revocation did not interrupt the blocked downstream write")
-	}
-	// A canceled management wait reports unconfirmed cleanup while the writer
-	// remains blocked; it must not report successful completion.
-	cancel()
-	if err := <-revoked; !errors.Is(err, context.Canceled) {
-		t.Fatalf("revocation before delivery cleanup = %v, want cancellation", err)
-	}
-	select {
-	case <-done:
-		t.Fatal("handler returned while its response write was still blocked")
-	default:
-	}
-	unblock()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not finish after delivery cleanup")
-	}
-	if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
-		t.Fatal(err)
-	}
-	logs := f.logs.String()
-	if !strings.Contains(logs, `"result":"canceled"`) || strings.Contains(logs, `"result":"completed"`) {
-		t.Fatalf("canceled delivery outcome = %s", logs)
+			resp := f.request(t, "POST", "/v1/responses", input)
+			body := readBody(t, resp)
+			if resp.StatusCode != 429 || !strings.Contains(body, `"code":"concurrency_limit"`) {
+				t.Fatalf("request while delivery is blocked = %d, %s; want concurrency limit", resp.StatusCode, body)
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			revoked := make(chan error, 1)
+			go func() { revoked <- f.executor.RevokeKey(ctx, "key") }()
+			select {
+			case <-w.interrupted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("revocation did not interrupt the blocked downstream write")
+			}
+			// A canceled management wait reports unconfirmed cleanup while the writer
+			// remains blocked; it must not report successful completion.
+			cancel()
+			if err := <-revoked; !errors.Is(err, context.Canceled) {
+				t.Fatalf("revocation before delivery cleanup = %v, want cancellation", err)
+			}
+			select {
+			case <-done:
+				t.Fatal("handler returned while its response write was still blocked")
+			default:
+			}
+			unblock()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("handler did not finish after delivery cleanup")
+			}
+			if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
+				t.Fatal(err)
+			}
+			logs := f.logs.String()
+			if !strings.Contains(logs, `"result":"canceled"`) || strings.Contains(logs, `"result":"completed"`) {
+				t.Fatalf("canceled delivery outcome = %s", logs)
+			}
+
+			if w.Code != tt.want {
+				t.Fatalf("response status = %d, want %d", w.Code, tt.want)
+			}
+			if tt.want != 200 && w.Header().Get("X-Should-Retry") != "false" {
+				t.Fatal("open failure response lacks retry suppression")
+			}
+		})
 	}
 }
 

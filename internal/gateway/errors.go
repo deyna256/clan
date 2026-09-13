@@ -13,6 +13,8 @@ import (
 	"github.com/deyna256/clan/internal/execution"
 )
 
+var errInvalidBody = errors.New("gateway: invalid request body")
+
 type clientError struct {
 	status  int
 	Type    string  `json:"type"`
@@ -37,6 +39,8 @@ func classify(err error) clientError {
 	switch {
 	case errors.Is(err, execution.ErrUnauthorized):
 		return clientError{status: 401, Type: "authentication_error", Code: "invalid_api_key", Message: "The client key is invalid or revoked."}
+	case errors.Is(err, errInvalidBody):
+		return invalidRequest("The request body is invalid or incomplete.", "")
 	case errors.As(err, &validation):
 		return invalidRequest("Invalid or unsupported request field.", safeField(validation.Field))
 	case errors.As(err, &tooLarge):

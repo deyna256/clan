@@ -12,7 +12,7 @@ import (
 
 func (h *handler) stream(w http.ResponseWriter, r *http.Request, input codex.Request) {
 	stream, err := h.executor.Stream(r.Context(), bearer(r), requestID(r), input)
-	if err != nil {
+	if stream == nil {
 		h.reject(w, r, classify(err))
 		return
 	}
@@ -22,7 +22,10 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request, input codex.Req
 	started := false
 	sequence := int64(-1)
 	for {
-		raw, err := stream.Next()
+		var raw json.RawMessage
+		if err == nil {
+			raw, err = stream.Next()
+		}
 		var kind string
 		if err == nil {
 			raw, kind, sequence, err = prepareEvent(raw, sequence)

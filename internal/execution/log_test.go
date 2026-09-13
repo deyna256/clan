@@ -97,10 +97,10 @@ func TestUndeliveredTerminalDoesNotLogCompleted(t *testing.T) {
 				var responseStarted func()
 				if tt.streaming {
 					stream, err := f.executor.Stream(ctx, f.key, "undelivered", f.request)
+					defer stream.Close()
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer stream.Close()
 					if _, err := stream.Next(); err != nil {
 						t.Fatal(err)
 					}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -99,10 +100,6 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		// net/http cancels the request on upload errors, even when a reply is writable.
 		// No generation was admitted; attempt only the bounded error response.
 		r = r.WithContext(context.WithoutCancel(r.Context()))
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			h.reject(w, r, invalidRequest("The request body is incomplete.", ""))
-			return
-		}
 		h.reject(w, r, classify(err))
 		return
 	}
@@ -141,7 +138,15 @@ func readBody(w http.ResponseWriter, r *http.Request) (body []byte, err error) {
 			err = errors.Join(err, controller.SetReadDeadline(time.Time{}))
 		}
 	}()
-	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	if err != nil {
+		var limit *http.MaxBytesError
+		var network net.Error
+		if !errors.As(err, &limit) && !(errors.As(err, &network) && network.Timeout()) {
+			err = errInvalidBody
+		}
+	}
+	return body, err
 }
 
 func (h *handler) generate(w http.ResponseWriter, r *http.Request, input codex.Request) {

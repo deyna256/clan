@@ -126,6 +126,7 @@ func (f fixture) open(t *testing.T, key string) *execution.Stream {
 	}
 	stream, err := f.executor.Stream(t.Context(), key, "active", request)
 	if err != nil {
+		stream.Close()
 		t.Fatal(err)
 	}
 	return stream

@@ -92,6 +92,61 @@ func TestStreamingTerminalFailureIsNotDuplicated(t *testing.T) {
 	}
 }
 
+func TestStreamingCleanupFailureReplacesCompletion(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		started bool
+		want    int
+	}{
+		{name: "before first event", want: 502},
+		{name: "after first event", started: true, want: 200},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixtureWithTransport(t, func(w http.ResponseWriter, _ *http.Request) {
+				if tt.started {
+					fmt.Fprint(w, `data: {"type":"response.created","sequence_number":1}`+"\n\n")
+				}
+				fmt.Fprintf(w, "data: %s\n\n", completed)
+			}, failResponseCleanup)
+
+			resp := f.request(t, "POST", "/v1/responses", `{"model":"model","input":"hello","stream":true}`)
+			body := readBody(t, resp)
+			f.executor.Close()
+
+			if resp.StatusCode != tt.want {
+				t.Fatalf("cleanup failure response = %d, %s; want %d", resp.StatusCode, body, tt.want)
+			}
+			logs := f.logs.String()
+			if strings.Contains(body+logs, "private-close-detail") || strings.Contains(body, "response.completed") {
+				t.Fatalf("cleanup failure leaked or reported completion: body=%s, logs=%s", body, logs)
+			}
+			for _, field := range []string{`"result":"transport_failure"`, `"input_tokens":7`, `"output_tokens":3`, `"total_tokens":10`} {
+				if !strings.Contains(logs, field) {
+					t.Errorf("cleanup failure logs lack %s: %s", field, logs)
+				}
+			}
+			if !tt.started {
+				var envelope struct{ Error struct{ Code string } }
+				if err := json.Unmarshal([]byte(body), &envelope); err != nil || envelope.Error.Code != "upstream_error" {
+					t.Fatalf("precommit cleanup error = %s, %v", body, err)
+				}
+				if resp.Header.Get("X-Should-Retry") != "false" {
+					t.Fatal("precommit cleanup error lacks retry suppression")
+				}
+				return
+			}
+			reader := bufio.NewReader(strings.NewReader(body))
+			first, last := readEvent(t, reader), readEvent(t, reader)
+			if first["type"] != "response.created" || last["type"] != "error" || last["code"] != "upstream_error" || last["sequence_number"] != float64(2) {
+				t.Fatalf("postcommit cleanup failure events = %v, %v", first, last)
+			}
+			if rest, err := io.ReadAll(reader); err != nil || len(rest) != 0 {
+				t.Fatalf("bytes after cleanup error = %q, %v", rest, err)
+			}
+		})
+	}
+}
+
 func readEvent(t *testing.T, reader *bufio.Reader) map[string]any {
 	t.Helper()
 	var kind, data string
