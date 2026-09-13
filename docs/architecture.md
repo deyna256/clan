@@ -123,7 +123,11 @@ verification, credential encryption, per-key concurrency slots, model-based
 round-robin, observed usage types and Retry-After parsing.
 [SQLite storage](../internal/storage/storage.go) persists accounts and key settings.
 
-The entry point is empty. HTTP routes, Codex integration, request execution,
+The [Codex client](../internal/codex/client.go) implements Responses generation,
+SSE streaming and authenticated model discovery. Its catalog refreshes on demand;
+the application owns closing it during shutdown.
+
+The entry point is empty. HTTP routes, OAuth login and refresh, request execution
 and management are not implemented yet.
 
 ## Remaining decisions and checks
