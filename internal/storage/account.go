@@ -121,6 +121,42 @@ func (s *Store) ReplaceAccountCredentials(
 	return requireAffected(result)
 }
 
+// ReplaceAccountCredentialsIfUnchanged updates an enabled account only while
+// its stored credentials still match a previous GetAccount or ListAccounts result.
+// Deletion, disabling or another credential write returns ErrConflict.
+func (s *Store) ReplaceAccountCredentialsIfUnchanged(
+	ctx context.Context,
+	previous AccountRecord,
+	credentials account.OAuthCredentials,
+) error {
+	id := previous.Account.Identity().ID
+	if err := validateAccountID(id); err != nil {
+		return err
+	}
+	if previous.revision == "" {
+		return fmt.Errorf("%w: account revision is required", ErrInvalid)
+	}
+	if err := account.ValidateCredentials(credentials); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	encrypted, err := s.encryptCredentials(id, credentials)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET credentials = ? WHERE id = ? AND credentials = ? AND enabled = 1`,
+		encrypted, string(id), []byte(previous.revision),
+	)
+	if err != nil {
+		return fmt.Errorf("storage: conditionally replacing account credentials: %w", err)
+	}
+	err = requireAffected(result)
+	if errors.Is(err, ErrNotFound) {
+		return ErrConflict
+	}
+	return err
+}
+
 // DisableAccount persists the account's disabled state.
 func (s *Store) DisableAccount(ctx context.Context, id account.ID) error {
 	if err := validateAccountID(id); err != nil {
@@ -185,7 +221,7 @@ func (s *Store) decodeAccount(
 	if err != nil {
 		return AccountRecord{}, ErrCorrupt
 	}
-	return AccountRecord{Account: value, Enabled: enabled == 1}, nil
+	return AccountRecord{Account: value, Enabled: enabled == 1, revision: string(encrypted)}, nil
 }
 
 func validateAccount(value account.Account) (account.Identity, account.OAuthCredentials, error) {

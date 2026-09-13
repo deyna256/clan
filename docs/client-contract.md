@@ -125,7 +125,9 @@ and [Codex at b4c864dd](https://github.com/openai/codex/tree/b4c864dd6497ae764e6
 - **Live check, 2026-09-13:** browser callback and authorization-code exchange
   succeeded. The Codex client fetched seven models using `client_version=0.154.0`.
   A refresh token and access-token expiry were present; credentials stayed in memory.
-- **Pending:** token refresh and persistence, remote/Docker callback forwarding,
+- **OAuth module tests:** local provider responses and temporary SQLite cover
+  callback validation, token rotation, failed persistence and concurrent cancellation.
+- **Pending:** live token refresh, remote/Docker callback forwarding,
   and generation through a running gateway. The full client matrix belongs to
   [#36](https://github.com/deyna256/clan/issues/36), after OAuth and HTTP integration.
 

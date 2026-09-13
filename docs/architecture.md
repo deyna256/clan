@@ -49,8 +49,7 @@ carry individual account or model permissions.
 
 An administrator starts OAuth connection through the management API and receives
 sign-in instructions. After browser sign-in, CLAN stores encrypted credentials
-and makes the account available. Refresh expiring tokens before requests and report
-when an account needs sign-in again.
+and makes the account available.
 
 Use browser OAuth with a callback as the only built-in sign-in method. Codex uses
 `http://localhost:1455/auth/callback`. For a remote server, forward port 1455 from
@@ -62,9 +61,26 @@ listener must also be reachable inside the container network.
 Bind the callback listener before returning sign-in instructions. Use PKCE and
 single-use state tied to the pending login. Report success only after credentials
 are stored. Device Code, auth-file imports and alternate connection methods are
-outside the first release. Local browser login has been checked; production OAuth,
-refresh and Docker forwarding still need validation. See the
-[recorded checks](client-contract.md#checks-so-far).
+outside the first release. Live refresh and Docker forwarding still need validation;
+see the [recorded checks](client-contract.md#checks-so-far).
+
+### Token refresh and reconnect
+
+Refresh on demand when at most five minutes remain. Concurrent callers share one
+refresh; canceling a waiter does not abandon token persistence. There is no
+periodic refresh worker. New credentials need a known access-token expiry:
+use `expires_in`, falling back to the access token's `exp` claim.
+
+After a network error, HTTP 429 or 5xx, keep using the old access token only while
+it is unexpired. Wait at least one minute before another refresh, respecting a
+longer `Retry-After`. A rejected refresh or unusable credentials require sign-in.
+If saving rotated tokens fails, retry saving that replacement before another
+provider refresh; do not expose it before persistence succeeds.
+
+Only explicit reconnect may change the ChatGPT account or workspace. Refresh
+preserves its ID. Disablement, deletion and newer credentials invalidate pending
+results through [conditional storage updates](decisions/0007-use-sqlite.md).
+The manager owns shutdown of the callback listener and OAuth jobs.
 
 ## Model catalog
 
@@ -127,8 +143,11 @@ The [Codex client](../internal/codex/client.go) implements Responses generation,
 SSE streaming and authenticated model discovery. Its catalog refreshes on demand;
 the application owns closing it during shutdown.
 
-The entry point is empty. HTTP routes, OAuth login and refresh, request execution
-and management are not implemented yet.
+The [OAuth manager](../internal/codexoauth/manager.go) handles browser login,
+on-demand refresh and persisted credential replacement.
+
+The entry point is empty. Gateway and management HTTP routes, request execution
+and application wiring are not implemented yet.
 
 ## Remaining decisions and checks
 

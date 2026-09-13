@@ -22,7 +22,7 @@ const schemaVersion = 1
 var (
 	// ErrNotFound means the requested account or access key does not exist.
 	ErrNotFound = errors.New("storage: record not found")
-	// ErrConflict means a unique account or access-key value is already in use.
+	// ErrConflict means a value is already in use or a conditional update is stale.
 	ErrConflict = errors.New("storage: record conflicts with existing data")
 	// ErrInvalid means an operation received a value that cannot be stored.
 	ErrInvalid = errors.New("storage: invalid input")
@@ -31,9 +31,11 @@ var (
 )
 
 // AccountRecord combines a persisted account snapshot with its enabled state.
+// Reads retain a private revision for conditional credential updates.
 type AccountRecord struct {
-	Account account.Account
-	Enabled bool
+	Account  account.Account
+	Enabled  bool
+	revision string
 }
 
 // AccessKeyRecord combines a persisted key snapshot with its verification hash
