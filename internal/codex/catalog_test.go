@@ -21,7 +21,7 @@ import (
 
 func catalog(t *testing.T, client *codex.Client, accounts ...account.Account) *codex.Catalog {
 	t.Helper()
-	c, err := codex.NewCatalog(client)
+	c, err := codex.NewCatalog(client.FetchModels)
 	if err != nil {
 		t.Fatal(err)
 	}
