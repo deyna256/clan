@@ -73,6 +73,17 @@ are managed through an admin API with an OpenAPI schema.
 </tr>
 </table>
 
+### Principles
+
+- **Free and open forever:** every feature is open source, with no paid tiers or
+  proprietary editions.
+- **Small working scope:** finish the supported client scenarios before adding
+  protocols, tools or infrastructure.
+- **Predictable behavior:** keep the meaning of supported requests, retry only when
+  safe and reject unsupported options explicitly.
+- **Clear failures:** report safe error details and keep unknown usage distinct
+  from zero.
+
 ## Quick start
 
 You need the Go version from [`go.mod`](go.mod), `openssl` and a Codex subscription.
@@ -213,19 +224,6 @@ flowchart TB
 Responses is the reference content format. Execution uses small metadata values
 without parsing messages or tool arguments. The Codex integration handles protocol
 differences; there is no separate universal message or event model.
-
-## Principles
-
-- **Free and open forever.** All features are free and open source, with no paid
-  tiers or proprietary editions.
-- **Small working scope.** Complete the supported client scenarios before adding
-  more protocols, tools or infrastructure.
-- **Predictable behavior.** Preserve supported request meaning. Retry only when
-  safe, and report unsupported operations explicitly.
-- **Owner control.** Administrators manage connected accounts and client access.
-  Credentials and request content stay out of logs.
-- **Clear failures.** Report safe error details and distinguish unknown consumption
-  from zero.
 
 ## Documentation
 
