@@ -79,8 +79,12 @@ The code contains OAuth account snapshots, named access keys and secret
 verification, credential encryption, per-key concurrency slots, model-based
 round-robin, observed usage types and Retry-After parsing.
 
-The entry point is empty. HTTP routes, Codex integration, request execution,
-management and SQLite persistence are not implemented yet.
+The [Codex client](../internal/codex/client.go) implements Responses generation,
+SSE streaming and authenticated model discovery. Its catalog refreshes on demand;
+the application owns closing it during shutdown.
+
+The entry point is empty. HTTP routes, OAuth login and refresh, request execution
+and management are not implemented yet.
 
 ## Remaining decisions and checks
 
@@ -88,9 +92,9 @@ management and SQLite persistence are not implemented yet.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
-- Define management schemas, key/account update behavior and model catalog loading.
-- Define how attempt outcomes and usage are exposed on stream failure, and choose
-  timeout and retry settings with the execution module.
+- Define management schemas and key/account update behavior.
+- Choose timeout and retry settings with the execution module; the Codex client
+  exposes failure details and retains known usage when a stream fails.
 - Agree on implementation milestones before starting them.
 
 Do not infer automatic model discovery in OpenCode from the presence of

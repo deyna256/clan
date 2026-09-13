@@ -18,9 +18,10 @@ const (
 func TestNewPreservesIdentityAndCredentials(t *testing.T) {
 	identity := account.Identity{ID: " account-1 ", Name: " Primary account "}
 	credentials := account.OAuthCredentials{
-		AccessToken:  " access-token-secret ",
-		RefreshToken: " refresh-token-secret ",
-		ExpiresAt:    time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
+		ChatGPTAccountID: " chatgpt-account-1 ",
+		AccessToken:      " access-token-secret ",
+		RefreshToken:     " refresh-token-secret ",
+		ExpiresAt:        time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
 
 	got, err := account.New(identity, credentials)
@@ -68,12 +69,43 @@ func TestNewRejectsInvalidIdentityWithoutExposingCredentials(t *testing.T) {
 }
 
 func TestNewRejectsInvalidCredentials(t *testing.T) {
-	for _, token := range []string{"", " \t\n"} {
-		t.Run(fmt.Sprintf("token %q", token), func(t *testing.T) {
-			credentials := oauthCredentials()
-			credentials.AccessToken = token
+	tests := []struct {
+		name        string
+		credentials account.OAuthCredentials
+		wantField   string
+	}{
+		{
+			name:        "missing provider account ID",
+			credentials: account.OAuthCredentials{AccessToken: accessSecret},
+			wantField:   "account ID",
+		},
+		{
+			name: "blank provider account ID",
+			credentials: account.OAuthCredentials{
+				ChatGPTAccountID: " \t\n",
+				AccessToken:      accessSecret,
+			},
+			wantField: "account ID",
+		},
+		{
+			name:        "missing access token",
+			credentials: account.OAuthCredentials{ChatGPTAccountID: "chatgpt-account"},
+			wantField:   "access token",
+		},
+		{
+			name: "blank access token",
+			credentials: account.OAuthCredentials{
+				ChatGPTAccountID: "chatgpt-account",
+				AccessToken:      " \t\n",
+			},
+			wantField: "access token",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.credentials.RefreshToken = refreshSecret
 
-			got, err := account.New(testIdentity(), credentials)
+			got, err := account.New(testIdentity(), tt.credentials)
 
 			if err == nil {
 				t.Fatal("New() succeeded with invalid credentials")
@@ -81,8 +113,8 @@ func TestNewRejectsInvalidCredentials(t *testing.T) {
 			if got != (account.Account{}) {
 				t.Error("New() returned a partial account on failure")
 			}
-			if !strings.Contains(err.Error(), "access token") {
-				t.Errorf("error %q does not identify access token", err)
+			if !strings.Contains(err.Error(), tt.wantField) {
+				t.Errorf("error %q does not identify %s", err, tt.wantField)
 			}
 			assertNoSecrets(t, err.Error())
 		})
@@ -100,7 +132,11 @@ func TestOAuthRecordDoesNotRequireFreshnessOrRefreshToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			identity := testIdentity()
-			credentials := account.OAuthCredentials{AccessToken: accessSecret, ExpiresAt: tt.expiresAt}
+			credentials := account.OAuthCredentials{
+				ChatGPTAccountID: "chatgpt-account",
+				AccessToken:      accessSecret,
+				ExpiresAt:        tt.expiresAt,
+			}
 
 			got, err := account.New(identity, credentials)
 
@@ -145,5 +181,9 @@ func testIdentity() account.Identity {
 }
 
 func oauthCredentials() account.OAuthCredentials {
-	return account.OAuthCredentials{AccessToken: accessSecret, RefreshToken: refreshSecret}
+	return account.OAuthCredentials{
+		ChatGPTAccountID: "chatgpt-account",
+		AccessToken:      accessSecret,
+		RefreshToken:     refreshSecret,
+	}
 }
