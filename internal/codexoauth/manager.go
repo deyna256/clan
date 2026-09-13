@@ -14,12 +14,13 @@ import (
 )
 
 var (
-	ErrClosed       = errors.New("codex oauth: manager closed")
-	ErrDisabled     = errors.New("codex oauth: account disabled")
-	ErrNeedsSignIn  = errors.New("codex oauth: account needs sign-in")
-	ErrUnavailable  = errors.New("codex oauth: account temporarily unavailable")
-	ErrLoginPending = errors.New("codex oauth: login already pending")
-	ErrInvalidLogin = errors.New("codex oauth: invalid login")
+	ErrClosed        = errors.New("codex oauth: manager closed")
+	ErrDisabled      = errors.New("codex oauth: account disabled")
+	ErrNeedsSignIn   = errors.New("codex oauth: account needs sign-in")
+	ErrUnavailable   = errors.New("codex oauth: account temporarily unavailable")
+	ErrLoginPending  = errors.New("codex oauth: login already pending")
+	ErrLoginMismatch = errors.New("codex oauth: login does not match latest attempt")
+	ErrInvalidLogin  = errors.New("codex oauth: invalid login")
 )
 
 // AccountState describes availability without exposing credentials.
@@ -49,6 +50,10 @@ type refreshState struct {
 	needsSignIn  bool
 	retryAt      time.Time
 	retryBlocked bool
+}
+
+func (s *refreshState) needsSignInFor(record storage.AccountRecord) bool {
+	return s != nil && s.needsSignIn && s.previous.Account.Credentials() == record.Account.Credentials()
 }
 
 // Manager owns callback serving and bounded OAuth jobs. Close it before closing
@@ -209,13 +214,16 @@ func (m *Manager) current(ctx context.Context, id account.ID) (storage.AccountRe
 			continue
 		}
 		if !record.Enabled {
-			m.invalidateLocked(id)
+			if !before.needsSignInFor(record) {
+				m.invalidateLocked(id)
+			}
 			m.mu.Unlock()
 			return storage.AccountRecord{}, nil, ErrDisabled
 		}
 		if before == nil || before.previous != record {
+			needsSignIn := before.needsSignInFor(record)
 			m.invalidateLocked(id)
-			before = &refreshState{previous: record}
+			before = &refreshState{previous: record, needsSignIn: needsSignIn}
 			m.refreshes[id] = before
 		}
 		m.mu.Unlock()
@@ -311,13 +319,15 @@ func (m *Manager) statusLocked(record storage.AccountRecord) AccountStatus {
 		status.State = StateUnavailable
 	}
 	state := m.refreshes[status.Identity.ID]
+	if state.needsSignInFor(record) {
+		status.State = StateNeedsSignIn
+		return status
+	}
 	if state == nil || state.previous != record {
 		return status
 	}
 	status.RetryAt = state.retryAt
 	switch {
-	case state.needsSignIn:
-		status.State = StateNeedsSignIn
 	case state.done != nil:
 		status.State = StateRefreshing
 	case state.replacement != nil:
@@ -326,12 +336,17 @@ func (m *Manager) statusLocked(record storage.AccountRecord) AccountStatus {
 	return status
 }
 
+// Enable restores eligibility using stored credentials without starting a refresh.
+func (m *Manager) Enable(ctx context.Context, id account.ID) error {
+	return m.store.EnableAccount(ctx, id)
+}
+
 // Disable persists disablement before canceling in-flight work for the account.
 func (m *Manager) Disable(ctx context.Context, id account.ID) error {
 	if err := m.store.DisableAccount(ctx, id); err != nil {
 		return err
 	}
-	m.invalidate(id)
+	m.invalidate(id, true)
 	return nil
 }
 
@@ -340,14 +355,18 @@ func (m *Manager) Delete(ctx context.Context, id account.ID) error {
 	if err := m.store.DeleteAccount(ctx, id); err != nil {
 		return err
 	}
-	m.invalidate(id)
+	m.invalidate(id, false)
 	return nil
 }
 
-func (m *Manager) invalidate(id account.ID) {
+func (m *Manager) invalidate(id account.ID, preserveSignIn bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	state := m.refreshes[id]
 	m.invalidateLocked(id)
+	if preserveSignIn && state != nil && state.needsSignIn {
+		m.refreshes[id] = state
+	}
 	if m.login != nil && m.login.previous != nil && m.login.previous.Account.Identity().ID == id {
 		m.login.cancel()
 		if m.login.status.State == LoginWaiting || m.login.status.State == LoginExchanging {

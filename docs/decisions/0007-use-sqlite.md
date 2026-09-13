@@ -31,6 +31,8 @@ OAuth completion replaces credentials only if the account is still enabled and
 the stored credentials match the snapshot that started the operation. Use one
 conditional update so deletion or newer credentials cannot be undone by a late
 result. The encrypted record serves as its revision; no schema field is needed.
+Re-enabling an account re-encrypts the same credentials with a fresh nonce so
+results from before disablement cannot become valid again.
 
 ## Alternatives and consequences
 

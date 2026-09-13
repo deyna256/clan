@@ -26,6 +26,12 @@ func (e *Executor) DisableAccount(ctx context.Context, id account.ID) error {
 		func(r *requestState) bool { return r.accountID == id }, true)
 }
 
+// EnableAccount restores account eligibility without restarting canceled work.
+func (e *Executor) EnableAccount(ctx context.Context, id account.ID) error {
+	return e.change(ctx, func() error { return e.oauth.Enable(ctx, id) },
+		func(*requestState) bool { return false }, true)
+}
+
 // DeleteAccount removes stored credentials and waits for affected request cleanup.
 func (e *Executor) DeleteAccount(ctx context.Context, id account.ID) error {
 	return e.change(ctx, func() error { return e.oauth.Delete(ctx, id) },

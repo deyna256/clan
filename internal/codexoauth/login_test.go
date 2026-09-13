@@ -1,6 +1,7 @@
 package codexoauth_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,79 @@ import (
 	"github.com/deyna256/clan/internal/codexoauth"
 	"github.com/deyna256/clan/internal/storage"
 )
+
+func TestLoginIDsIdentifyLatestAttemptWithoutExposingOAuthState(t *testing.T) {
+	f := managerFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("unexpected exchange")
+	}), nil)
+	if got := f.manager.LoginStatus(); got != (codexoauth.LoginStatus{}) {
+		t.Fatalf("initial status = %+v, want zero status", got)
+	}
+	if err := f.manager.CancelLogin(t.Context(), "missing"); !errors.Is(err, codexoauth.ErrLoginMismatch) {
+		t.Fatalf("cancel without attempt = %v, want ErrLoginMismatch", err)
+	}
+	first, err := f.manager.StartLogin(t.Context(), "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.LoginID == "" || first.LoginID == string(first.AccountID) || first.LoginID == authorizationState(t, first) {
+		t.Fatal("public login ID is missing or shares an account ID or OAuth state")
+	}
+	if err := f.manager.CancelLogin(t.Context(), "wrong"); !errors.Is(err, codexoauth.ErrLoginMismatch) {
+		t.Fatalf("mismatched cancel = %v, want ErrLoginMismatch", err)
+	}
+	if got := f.manager.LoginStatus(); got.State != codexoauth.LoginWaiting || got.LoginID != first.LoginID {
+		t.Fatalf("status after mismatched cancel = %+v", got)
+	}
+	if err := f.manager.CancelLogin(t.Context(), first.LoginID); err != nil {
+		t.Fatal(err)
+	}
+	terminal := f.manager.LoginStatus()
+	if err := f.manager.CancelLogin(t.Context(), first.LoginID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.manager.LoginStatus(); got != terminal || got.State != codexoauth.LoginCanceled {
+		t.Fatalf("terminal cancel changed status: %+v", got)
+	}
+	saveOAuthAccount(t, f.store, "one", time.Now().Add(time.Hour))
+	second, err := f.manager.StartReconnect(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.manager.CancelLogin(t.Context(), first.LoginID)
+
+	if !errors.Is(err, codexoauth.ErrLoginMismatch) {
+		t.Fatalf("stale cancel = %v, want ErrLoginMismatch", err)
+	}
+	if got := f.manager.LoginStatus(); got.LoginID != second.LoginID || got.State != codexoauth.LoginWaiting {
+		t.Fatalf("stale cancel changed latest attempt: %+v", got)
+	}
+	if second.LoginID == first.LoginID || second.LoginID == "one" || second.LoginID == authorizationState(t, second) {
+		t.Fatal("reconnect did not generate an independent public login ID")
+	}
+}
+
+func TestCancelLoginHonorsCanceledContext(t *testing.T) {
+	f := managerFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("unexpected exchange")
+	}), nil)
+	instructions, err := f.manager.StartLogin(t.Context(), "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err = f.manager.CancelLogin(ctx, instructions.LoginID)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v, want context.Canceled", err)
+	}
+	if got := f.manager.LoginStatus(); got.State != codexoauth.LoginWaiting {
+		t.Fatalf("canceled request changed login: %+v", got)
+	}
+}
 
 func TestLoginPersistsBeforeSuccessAndRejectsStateReplay(t *testing.T) {
 	var calls atomic.Int32
@@ -57,6 +131,12 @@ func TestLoginPersistsBeforeSuccessAndRejectsStateReplay(t *testing.T) {
 	}
 	if status := f.manager.LoginStatus(); status.State != codexoauth.LoginSucceeded || status.AccountID != instructions.AccountID {
 		t.Fatalf("login status = %+v", status)
+	}
+	if err := f.manager.CancelLogin(t.Context(), instructions.LoginID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.manager.LoginStatus(); got.State != codexoauth.LoginSucceeded || got.LoginID != instructions.LoginID {
+		t.Fatalf("cancel after persistence changed successful login: %+v", got)
 	}
 	if success.cache != "no-store" || success.referrer != "no-referrer" {
 		t.Fatal("missing callback secrecy headers")
@@ -142,7 +222,9 @@ func TestLoginClaimsStateBeforeExchangeAndCancellationPreventsSave(t *testing.T)
 	if replay.status != 400 {
 		t.Fatal("concurrent callback was not rejected")
 	}
-	f.manager.CancelLogin()
+	if err := f.manager.CancelLogin(t.Context(), instructions.LoginID); err != nil {
+		t.Fatal(err)
+	}
 	unblock()
 	if err := <-result; err != nil {
 		t.Fatal(err)
@@ -280,6 +362,48 @@ func TestLateReconnectCannotUndoDisable(t *testing.T) {
 	}
 }
 
+func TestLateReconnectCannotWriteAfterReenable(t *testing.T) {
+	listener, callback := callbackListener(t)
+	f, entered, release := blockedOAuthFixture(t, loginTokenResponse("different-provider"), listener)
+	saveOAuthAccount(t, f.store, "one", time.Now().Add(time.Hour))
+	instructions, err := f.manager.StartReconnect(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authorizationState(t, instructions)
+	result := make(chan error, 1)
+	go func() {
+		response, err := http.Get(callback + "?state=" + url.QueryEscape(state) + "&code=code")
+		if response != nil {
+			response.Body.Close()
+		}
+		result <- err
+	}()
+	<-entered
+
+	if err := f.manager.Disable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.manager.Enable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+
+	if got := f.manager.LoginStatus(); got.State != codexoauth.LoginCanceled || got.LoginID != instructions.LoginID {
+		t.Fatalf("late reconnect changed canceled status: %+v", got)
+	}
+	record, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !record.Enabled || record.Account.Credentials().RefreshToken != "old-refresh" {
+		t.Fatal("stale reconnect changed credentials after re-enablement")
+	}
+}
+
 func TestLateReconnectCannotUndoDelete(t *testing.T) {
 	listener, callback := callbackListener(t)
 	f, entered, release := blockedOAuthFixture(t, loginTokenResponse("different-provider"), listener)
@@ -370,7 +494,9 @@ func TestPendingLoginExpiresAndCancelAllowsAnother(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.manager.CancelLogin()
+		if err := f.manager.CancelLogin(t.Context(), second.LoginID); err != nil {
+			t.Fatal(err)
+		}
 		if f.manager.LoginStatus().State != codexoauth.LoginCanceled {
 			t.Fatal("login was not canceled")
 		}
@@ -439,7 +565,9 @@ func TestCanceledLoginCannotOverwriteNewLogin(t *testing.T) {
 	}()
 	<-entered
 
-	f.manager.CancelLogin()
+	if err := f.manager.CancelLogin(t.Context(), first.LoginID); err != nil {
+		t.Fatal(err)
+	}
 	next, err := f.manager.StartLogin(t.Context(), "New")
 	if err != nil {
 		t.Fatal(err)
@@ -497,7 +625,9 @@ func TestCloseJoinsReplacedCanceledLoginJob(t *testing.T) {
 		}
 	}()
 	<-entered
-	f.manager.CancelLogin()
+	if err := f.manager.CancelLogin(t.Context(), first.LoginID); err != nil {
+		t.Fatal(err)
+	}
 	<-canceled
 	if _, err := f.manager.StartLogin(t.Context(), "New"); err != nil {
 		t.Fatal(err)

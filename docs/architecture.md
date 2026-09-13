@@ -40,12 +40,16 @@ The HTTP JSON management API lives under `/api` and requires a separate admin to
 
 | Resource | Operations |
 |---|---|
-| Codex accounts | Connect, inspect status, disable and delete |
+| Codex accounts | Connect, inspect status, disable, enable and delete |
 | Client access keys | Create, list, revoke and update concurrency limits |
 | Models | List available models |
 
 All client keys share the connected accounts and available models. They do not
 carry individual account or model permissions.
+
+The [management API reference](management-api.md) defines routes, schemas,
+pagination and error behavior. Huma generates OpenAPI from Go request/response
+types; framework types stay inside the management HTTP package.
 
 An administrator starts OAuth connection through the management API and receives
 sign-in instructions. After browser sign-in, CLAN stores encrypted credentials
@@ -151,8 +155,10 @@ cleanup. Management must use its mutation methods for revocation, account remova
 and concurrency edits. Close execution before the OAuth manager and storage;
 then close the Codex client's idle connections.
 
-The entry point is empty. Gateway and management HTTP routes and application
-wiring are not implemented yet.
+The [management handler](../internal/management/management.go) exposes these
+operations through authenticated HTTP JSON. It borrows the shared services;
+the application owns their shutdown. The entry point is still empty: client
+HTTP routes and application wiring remain to be implemented.
 
 ## Remaining decisions and checks
 
@@ -160,7 +166,7 @@ wiring are not implemented yet.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
-- Define management schemas and HTTP server settings, including downstream write
+- Define HTTP server settings, including downstream write
   timeouts. Execution behavior is defined in [ADR 0003](decisions/0003-separate-request-execution-from-protocols.md).
 
 Do not infer automatic model discovery in OpenCode from the presence of

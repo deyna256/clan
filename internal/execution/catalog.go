@@ -45,14 +45,21 @@ func (e *Executor) Models(ctx context.Context, key string) ([]codex.Model, error
 	if err := e.checkKey(ctx, key); err != nil {
 		return nil, err
 	}
-	snapshot, err := e.snapshot(ctx)
+	models, err := e.AvailableModels(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := e.checkKey(ctx, key); err != nil {
 		return nil, err
 	}
-	return snapshot.Listed, nil
+	return models, nil
+}
+
+// AvailableModels returns the shared visible catalog for trusted administration.
+// HTTP callers must authenticate the administrator before calling it.
+func (e *Executor) AvailableModels(ctx context.Context) ([]codex.Model, error) {
+	snapshot, err := e.snapshot(ctx)
+	return snapshot.Listed, err
 }
 
 func (e *Executor) checkKey(ctx context.Context, key string) error {

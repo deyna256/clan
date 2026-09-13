@@ -542,6 +542,41 @@ func TestConcurrencyEditsPreserveExistingRequests(t *testing.T) {
 	f.open(t, f.key)
 }
 
+func TestEnableRestoresEligibilityWithoutRevivingCanceledWork(t *testing.T) {
+	f := newFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, "data: {\"type\":\"response.created\"}\n\n"), nil
+	}))
+	previous := f.open(t, f.key)
+	if err := f.executor.DisableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	models, err := f.executor.AvailableModels(t.Context())
+	if err != nil || len(models) != 0 {
+		t.Fatalf("disabled catalog = %v, %v; want empty", models, err)
+	}
+
+	if err := f.executor.EnableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	models, err = f.executor.AvailableModels(t.Context())
+	if err != nil || len(models) != 1 || models[0].ID != "model" {
+		t.Fatalf("enabled catalog = %v, %v; want model", models, err)
+	}
+	if _, err := previous.Next(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("old stream after enable = %v, want canceled", err)
+	}
+	current := f.open(t, f.key)
+	if err := f.executor.EnableAccount(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if event, err := current.Next(); err != nil || !strings.Contains(string(event), "response.created") {
+		t.Fatalf("active stream after repeated enable = %s, %v", event, err)
+	}
+	if err := f.executor.EnableAccount(t.Context(), "missing"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("enable missing account = %v, want not found", err)
+	}
+}
+
 func TestCloseWaitsForActiveCleanupAndRejectsNewWork(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		body, unblock := newBlockedClose()

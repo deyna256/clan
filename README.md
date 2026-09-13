@@ -10,7 +10,7 @@
 
 CLAN is a self-hosted LLM gateway. The first release will connect OpenCode and
 Python applications using the OpenAI SDK to Codex subscriptions through OAuth.
-Clients use CLAN access keys; CLAN manages the Codex accounts.
+Clients use CLAN client keys; CLAN manages the Codex accounts.
 
 > **Status:** design and foundation code. The gateway is not yet runnable.
 > The scope below describes the agreed first release, not completed functionality.
@@ -122,6 +122,7 @@ These exclusions do not commit the project to a later delivery date.
 |---|---|
 | Understand modules, management and open questions | [Architecture](docs/architecture.md) |
 | Check client setup and compatibility requirements | [Client contract](docs/client-contract.md) |
+| Manage accounts, client keys and model lists | [Management API](docs/management-api.md) |
 | Write and review Go code and tests | [Development guide](docs/development.md) |
 | Open an issue or PR, or update documentation | [Contributing](CONTRIBUTING.md) |
 | Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |
