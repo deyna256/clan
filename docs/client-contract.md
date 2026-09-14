@@ -190,8 +190,13 @@ and [Codex at b4c864dd](https://github.com/openai/codex/tree/b4c864dd6497ae764e6
 - **Gateway checks:** local HTTP providers and SQLite cover login, key creation,
   JSON/SSE, restart, revocation and shutdown. The built binary also passed startup,
   authenticated OpenAPI access and SIGTERM shutdown. These checks did not call Codex.
+- **Docker check, 2026-09-14:** the Compose image ran as a non-root user. Browser
+  sign-in through the published loopback callback succeeded; the account and client
+  keys survived container replacement, and model discovery returned five models.
+  The first model list after sign-in returned 503 and succeeded after the container
+  was replaced; the cause of that first failure was not recorded.
 - **Pending:** live images, opaque reasoning replay, remaining tool-choice and
-  format variants and remote/Docker callback forwarding.
+  format variants and remote callback forwarding.
   These module checks do not establish OpenCode or Python SDK compatibility.
   The full client matrix belongs to
   [#36](https://github.com/deyna256/clan/issues/36), after OAuth and HTTP integration.

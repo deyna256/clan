@@ -2,3 +2,4 @@
 /.agents/
 /clan.db
 /clan.db-*
+/.env

@@ -65,8 +65,9 @@ listener must also be reachable inside the container network.
 Bind the callback listener before returning sign-in instructions. Use PKCE and
 single-use state tied to the pending login. Report success only after credentials
 are stored. Device Code, auth-file imports and alternate connection methods are
-outside the first release. Docker forwarding still needs validation;
-see the [recorded checks](client-contract.md#checks-so-far).
+outside the first release. Docker forwarding passed a live check; forwarding to a
+remote server still needs validation. See the
+[recorded checks](client-contract.md#checks-so-far).
 
 ### Token refresh and reconnect
 
@@ -171,7 +172,7 @@ forced exit may still require a new sign-in.
 
 ## Remaining decisions and checks
 
-- Verify browser OAuth callback forwarding for server and Docker deployment.
+- Verify browser OAuth callback forwarding for a remote server deployment.
 - Verify the agreed generation features against Codex. Acceptance scenarios must
   cover OpenCode tool execution and Python tool loops, as well as complete JSON
   responses and SSE streaming.
