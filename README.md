@@ -136,9 +136,9 @@ the OpenCode configuration.
 
 ## First release
 
-Everything below is implemented and was checked live with OpenCode 1.18.29 and the
-OpenAI Python SDK 3.13.0, in Docker and from source. Known limitations are listed
-in the [client contract](docs/client-contract.md#checks-so-far).
+Everything below is implemented. Live checks with OpenCode 1.18.29 and the OpenAI
+Python SDK 3.13.0, known limitations and what is not checked yet are listed in the
+[client contract](docs/client-contract.md#checks-so-far).
 
 | Area | Scope | Status |
 |---|---|---|
