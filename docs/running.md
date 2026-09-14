@@ -5,7 +5,7 @@ still pending.
 
 ## Configuration
 
-| Environment variable | From source | Docker image |
+| Environment variable | From source | Docker Compose |
 |---|---|---|
 | `CLAN_LISTEN_ADDR` | `127.0.0.1:8080` | `0.0.0.0:8080`, published on host `127.0.0.1:8080` |
 | `CLAN_DB_PATH` | `./clan.db` | `/data/clan.db` in the `clan_data` volume |
@@ -24,13 +24,14 @@ Docker Compose runs one container and keeps its database in the `clan_data` volu
 Copy the example environment file, fill in both secrets, then build and start:
 
 ```sh
-cp .env.example .env
+cp .env.example .env && chmod 600 .env
 just build
 just run
 ```
 
 The container runs as a non-root user without a shell and publishes both ports on
-loopback only. Logs are JSON: `docker compose logs -f`.
+loopback only. It restarts automatically, including after a reboot, until
+`just down`. Logs are JSON: `docker compose logs -f`.
 
 | Command | Effect |
 |---|---|
@@ -39,7 +40,8 @@ loopback only. Logs are JSON: `docker compose logs -f`.
 | `just down` | Stop and remove the container; keep the `clan_data` volume |
 | `just clean` | Remove the container, image and `clan_data` volume after confirmation |
 
-Back up the `clan_data` volume together with `.env`.
+Back up the `clan_data` volume together with `.env`. Stop CLAN with `just down`
+first, so the database copy is consistent.
 
 ## Start from source
 

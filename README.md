@@ -95,9 +95,9 @@ be read.
 
 ```sh
 git clone https://github.com/deyna256/clan && cd clan
-cp .env.example .env      # set CLAN_ADMIN_TOKEN and CLAN_ENCRYPTION_KEY
-just build && just run    # serves 127.0.0.1:8080; data stays in the clan_data volume
-set -a; . ./.env; set +a  # load the admin token into this shell
+cp .env.example .env && chmod 600 .env  # then set both secrets in .env
+just build && just run                  # serves 127.0.0.1:8080; data stays in the clan_data volume
+set -a; . ./.env; set +a                # load the admin token into this shell
 ```
 
 **2. Connect a Codex account.** Start a login, then open the returned
