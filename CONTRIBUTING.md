@@ -80,7 +80,8 @@ Documentation-only changes need link and formatting checks, not Go tests.
 The [CI workflow](.github/workflows/ci.yml) runs formatting, dependency, static
 analysis and test checks on pull requests to `main` and pushes to `main`.
 Use the Go version in `go.mod` and the Just version pinned in the workflow.
-Golangci-lint and Docker lifecycle commands are not configured yet.
+Golangci-lint is not configured yet. `just build`, `just run`, `just down` and
+`just clean` manage the Docker installation described in [Running CLAN](docs/running.md).
 
 ## Pull requests
 

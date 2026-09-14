@@ -86,25 +86,22 @@ are managed through an admin API with an OpenAPI schema.
 
 ## Quick start
 
-You need the Go version from [`go.mod`](go.mod), `openssl` and a Codex subscription.
-Docker packaging is in progress ([#35](https://github.com/deyna256/clan/issues/35)).
+You need Docker with Compose, [`just`](https://github.com/casey/just), `openssl` and
+a Codex subscription. To run without Docker, see [Running CLAN](docs/running.md).
 
-**1. Build and start the gateway.** Generate two secrets once and keep them private.
-Restarts need the same encryption key, otherwise stored credentials cannot be read.
+**1. Configure and start the gateway.** Put two secrets in `.env` and keep them
+private. Restarts need the same encryption key, otherwise stored credentials cannot
+be read.
 
 ```sh
 git clone https://github.com/deyna256/clan && cd clan
-go build -o .local/clan ./cmd/clan
-
-openssl rand -hex 32      # use as CLAN_ADMIN_TOKEN
-openssl rand -base64 32   # use as CLAN_ENCRYPTION_KEY
-
-export CLAN_ADMIN_TOKEN=... CLAN_ENCRYPTION_KEY=...
-.local/clan               # serves 127.0.0.1:8080, stores state in ./clan.db
+cp .env.example .env      # set CLAN_ADMIN_TOKEN and CLAN_ENCRYPTION_KEY
+just build && just run    # serves 127.0.0.1:8080; data stays in the clan_data volume
+set -a; . ./.env; set +a  # load the admin token into this shell
 ```
 
-**2. Connect a Codex account.** In a second shell with `CLAN_ADMIN_TOKEN` exported,
-start a login, then open the returned `authorization_url` in your browser.
+**2. Connect a Codex account.** Start a login, then open the returned
+`authorization_url` in your browser.
 
 ```sh
 curl http://127.0.0.1:8080/api/oauth/login \
@@ -139,8 +136,8 @@ the OpenCode configuration.
 
 ## First release
 
-The gateway runs locally end to end. Docker packaging and acceptance checks with
-real clients remain before the release.
+The gateway runs end to end in Docker or from source. Acceptance checks with real
+clients remain before the release.
 
 | Area | Scope | Status |
 |---|---|---|
@@ -156,7 +153,7 @@ real clients remain before the release.
 | Management | HTTP JSON API under `/api`, protected by a separate admin token | ✅ |
 | Storage | SQLite for accounts, encrypted OAuth credentials, access-key hashes and settings | ✅ |
 | Diagnostics | Structured JSON logs with outcomes, safe errors, account switches and known token usage | ✅ |
-| Deployment | One Go process or container per installation | 🚧 container, [#35](https://github.com/deyna256/clan/issues/35) |
+| Deployment | One Go process or container per installation | ✅ |
 
 ✅ implemented · 🚧 in progress. Live checks against Codex are recorded in the
 [client contract](docs/client-contract.md#checks-so-far).
