@@ -28,8 +28,8 @@ out of examples and logs.
 
 Give each issue one type label: `bug`, `feature`, `maintenance`, `docs` or
 `question`. Add `ui` for interface work, `ci` for CI and developer tooling, and
-`good first issue` for small, self-contained tasks. Close duplicates and declined issues with the matching close
-reason instead of a label.
+`good first issue` for small, self-contained tasks. Close duplicates and declined
+issues with the matching close reason instead of a label.
 
 ## Branches
 
