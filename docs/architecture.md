@@ -173,9 +173,8 @@ forced exit may still require a new sign-in.
 ## Remaining decisions and checks
 
 - Verify browser OAuth callback forwarding for a remote server deployment.
-- Verify the agreed generation features against Codex. Acceptance scenarios must
-  cover OpenCode tool execution and Python tool loops, as well as complete JSON
-  responses and SSE streaming.
+- Verify account fallback with several accounts and the explicit `text` output
+  format against Codex.
 
 Do not infer automatic model discovery in OpenCode from the presence of
 `GET /v1/models`; verify the client's configuration and behavior.

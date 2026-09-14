@@ -7,7 +7,7 @@
 [![CI](https://github.com/deyna256/clan/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/deyna256/clan/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/deyna256/clan)](go.mod)
 [![License: MIT](https://img.shields.io/github/license/deyna256/clan)](LICENSE)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#first-release)
+[![Release](https://img.shields.io/github/v/release/deyna256/clan)](https://github.com/deyna256/clan/releases)
 
 [Quick start](#quick-start) · [First release](#first-release) · [How it works](#request-flow) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
 
@@ -136,16 +136,17 @@ the OpenCode configuration.
 
 ## First release
 
-The gateway runs end to end in Docker or from source. Acceptance checks with real
-clients remain before the release.
+Everything below is implemented and was checked live with OpenCode 1.18.29 and the
+OpenAI Python SDK 3.13.0, in Docker and from source. Known limitations are listed
+in the [client contract](docs/client-contract.md#checks-so-far).
 
 | Area | Scope | Status |
 |---|---|---|
-| Clients | OpenCode and Python applications using the OpenAI SDK | 🚧 acceptance checks, [#36](https://github.com/deyna256/clan/issues/36) |
+| Clients | OpenCode and Python applications using the OpenAI SDK | ✅ |
 | Client API | `POST /v1/responses` for generation; `GET /v1/models` for available models | ✅ |
 | Integration | Codex subscription access through built-in OAuth sign-in | ✅ |
-| Generation | Text, instructions, client-supplied history, image input including screenshots, JSON and JSON Schema output, reasoning settings and continuation data | ✅ images and reasoning replay not yet checked live |
-| Tools | Function definitions, calls, JSON argument fragments and results; tools run in the client | ✅ some `tool_choice` modes not yet checked live |
+| Generation | Text, instructions, client-supplied history, image input including screenshots, JSON and JSON Schema output, reasoning settings and continuation data | ✅ |
+| Tools | Function definitions, calls, JSON argument fragments and results; tools run in the client | ✅ |
 | Responses | Complete JSON responses and SSE streaming | ✅ |
 | Accounts | One or more Codex accounts; round-robin for the requested model; temporarily exclude accounts with exhausted provider limits | ✅ |
 | Client access | Separate named keys for applications or people, with shared access to connected accounts and available models | ✅ |
@@ -154,9 +155,6 @@ clients remain before the release.
 | Storage | SQLite for accounts, encrypted OAuth credentials, access-key hashes and settings | ✅ |
 | Diagnostics | Structured JSON logs with outcomes, safe errors, account switches and known token usage | ✅ |
 | Deployment | One Go process or container per installation | ✅ |
-
-✅ implemented · 🚧 in progress. Live checks against Codex are recorded in the
-[client contract](docs/client-contract.md#checks-so-far).
 
 Clients send the full conversation history with each request. CLAN does not store
 responses or support continuation through `previous_response_id`. For Codex

@@ -1,7 +1,6 @@
 # Running CLAN
 
-Run one gateway process per database. Full OpenCode/Python acceptance checks are
-still pending.
+Run one gateway process per database.
 
 ## Configuration
 

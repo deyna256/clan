@@ -3,11 +3,10 @@
 The first release connects OpenCode and the OpenAI Python SDK to Codex through
 `POST /v1/responses` (JSON or SSE) and `GET /v1/models`.
 
-The gateway can [run locally](running.md). These are required checks, not completed
-client compatibility guarantees. Test failures and cancellation locally; verify supported
-generation scenarios with the real clients and Codex before release.
+The gateway can [run locally](running.md). The matrix lists the supported client
+scenarios; the [recorded checks](#checks-so-far) show what passed against Codex.
 
-## Required acceptance matrix
+## Acceptance matrix
 
 | Scenario | Required behavior | Client check |
 |---|---|---|
@@ -15,7 +14,7 @@ generation scenarios with the real clients and Codex before release.
 | Text and instructions | Preserve text input and top-level instructions. JSON returns a complete response and output message. | Python JSON; OpenCode turn |
 | Function loop and fragments | Preserve function name, `call_id`, JSON argument fragments and result output. The next request sends `function_call_output` with the same `call_id` and full history. | Python loop; OpenCode tool turn |
 | Screenshots and images | Accept screenshot/image input as the supported URL or data URL form and preserve it as `input_image`. File IDs and Files resources are not implied. | OpenCode screenshot turn |
-| JSON and JSON Schema | Preserve `text.format` for JSON and JSON Schema output and return the complete structured response. Verify exact Codex support, including any `json_object` variant, live. | Python JSON/schema |
+| JSON and JSON Schema | Preserve `text.format` for JSON and JSON Schema output and return the complete structured response. | Python JSON/schema |
 | Opaque reasoning | Preserve reasoning item IDs, summaries, encrypted content and ordering through a tool loop without interpreting the content. | Python loop; OpenCode tool turn |
 | Incomplete, failure and cancel | Preserve terminal status and known versus unknown usage. EOF before a terminal event is an error; cancellation stops the attempt and releases its resources. | Python and OpenCode SSE |
 | Model listing | `GET /v1/models` combines the Codex catalogs of enabled accounts. Temporary cooldowns do not remove models. Configure and test the selected models in OpenCode. | Python list; OpenCode config |
@@ -126,11 +125,10 @@ an explicit false value. Clients execute functions; CLAN carries definitions,
 calls and results with their original `call_id`. Reject provider-native tools
 in the first release.
 
-The target `tool_choice` set is `auto`, `none`, `required`, or
-`{"type":"function","name":"..."}`. Verify every mode with Codex before claiming
-support: official Codex source confirms use of `auto`, while the client SDKs
-can serialize the other forms. If a mode fails provider validation, revisit its
-scope; never silently replace it with `auto`.
+The `tool_choice` set is `auto`, `none`, `required`, or
+`{"type":"function","name":"..."}`; all four passed live checks with Codex. If a
+mode fails provider validation, revisit its scope; never silently replace it
+with `auto`.
 
 ## Reasoning
 
@@ -155,9 +153,9 @@ and optional `description` and `strict`. Validate the parameter shape; leave
 schema enforcement to Codex. Do not rewrite schemas or repair model output.
 Preserve refusal and incomplete-response states.
 
-Official Codex source uses verbosity and JSON Schema. Verify the explicit `text`
-and `json_object` formats with Codex before claiming support. A client SDK's
-ability to serialize a format does not prove provider support.
+`json_object` and JSON Schema passed live checks with Codex; the explicit `text`
+format is not checked yet. A client SDK's ability to serialize a format does not
+prove provider support.
 
 ## Unsupported parameters
 
@@ -193,13 +191,19 @@ and [Codex at b4c864dd](https://github.com/openai/codex/tree/b4c864dd6497ae764e6
 - **Docker check, 2026-09-14:** the Compose image ran as a non-root user. Browser
   sign-in through the published loopback callback succeeded; the account and client
   keys survived container replacement, and model discovery returned five models.
-  The first model list after sign-in returned 503 and succeeded after the container
-  was replaced; the cause of that first failure was not recorded.
-- **Pending:** live images, opaque reasoning replay, remaining tool-choice and
-  format variants and remote callback forwarding.
-  These module checks do not establish OpenCode or Python SDK compatibility.
-  The full client matrix belongs to
-  [#36](https://github.com/deyna256/clan/issues/36), after OAuth and HTTP integration.
+- **Release check, 2026-09-14:** the OpenAI Python SDK 3.13.0 passed image input,
+  encrypted reasoning replay with `effort: high`, `tool_choice` `required` and
+  `auto`, HTTP 429 at a key's concurrency limit, and revocation during a stream:
+  the stream ended without completion and later requests got 401. OpenCode 1.18.29
+  with the [configuration below](#opencode) passed a text turn, reading and editing
+  a file with tools, an image attachment and cancellation.
+- **Known limitations:** OpenCode generates session titles with its small model and
+  `reasoning.effort: "minimal"`. Codex models do not list that effort, so CLAN
+  rejects these requests with HTTP 400 and sessions keep their default titles;
+  normal turns are not affected. The first model list right after a new sign-in
+  returned 503 twice; the catalog retries after five minutes or a restart.
+- **Not checked yet:** the explicit `text` output format, account fallback with
+  several accounts and remote callback forwarding.
 
 ## OpenCode
 
@@ -215,8 +219,7 @@ load a custom provider's models from `/v1/models`; see its
 Start with this project-local `opencode.json`.
 Set `CLAN_BASE_URL` to its URL ending in `/v1` and `CLAN_API_KEY` to a client key.
 Replace `MODEL_ID` in all three places with a model from `/v1/models` and set its
-capabilities to match. This configuration has been source-reviewed, not tested
-against a running CLAN installation.
+capabilities to match. This configuration passed a live check with OpenCode 1.18.29.
 
 ```json
 {
