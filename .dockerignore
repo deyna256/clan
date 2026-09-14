@@ -1,0 +1,6 @@
+# Build only from Go sources; keep local state, secrets and Git history out of the context.
+*
+!go.mod
+!go.sum
+!cmd
+!internal

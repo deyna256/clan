@@ -1,5 +1,3 @@
-# Code checks are available; Docker lifecycle commands are not configured yet.
-
 # Run all tests in the module with race detection and shuffled execution.
 test:
     go test -race -shuffle=on -count=1 ./...
@@ -40,20 +38,17 @@ deps:
 
 # Build the project Docker image from the current source.
 build:
-    @echo "build: not configured; Dockerfile is empty." >&2
-    @exit 1
+    docker compose build
 
 # Stop the project and remove its containers/networks, retaining persistent state.
 down:
-    @echo "down: not configured; project container configuration is missing." >&2
-    @exit 1
+    docker compose down
 
 # Start the already-built image without rebuilding or pulling.
 run:
-    @echo "run: not configured; project container configuration is missing." >&2
-    @exit 1
+    docker compose up --detach --no-build --pull never
 
-# Remove project artifacts, caches, images and volumes, including their state.
+# Remove project containers, networks, image and data volume, including all accounts and keys.
+[confirm("This deletes the CLAN data volume, including all accounts and keys. Continue?")]
 clean:
-    @echo "clean: not configured; project resource ownership is not defined yet." >&2
-    @exit 1
+    docker compose down --volumes --rmi all

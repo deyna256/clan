@@ -1,0 +1,20 @@
+name: clan
+
+services:
+  clan:
+    build: .
+    image: clan:local
+    env_file: .env
+    ports:
+      # Loopback only; use a TLS reverse proxy for remote access.
+      - "127.0.0.1:8080:8080"
+      # The OAuth redirect always targets localhost:1455.
+      - "127.0.0.1:1455:1455"
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    # CLAN allows up to 30 seconds for cleanup after SIGTERM.
+    stop_grace_period: 40s
+
+volumes:
+  data:
