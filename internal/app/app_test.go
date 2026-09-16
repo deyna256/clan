@@ -290,9 +290,6 @@ func TestStartupFailureReleasesBoundListener(t *testing.T) {
 	if err == nil {
 		t.Fatal("occupied callback address was accepted")
 	}
-	if !strings.HasPrefix(err.Error(), "app: binding CLAN_OAUTH_CALLBACK_ADDR: ") {
-		t.Fatalf("startup error = %q, want prefix %q", err, "app: binding CLAN_OAUTH_CALLBACK_ADDR: ")
-	}
 	rebound, err := net.Listen("tcp", address)
 	if err != nil {
 		t.Fatalf("startup leaked main listener: %v", err)
@@ -343,6 +340,33 @@ func TestStartupReportsUnderlyingCause(t *testing.T) {
 		}
 		if !strings.HasPrefix(err.Error(), "app: binding CLAN_LISTEN_ADDR: ") {
 			t.Fatalf("startup error = %q, want prefix %q", err, "app: binding CLAN_LISTEN_ADDR: ")
+		}
+		var opErr *net.OpError
+		if !errors.As(err, &opErr) {
+			t.Fatalf("startup error %q did not wrap net.OpError", err)
+		}
+		if strings.Contains(err.Error(), c.adminToken) || strings.Contains(err.Error(), string(c.encryptionKey)) {
+			t.Fatalf("startup error exposed secrets: %v", err)
+		}
+	})
+
+	t.Run("busy callback address", func(t *testing.T) {
+		occupied, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer occupied.Close()
+
+		c := testConfig(t)
+		c.callbackAddr = occupied.Addr().String()
+
+		_, err = newApplication(t.Context(), c, logger, &http.Client{}, "", "")
+
+		if err == nil {
+			t.Fatal("startup accepted busy callback address")
+		}
+		if !strings.HasPrefix(err.Error(), "app: binding CLAN_OAUTH_CALLBACK_ADDR: ") {
+			t.Fatalf("startup error = %q, want prefix %q", err, "app: binding CLAN_OAUTH_CALLBACK_ADDR: ")
 		}
 		var opErr *net.OpError
 		if !errors.As(err, &opErr) {
