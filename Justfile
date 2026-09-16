@@ -31,6 +31,11 @@ format mode="":
             ;;
     esac
 
+# Check module dependencies without changes and verify their cached contents.
+deps-check:
+    go mod tidy -diff
+    go mod verify
+
 # Synchronize module dependencies and verify their cached contents.
 deps:
     go mod tidy
