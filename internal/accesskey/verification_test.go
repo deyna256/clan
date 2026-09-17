@@ -21,9 +21,6 @@ func TestGenerateReturnsCanonicalKeyAndVerificationHash(t *testing.T) {
 	if err != nil || len(payload) != 32 {
 		t.Fatal("Generate() did not encode exactly 32 bytes as canonical base64url")
 	}
-	if !hash.Verify(raw) {
-		t.Error("generated hash does not verify the generated key")
-	}
 	lookup, ok := accesskey.Hash(raw)
 	if !ok || lookup != hash {
 		t.Error("lookup hash does not match the generated verification record")
@@ -34,17 +31,12 @@ func TestHashMatchesIndependentSHA256Vector(t *testing.T) {
 	want := fixtureHash()
 
 	got, ok := accesskey.Hash(fixtureRaw)
-	verified := want.Verify(fixtureRaw)
-
 	if !ok || got != want {
 		t.Errorf("Hash() = (%x, %t), want (%x, true)", got, ok, want)
 	}
-	if !verified {
-		t.Error("independent verification record rejected its matching key")
-	}
 }
 
-func TestVerifyRejectsDifferentKeyAndRecords(t *testing.T) {
+func TestHashDoesNotMatchDifferentKeyAndRecords(t *testing.T) {
 	original := fixtureHash()
 	changedFirst := original
 	changedFirst[0] ^= 1
@@ -64,10 +56,10 @@ func TestVerifyRejectsDifferentKeyAndRecords(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			verified := tt.hash.Verify(tt.raw)
+			candidate, valid := accesskey.Hash(tt.raw)
 
-			if verified {
-				t.Error("Verify() accepted a mismatched key or record")
+			if valid && candidate == tt.hash {
+				t.Error("Hash() matched a different key or verification record")
 			}
 		})
 	}
@@ -77,7 +69,6 @@ func TestVerifyRejectsDifferentKeyAndRecords(t *testing.T) {
 }
 
 func TestMalformedKeysReturnNoVerificationHash(t *testing.T) {
-	record := fixtureHash()
 	tests := []struct {
 		name string
 		raw  string
@@ -102,10 +93,8 @@ func TestMalformedKeysReturnNoVerificationHash(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hash, ok := accesskey.Hash(tt.raw)
-			verified := record.Verify(tt.raw)
-
-			if ok || hash != (accesskey.VerificationHash{}) || verified {
-				t.Errorf("Hash() = (%x, %t), Verify() = %t; want zero hash and false", hash, ok, verified)
+			if ok || hash != (accesskey.VerificationHash{}) {
+				t.Errorf("Hash() = (%x, %t), want zero hash and false", hash, ok)
 			}
 		})
 	}

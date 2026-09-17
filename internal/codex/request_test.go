@@ -104,7 +104,7 @@ func TestRequestDispatchOwnsAndPreservesContent(t *testing.T) {
 	}
 	copy(input, bytes.Repeat([]byte("x"), len(input)))
 
-	_, err = client.Generate(t.Context(), testAccount(t, "one"), r)
+	_, err = consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
 
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestRequestStringAndNullableControls(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, tt.input)
 
-			_, err := client.Generate(t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)
@@ -168,7 +168,7 @@ func TestRequestDoesNotHTMLEscapeContent(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, tt.input)
 
-			_, err := client.Generate(t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)
@@ -272,7 +272,7 @@ func TestRequestPreservesSupportedChoicesAndFormats(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, input)
 
-			_, err := client.Generate(t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)

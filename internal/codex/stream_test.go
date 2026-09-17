@@ -113,7 +113,7 @@ func TestGenerateHasNoDefaultTotalTimeout(t *testing.T) {
 		}()
 		started := time.Now()
 
-		result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+		result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 		if err != nil || time.Since(started) != 12*time.Minute || len(result.Response) == 0 {
 			t.Fatalf("Generate = %+v, %v after %v, want complete response after12m", result, err, time.Since(started))
@@ -167,7 +167,7 @@ func TestStreamPreservesOrderAndAssemblesCompletedItems(t *testing.T) {
 		t.Errorf("terminal end: %v", err)
 	}
 	result := stream.Result()
-	ordinary, err := client.Generate(t.Context(), testAccount(t, "one"), r)
+	ordinary, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
 
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestTerminalOutputIsAuthoritativeAndIncompleteIsDistinct(t *testing.T) {
 			wire += "data: {\"type\":\"response." + status + "\",\"response\":" + final + "}\n\n"
 			client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return httpResponse(200, "text/event-stream", wire), nil })}, "https://example.test")
 
-			result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			if err != nil {
 				t.Fatalf("terminal %s is not an attempt error: %v", status, err)
@@ -381,7 +381,7 @@ func TestStreamRejectsCorruptionAndPrematureEOF(t *testing.T) {
 				return httpResponse(200, "text/event-stream", tt.wire), nil
 			})}, "https://example.test")
 
-			result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			var failure *codex.Failure
 			if !errors.As(err, &failure) || failure.Category != codex.InvalidResponse || failure.SafeToRetry {
@@ -398,7 +398,7 @@ func TestMalformedUsageRetainsEveryValidCounter(t *testing.T) {
 	wire := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"usage\":{\"input_tokens\":-1,\"output_tokens\":0,\"total_tokens\":9}}}\n\n"
 	client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return httpResponse(200, "text/event-stream", wire), nil })}, "https://example.test")
 
-	result, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 	if err == nil || result.Usage.Input.Known || !result.Usage.Output.Known || result.Usage.Total.Tokens != 9 {
 		t.Errorf("usage after corruption: %+v, %v", result.Usage, err)
@@ -411,7 +411,7 @@ func TestStreamBoundsAccumulatedItems(t *testing.T) {
 		"data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":" + item + "}\n\n" + completeSSE
 	client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return httpResponse(200, "text/event-stream", wire), nil })}, "https://example.test")
 
-	_, err := client.Generate(t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 	var failure *codex.Failure
 	if !errors.As(err, &failure) || failure.Category != codex.InvalidResponse {

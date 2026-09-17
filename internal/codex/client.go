@@ -112,25 +112,6 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 // The application calls it after execution and catalog shutdown.
 func (c *Client) CloseIdleConnections() { c.http.CloseIdleConnections() }
 
-// Generate consumes the same stream as Stream and returns its terminal result.
-// The caller must first validate enabled-account model membership and ValidateModel.
-func (c *Client) Generate(ctx context.Context, a account.Account, request Request) (Result, error) {
-	stream, err := c.Stream(ctx, a, request)
-	if err != nil {
-		return Result{}, err
-	}
-	defer stream.Close()
-	for {
-		_, err = stream.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				err = nil
-			}
-			return stream.Result(), err
-		}
-	}
-}
-
 // Stream opens one upstream attempt. The caller owns Close, including on early return.
 // The caller must first validate enabled-account model membership and ValidateModel.
 func (c *Client) Stream(ctx context.Context, a account.Account, request Request) (*Stream, error) {

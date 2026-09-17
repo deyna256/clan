@@ -136,7 +136,7 @@ func TestConditionalCredentialReplacementRejectsDeletedAccount(t *testing.T) {
 
 func TestConditionalCredentialReplacementRejectsRewrittenCredentials(t *testing.T) {
 	s, previous := credentialReplacementFixture(t)
-	if err := s.ReplaceAccountCredentials(t.Context(), "one", previous.Account.Credentials()); err != nil {
+	if err := s.ReplaceAccountCredentialsIfUnchanged(t.Context(), previous, previous.Account.Credentials()); err != nil {
 		t.Fatal(err)
 	}
 	updated := newAccount(t, "two", "Replacement").Credentials()
