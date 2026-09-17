@@ -32,23 +32,25 @@ format mode="":
     esac
 
 # Synchronize module dependencies, or check them without changing files.
+[positional-arguments]
 deps mode="":
-    #!/usr/bin/env bash
-    set -euo pipefail
+    #!/usr/bin/env sh
+    set -eu
 
-    case "{{mode}}" in
+    case "$1" in
         "")
             go mod tidy
             go mod verify
             ;;
         --check)
-            if ! go mod tidy -diff || ! go mod verify; then
-                echo "Run just deps to fix these files." >&2
+            if ! go mod tidy -diff; then
+                printf '%s\n' 'Run just deps to fix these files.' >&2
                 exit 1
             fi
+            go mod verify
             ;;
         *)
-            echo "Usage: just deps [--check]" >&2
+            printf '%s\n' 'Usage: just deps [--check]' >&2
             exit 2
             ;;
     esac
