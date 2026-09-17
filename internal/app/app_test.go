@@ -378,6 +378,42 @@ func TestStartupReportsUnderlyingCause(t *testing.T) {
 	})
 }
 
+func TestServingFailureReportsUnderlyingCause(t *testing.T) {
+	if testing.Short() {
+		t.Skip("HTTP and temporary SQLite integration")
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := testConfig(t)
+	a, err := newApplication(t.Context(), c, logger, &http.Client{}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- a.run(t.Context(), logger) }()
+
+	if err := a.listener.Close(); err != nil {
+		t.Fatalf("closing listener: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("run succeeded after listener was closed")
+		}
+		if !strings.HasPrefix(err.Error(), "app: HTTP serving: ") {
+			t.Fatalf("run error = %q, want prefix %q", err, "app: HTTP serving: ")
+		}
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("run error %q did not wrap net.ErrClosed", err)
+		}
+		if strings.Contains(err.Error(), c.adminToken) || strings.Contains(err.Error(), string(c.encryptionKey)) {
+			t.Fatalf("run error exposed secrets: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not stop within five seconds after listener was closed")
+	}
+}
+
 type runningApplication struct {
 	app     *application
 	address string
