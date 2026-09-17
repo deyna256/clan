@@ -39,7 +39,7 @@ jobs:
         run: just format --check
 
       - name: Check dependencies
-        run: just deps-check
+        run: just deps --check
 
       - name: Run static analysis
         run: just lint

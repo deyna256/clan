@@ -72,7 +72,7 @@ committing.
 
 Use the commands in the [Justfile](Justfile): `just format` formats Go code,
 `just format --check` checks formatting without changing files, `just deps` updates
-and verifies dependencies, `just deps-check` checks dependencies without changing
+and verifies dependencies, `just deps --check` checks dependencies without changing
 files, and `just lint` runs `go vet ./...`. `just test-unit` runs fast tests,
 and `just test` runs all tests. Run the relevant checks before submitting changes.
 Documentation-only changes need link and formatting checks, not Go tests.

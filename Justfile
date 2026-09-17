@@ -31,15 +31,27 @@ format mode="":
             ;;
     esac
 
-# Check module dependencies without changes and verify their cached contents.
-deps-check:
-    go mod tidy -diff
-    go mod verify
+# Synchronize module dependencies, or check them without changing files.
+deps mode="":
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-# Synchronize module dependencies and verify their cached contents.
-deps:
-    go mod tidy
-    go mod verify
+    case "{{mode}}" in
+        "")
+            go mod tidy
+            go mod verify
+            ;;
+        --check)
+            if ! go mod tidy -diff || ! go mod verify; then
+                echo "Run just deps to fix these files." >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Usage: just deps [--check]" >&2
+            exit 2
+            ;;
+    esac
 
 # Build the project Docker image from the current source.
 build:
