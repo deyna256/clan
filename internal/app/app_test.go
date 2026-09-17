@@ -297,6 +297,87 @@ func TestStartupFailureReleasesBoundListener(t *testing.T) {
 	rebound.Close()
 }
 
+func TestStartupReportsUnderlyingCause(t *testing.T) {
+	if testing.Short() {
+		t.Skip("HTTP and temporary SQLite integration")
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	t.Run("missing database directory", func(t *testing.T) {
+		c := testConfig(t)
+		c.dbPath = filepath.Join(t.TempDir(), "nonexistent", "dir", "clan.db")
+
+		_, err := newApplication(t.Context(), c, logger, &http.Client{}, "", "")
+
+		if err == nil {
+			t.Fatal("startup accepted missing database directory")
+		}
+		if !strings.HasPrefix(err.Error(), "app: opening the database: ") {
+			t.Fatalf("startup error = %q, want prefix %q", err, "app: opening the database: ")
+		}
+		if errors.Unwrap(err) == nil {
+			t.Fatalf("startup error %q dropped underlying cause", err)
+		}
+		if strings.Contains(err.Error(), c.adminToken) || strings.Contains(err.Error(), string(c.encryptionKey)) {
+			t.Fatalf("startup error exposed secrets: %v", err)
+		}
+	})
+
+	t.Run("busy listen address", func(t *testing.T) {
+		occupied, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer occupied.Close()
+
+		c := testConfig(t)
+		c.listenAddr = occupied.Addr().String()
+
+		_, err = newApplication(t.Context(), c, logger, &http.Client{}, "", "")
+
+		if err == nil {
+			t.Fatal("startup accepted busy listen address")
+		}
+		if !strings.HasPrefix(err.Error(), "app: binding CLAN_LISTEN_ADDR: ") {
+			t.Fatalf("startup error = %q, want prefix %q", err, "app: binding CLAN_LISTEN_ADDR: ")
+		}
+		var opErr *net.OpError
+		if !errors.As(err, &opErr) {
+			t.Fatalf("startup error %q did not wrap net.OpError", err)
+		}
+		if strings.Contains(err.Error(), c.adminToken) || strings.Contains(err.Error(), string(c.encryptionKey)) {
+			t.Fatalf("startup error exposed secrets: %v", err)
+		}
+	})
+
+	t.Run("busy callback address", func(t *testing.T) {
+		occupied, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer occupied.Close()
+
+		c := testConfig(t)
+		c.callbackAddr = occupied.Addr().String()
+
+		_, err = newApplication(t.Context(), c, logger, &http.Client{}, "", "")
+
+		if err == nil {
+			t.Fatal("startup accepted busy callback address")
+		}
+		if !strings.HasPrefix(err.Error(), "app: binding CLAN_OAUTH_CALLBACK_ADDR: ") {
+			t.Fatalf("startup error = %q, want prefix %q", err, "app: binding CLAN_OAUTH_CALLBACK_ADDR: ")
+		}
+		var opErr *net.OpError
+		if !errors.As(err, &opErr) {
+			t.Fatalf("startup error %q did not wrap net.OpError", err)
+		}
+		if strings.Contains(err.Error(), c.adminToken) || strings.Contains(err.Error(), string(c.encryptionKey)) {
+			t.Fatalf("startup error exposed secrets: %v", err)
+		}
+	})
+}
+
 type runningApplication struct {
 	app     *application
 	address string
