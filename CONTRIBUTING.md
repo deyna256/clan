@@ -72,7 +72,7 @@ committing.
 
 Use the commands in the [Justfile](Justfile): `just format` formats Go code,
 `just format --check` checks formatting without changing files, `just deps` updates
-and verifies dependencies, and `just lint` runs `go vet ./...`. `just test-unit`
+and verifies dependencies, and `just lint` runs `go vet ./...` and Hadolint 2.15.1 on the Dockerfile. `just test-unit`
 runs fast tests, and `just test` runs all tests. Run the relevant checks before
 submitting changes.
 Documentation-only changes need link and formatting checks, not Go tests.
@@ -80,7 +80,7 @@ Documentation-only changes need link and formatting checks, not Go tests.
 The [CI workflow](.github/workflows/ci.yml) runs formatting, dependency, static
 analysis and test checks on pull requests to `main` and pushes to `main`.
 Use the Go version in `go.mod` and the Just version pinned in the workflow.
-Golangci-lint is not configured yet. `just build`, `just run`, `just down` and
+Install Hadolint 2.15.1 locally (`brew install hadolint` on macOS). CI downloads the same release and verifies its SHA-256 checksum. Golangci-lint is not configured yet. `just build`, `just run`, `just down` and
 `just clean` manage the Docker installation described in [Running CLAN](docs/running.md).
 
 ## Pull requests

@@ -6,9 +6,19 @@ test:
 test-unit:
     go test -short -race -shuffle=on -count=1 ./...
 
-# Run static analysis without modifying source files.
+# Run Go and Dockerfile static analysis without modifying files.
 lint:
+    #!/usr/bin/env sh
+    set -eu
     go vet ./...
+    case "$(hadolint --version)" in
+        *" 2.15.1") ;;
+        *)
+            printf '%s\n' 'Hadolint 2.15.1 is required.' >&2
+            exit 1
+            ;;
+    esac
+    hadolint Dockerfile
 
 # Format Go files, or check them without changes with --check.
 [positional-arguments]
