@@ -3,12 +3,13 @@ package management
 import (
 	"context"
 	"crypto/rand"
-	"strings"
 
 	"github.com/deyna256/clan/internal/accesskey"
 )
 
-type keyView struct {
+// KeyView describes a client key; it must be exported so Huma includes
+// its fields when embedded in an API response type.
+type KeyView struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
 	Enabled          bool   `json:"enabled"`
@@ -24,11 +25,8 @@ type createKeyInput struct {
 
 type createKeyOutput struct {
 	Body struct {
-		ID               string `json:"id"`
-		Name             string `json:"name"`
-		Enabled          bool   `json:"enabled"`
-		ConcurrencyLimit int    `json:"concurrency_limit"`
-		Key              string `json:"key"`
+		KeyView
+		Key string `json:"key"`
 	}
 }
 
@@ -40,20 +38,15 @@ type updateKeyInput struct {
 }
 
 type keysInput struct {
-	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"100"`
-	Offset  int64  `query:"offset" default:"0" minimum:"0"`
-	Q       string `query:"q"`
+	ListInput
 	Enabled string `query:"enabled" enum:"true,false"`
 }
 
 type keysOutput struct {
-	Body page[keyView]
+	Body page[KeyView]
 }
 
 func (s *service) createKey(ctx context.Context, input *createKeyInput) (*createKeyOutput, error) {
-	if strings.TrimSpace(input.Body.Name) == "" {
-		return nil, problem(422, "invalid-request", "A nonblank name is required.")
-	}
 	key, err := accesskey.New(accesskey.Identity{ID: accesskey.ID(rand.Text()), Name: input.Body.Name}, true)
 	if err != nil {
 		return nil, s.failure(ctx, err, true)
@@ -76,7 +69,7 @@ func (s *service) listKeys(ctx context.Context, input *keysInput) (*keysOutput, 
 	if err != nil {
 		return nil, s.failure(ctx, err, false)
 	}
-	items := make([]keyView, 0, len(records))
+	items := make([]KeyView, 0, len(records))
 	for _, record := range records {
 		identity := record.Key.Identity()
 		if !matches(input.Q, string(identity.ID), identity.Name) {
@@ -85,11 +78,11 @@ func (s *service) listKeys(ctx context.Context, input *keysInput) (*keysOutput, 
 		if input.Enabled != "" && record.Key.Enabled() != (input.Enabled == "true") {
 			continue
 		}
-		items = append(items, keyView{
+		items = append(items, KeyView{
 			ID: string(identity.ID), Name: identity.Name, Enabled: record.Key.Enabled(), ConcurrencyLimit: record.ConcurrencyLimit,
 		})
 	}
-	return &keysOutput{Body: paginate(items, listInput{Limit: input.Limit, Offset: input.Offset})}, nil
+	return &keysOutput{Body: paginate(items, input.ListInput)}, nil
 }
 
 func (s *service) updateKey(ctx context.Context, input *updateKeyInput) (*struct{}, error) {

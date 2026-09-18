@@ -53,6 +53,7 @@ func (e *Failure) Unwrap() error { return e.cause }
 // Usage remains available when the attempt fails; unknown counts are not zero counts.
 type Result struct {
 	Response json.RawMessage
+	Status   string // Empty until a valid terminal response is received.
 	Usage    usage.Snapshot
 }
 
@@ -95,6 +96,9 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 	}
 	if standard, ok := transport.(*http.Transport); ok {
 		cloned := standard.Clone()
+		// DialContext takes precedence over Dial. Keep the legacy check so
+		// callers with a custom Dial are not silently switched to our dialer.
+		//nolint:staticcheck // Preserve caller-supplied legacy dialers when checking deprecated Dial.
 		if cloned.DialContext == nil && cloned.Dial == nil {
 			cloned.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 		}

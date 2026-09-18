@@ -68,13 +68,13 @@ messages. Git still records the normal author and committer metadata.
 Keep unrelated changes out of the commit and inspect the staged diff before
 committing.
 
-## Checks and review
+## Checks
 
 Use the commands in the [Justfile](Justfile): `just format` formats Go code,
 `just format --check` checks formatting without changing files, `just deps` updates
-and verifies dependencies, and `just lint` runs `go vet ./...`. `just test-unit`
-runs fast tests, and `just test` runs all tests. Run the relevant checks before
-submitting changes.
+and verifies dependencies, `just deps --check` checks dependencies without changing
+files, and `just lint` runs `go vet ./...`. `just test-unit` runs fast tests,
+and `just test` runs all tests. Run the relevant checks before submitting changes.
 Documentation-only changes need link and formatting checks, not Go tests.
 
 The [CI workflow](.github/workflows/ci.yml) runs formatting, dependency, static
@@ -96,6 +96,34 @@ Keep each section short and avoid repeating the issue or listing every changed
 file. Add sections only when needed, such as migration steps or breaking changes.
 Link the issue; use `Closes #<number>` when the PR completes it. Update the
 description and affected documentation when the code changes.
+
+## Reviews
+
+Review the change as submitted, against the issue and the
+[review checklist](docs/development.md#review-checklist). State facts: what the
+code does, what follows from it, and what you ran. Do not restate the diff or
+guess at intent; ask instead.
+
+Put every code-anchored finding in an inline comment on the line it concerns and
+keep the review body for the verdict and for anything that spans files. Mark a
+finding that is not blocking with one of these prefixes:
+
+- **Nit:** small or stylistic; the author may skip it.
+- **Question:** you need an answer before you can judge the code.
+
+Everything else blocks the merge until it is resolved.
+
+Use these sections in the review body, and omit a section with nothing in it:
+
+- **Summary:** one sentence on what the change does and whether it is ready.
+- **Blocking:** one item per problem, each with `file:line`, the consequence and
+  a concrete fix or check.
+- **Non-blocking:** nits, questions and follow-ups worth recording.
+- **Checked:** the commands you ran and anything you could not verify.
+
+Request changes only when a finding is blocking. Approve when the rest are nits
+and say which ones you expect to be handled. Take work outside the scope of the
+pull request to a separate issue and link it instead of growing the review.
 
 ## Documentation
 

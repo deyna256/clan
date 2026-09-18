@@ -24,7 +24,7 @@ type clientError struct {
 }
 
 func invalidRequest(message, field string) clientError {
-	e := clientError{status: 400, Type: "invalid_request_error", Code: "invalid_request", Message: message}
+	e := clientError{status: http.StatusBadRequest, Type: "invalid_request_error", Code: "invalid_request", Message: message}
 	if field != "" {
 		e.Param = &field
 	}
@@ -38,39 +38,39 @@ func classify(err error) clientError {
 	var failure *codex.Failure
 	switch {
 	case errors.Is(err, execution.ErrUnauthorized):
-		return clientError{status: 401, Type: "authentication_error", Code: "invalid_api_key", Message: "The client key is invalid or revoked."}
+		return clientError{status: http.StatusUnauthorized, Type: "authentication_error", Code: "invalid_api_key", Message: "The client key is invalid or revoked."}
 	case errors.Is(err, errInvalidBody):
 		return invalidRequest("The request body is invalid or incomplete.", "")
 	case errors.As(err, &validation):
 		return invalidRequest("Invalid or unsupported request field.", safeField(validation.Field))
 	case errors.As(err, &tooLarge):
-		return clientError{status: 413, Type: "invalid_request_error", Code: "request_too_large", Message: "The request exceeds 16 MiB."}
+		return clientError{status: http.StatusRequestEntityTooLarge, Type: "invalid_request_error", Code: "request_too_large", Message: "The request exceeds 16 MiB."}
 	case errors.Is(err, concurrency.ErrLimitReached):
-		return clientError{status: 429, Type: "rate_limit_error", Code: "concurrency_limit", Message: "The client key has no free request slots."}
+		return clientError{status: http.StatusTooManyRequests, Type: "rate_limit_error", Code: "concurrency_limit", Message: "The client key has no free request slots."}
 	case errors.Is(err, context.DeadlineExceeded):
-		return clientError{status: 504, Type: "server_error", Code: "upstream_timeout", Message: "The upstream request timed out."}
+		return clientError{status: http.StatusGatewayTimeout, Type: "server_error", Code: "upstream_timeout", Message: "The upstream request timed out."}
 	case errors.As(err, &failure):
 		switch failure.Category {
 		case codex.InvalidRequest:
 			return invalidRequest("Codex rejected the request.", "")
 		case codex.ProviderLimit:
-			return clientError{status: 429, Type: "rate_limit_error", Code: "rate_limit_exceeded", Message: "The provider limit was reached."}
+			return clientError{status: http.StatusTooManyRequests, Type: "rate_limit_error", Code: "rate_limit_exceeded", Message: "The provider limit was reached."}
 		case codex.AccountProblem:
 			return unavailable()
 		default:
-			return clientError{status: 502, Type: "server_error", Code: "upstream_error", Message: "The upstream response could not be completed."}
+			return clientError{status: http.StatusBadGateway, Type: "server_error", Code: "upstream_error", Message: "The upstream response could not be completed."}
 		}
 	case errors.Is(err, codex.ErrCatalogUnavailable), errors.Is(err, execution.ErrNoAccounts), errors.Is(err, execution.ErrClosed), errors.Is(err, execution.ErrUnavailable), errors.Is(err, context.Canceled):
 		return unavailable()
 	case errors.As(err, &network) && network.Timeout():
-		return clientError{status: 408, Type: "invalid_request_error", Code: "request_timeout", Message: "The request body was not received in time."}
+		return clientError{status: http.StatusRequestTimeout, Type: "invalid_request_error", Code: "request_timeout", Message: "The request body was not received in time."}
 	default:
-		return clientError{status: 500, Type: "server_error", Code: "internal_error", Message: "The request could not be completed."}
+		return clientError{status: http.StatusInternalServerError, Type: "server_error", Code: "internal_error", Message: "The request could not be completed."}
 	}
 }
 
 func unavailable() clientError {
-	return clientError{status: 503, Type: "server_error", Code: "service_unavailable", Message: "No account is currently available to serve the request."}
+	return clientError{status: http.StatusServiceUnavailable, Type: "server_error", Code: "service_unavailable", Message: "No account is currently available to serve the request."}
 }
 
 func safeField(field string) string {

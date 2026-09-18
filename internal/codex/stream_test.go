@@ -175,6 +175,9 @@ func TestStreamPreservesOrderAndAssemblesCompletedItems(t *testing.T) {
 	want := `{"id":"r","status":"completed","output":[{"type":"reasoning","id":"rs","summary":[],"encrypted_content":"opaque"},{"type":"function_call","id":"fc_a","name":"a","call_id":"c_a","arguments":"{\"a\":1}"},{"type":"function_call","id":"fc_b","name":"b","call_id":"c_b","arguments":"{\"b\":2}"}],"usage":{"output_tokens":0,"total_tokens":2}}`
 	assertJSON(t, result.Response, want)
 	assertJSON(t, ordinary.Response, want)
+	if result.Status != "completed" || ordinary.Status != "completed" {
+		t.Errorf("terminal statuses = %q, %q; want completed", result.Status, ordinary.Status)
+	}
 	var final struct {
 		Response json.RawMessage `json:"response"`
 	}
@@ -203,6 +206,9 @@ func TestTerminalOutputIsAuthoritativeAndIncompleteIsDistinct(t *testing.T) {
 				t.Fatalf("terminal %s is not an attempt error: %v", status, err)
 			}
 			assertJSON(t, result.Response, final)
+			if result.Status != status {
+				t.Errorf("result status = %q, want %q", result.Status, status)
+			}
 			if result.Usage.Input.Known || result.Usage.Output.Known || result.Usage.Total.Known {
 				t.Errorf("unknown usage became known: %+v", result.Usage)
 			}
@@ -271,6 +277,9 @@ func TestFailedTerminalKeepsUsageAndSanitizesError(t *testing.T) {
 			}
 			_, err = stream.Next()
 			result := stream.Result()
+			if result.Status != "failed" {
+				t.Errorf("result status = %q, want failed", result.Status)
+			}
 
 			var failure *codex.Failure
 			if !errors.As(err, &failure) || failure.Category != tt.category || failure.HTTPStatus != 200 || failure.SafeToRetry {
