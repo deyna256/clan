@@ -73,8 +73,10 @@ committing.
 Use the commands in the [Justfile](Justfile): `just format` formats Go code,
 `just format --check` checks formatting without changing files, `just deps` updates
 and verifies dependencies, `just deps --check` checks dependencies without changing
-files, and `just lint` runs `go vet ./...`. `just test-unit` runs fast tests,
-and `just test` runs all tests. Run the relevant checks before submitting changes.
+files. `just lint` runs `go vet ./...` and checks the Dockerfile with
+a Hadolint 2.15.1 image pinned by tag and digest. Docker is required for
+`just lint`. `just test-unit` runs fast tests, and `just test` runs all tests.
+Run the relevant checks before submitting changes.
 Documentation-only changes need link and formatting checks, not Go tests.
 
 The [CI workflow](.github/workflows/ci.yml) runs formatting, dependency, static
