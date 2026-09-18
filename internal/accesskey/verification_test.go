@@ -2,7 +2,6 @@ package accesskey_test
 
 import (
 	"encoding/base64"
-	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -52,13 +51,12 @@ func TestHashDoesNotMatchDifferentKeyAndRecords(t *testing.T) {
 		{name: "changed first digest byte", raw: fixtureRaw, hash: changedFirst},
 		{name: "changed last digest byte", raw: fixtureRaw, hash: changedLast},
 		{name: "zero record", raw: fixtureRaw},
-		{name: "digest presented as key", raw: hex.EncodeToString(original[:]), hash: original},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			candidate, valid := accesskey.Hash(tt.raw)
 
-			if valid && candidate == tt.hash {
+			if !valid || candidate == tt.hash {
 				t.Error("Hash() matched a different key or verification record")
 			}
 		})

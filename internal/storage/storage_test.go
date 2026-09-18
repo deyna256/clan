@@ -236,7 +236,7 @@ func TestCredentialReplacementFailurePreservesRecord(t *testing.T) {
 	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), previous, account.OAuthCredentials{
 		ChatGPTAccountID: "provider-failed",
 		AccessToken:      "access-failed",
-	}); err == nil {
+	}); err == nil || errors.Is(err, storage.ErrConflict) {
 		t.Fatal("triggered credential replacement succeeded")
 	}
 	if got, err := store.GetAccount(context.Background(), "account"); err != nil {

@@ -128,7 +128,7 @@ func TestTLSHandshakeTimeoutPreservesDeadline(t *testing.T) {
 				go func() { _, err := io.Copy(io.Discard, serverConn); closed <- err }()
 				started := time.Now()
 
-				_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+				_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 				var failure *codex.Failure
 				if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &failure) || failure.Category != codex.TransportFailure || failure.SafeToRetry {
@@ -172,7 +172,7 @@ func TestHTTPProtocolAndOneAttempt(t *testing.T) {
 			client := testClient(t, server.Client(), server.URL+"/backend-api/codex")
 			start := time.Now()
 
-			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			var failure *codex.Failure
 			if !errors.As(err, &failure) {
@@ -208,7 +208,7 @@ func TestHTTPDoesNotFollowRedirects(t *testing.T) {
 	defer server.Close()
 	client := testClient(t, server.Client(), server.URL)
 
-	_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 	var failure *codex.Failure
 	if !errors.As(err, &failure) || failure.HTTPStatus != 307 || reached.Load() {
@@ -243,7 +243,7 @@ func TestHTTPQuotaResetTiming(t *testing.T) {
 				})}, "https://example.test")
 				received := time.Now()
 
-				_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+				_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 				var failure *codex.Failure
 				if !errors.As(err, &failure) || failure.Category != codex.ProviderLimit || failure.HTTPStatus != 429 || !failure.SafeToRetry {
@@ -270,7 +270,7 @@ func TestHTTPQuotaReadFailureRetainsClassification(t *testing.T) {
 		return &http.Response{StatusCode: 429, Body: body}, nil
 	})}, "https://example.test")
 
-	_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 	var failure *codex.Failure
 	if !errors.As(err, &failure) || failure.Category != codex.ProviderLimit || failure.HTTPStatus != 429 || !failure.SafeToRetry || failure.RetryAfter.Kind != retry.NoCooldown {
@@ -289,7 +289,7 @@ func TestHTTPQuotaReadTimeoutRetainsClassification(t *testing.T) {
 		})}, "https://example.test")
 		started := time.Now()
 
-		_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+		_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 		var failure *codex.Failure
 		if !errors.As(err, &failure) || failure.Category != codex.ProviderLimit || failure.HTTPStatus != 429 || !failure.SafeToRetry || !errors.Is(err, context.DeadlineExceeded) {
@@ -322,7 +322,7 @@ func TestHTTPResponseHeaderTimeout(t *testing.T) {
 				client := testClient(t, httpClient, server.URL)
 				started := time.Now()
 
-				_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+				_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 				if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) != tt.want {
 					t.Fatalf("error = %v after %v, want deadline after %v", err, time.Since(started), tt.want)
@@ -408,7 +408,7 @@ func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
 				}, Body: body}, nil
 			})}, "https://example.test")
 
-			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			var failure *codex.Failure
 			if !errors.As(err, &failure) || failure.Category != tt.category {
@@ -426,7 +426,7 @@ func TestHTTPResourcesAndSafeTransportErrors(t *testing.T) {
 		})
 	}
 	client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("secret transport URL") })}, "https://example.test")
-	_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 	if strings.Contains(err.Error(), "secret") || errors.Unwrap(err) != nil {
 		t.Errorf("transport cause leaked: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestMissingContentTypeStillRequiresCompleteSSE(t *testing.T) {
 				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
 			})}, "https://example.test")
 
-			result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+			result, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 			if tt.valid {
 				if err != nil {
@@ -480,7 +480,7 @@ func TestStreamCleanupFailureRetainsTerminalResult(t *testing.T) {
 		}, Body: body}, nil
 	})}, "https://example.test")
 
-	result, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
+	result, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 	var failure *codex.Failure
 	if !errors.As(err, &failure) || failure.Category != codex.TransportFailure {
@@ -590,7 +590,7 @@ func TestHTTPClientTimeoutPreservesDeadline(t *testing.T) {
 				a := testAccount(t, "one")
 				r := request(t, `{"model":"m","input":"hi"}`)
 
-				_, err := consumeClientStream(client, t.Context(), a, r)
+				_, err := consumeClientStream(t.Context(), client, a, r)
 
 				if !errors.Is(err, context.DeadlineExceeded) || t.Context().Err() != nil {
 					t.Fatalf("client timeout = %v, caller context = %v", err, t.Context().Err())

@@ -2,6 +2,7 @@ package codex_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -104,7 +105,7 @@ func TestRequestDispatchOwnsAndPreservesContent(t *testing.T) {
 	}
 	copy(input, bytes.Repeat([]byte("x"), len(input)))
 
-	_, err = consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
+	_, err = consumeClientStream(t.Context(), client, testAccount(t, "one"), r)
 
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +131,7 @@ func TestRequestStringAndNullableControls(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, tt.input)
 
-			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)
@@ -168,7 +169,7 @@ func TestRequestDoesNotHTMLEscapeContent(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, tt.input)
 
-			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)
@@ -272,7 +273,7 @@ func TestRequestPreservesSupportedChoicesAndFormats(t *testing.T) {
 			})}, "https://example.test")
 			r := request(t, input)
 
-			_, err := consumeClientStream(client, t.Context(), testAccount(t, "one"), r)
+			_, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), r)
 
 			if err != nil {
 				t.Fatal(err)
@@ -282,5 +283,30 @@ func TestRequestPreservesSupportedChoicesAndFormats(t *testing.T) {
 			}
 			assertJSON(t, body, input)
 		})
+	}
+}
+
+// consumeClientStream exercises the production Stream API and collects its
+// terminal result for tests that need to inspect a complete response.
+func consumeClientStream(
+	ctx context.Context,
+	client *codex.Client,
+	a account.Account,
+	request codex.Request,
+) (codex.Result, error) {
+	stream, err := client.Stream(ctx, a, request)
+	if err != nil {
+		return codex.Result{}, err
+	}
+	defer stream.Close()
+
+	for {
+		_, err = stream.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+			return stream.Result(), err
+		}
 	}
 }
