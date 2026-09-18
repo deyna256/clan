@@ -110,13 +110,15 @@ a safe warning. Return HTTP 503 if discovery failures leave no successfully
 loaded catalog for any enabled account. A successfully loaded empty catalog is
 not a discovery failure.
 
-Load the catalog on first use, then refresh on demand at most once every five
-minutes per account with unchanged credentials, including after failed attempts.
-Credential changes allow an earlier refresh; changing the ChatGPT account ID also
-discards the old catalog. Concurrent callers share one refresh. There is no
+Discover the catalog on first use. While an account has never loaded a catalog,
+discovery failures retry with backoff rather than waiting five minutes, without
+calling Codex on every incoming request. Once a list is loaded, refresh on demand
+at most once every five minutes per account with unchanged credentials, including
+after failed refresh attempts (retaining the last-good catalog). Credential changes
+allow an earlier refresh and reset retry backoff; changing the ChatGPT account ID
+also discards the old catalog. Concurrent callers share one refresh. There is no
 periodic worker. Each catalog HTTP request has a five-second timeout, separate
-from generation timeouts. After a failed first load, recovery may wait for the
-next refresh interval.
+from generation timeouts.
 
 Execution owns catalog shutdown: cancel refreshes and wait for their cleanup,
 including work started for accounts that have since been removed or updated.

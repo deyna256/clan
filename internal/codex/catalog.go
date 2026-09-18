@@ -18,6 +18,22 @@ import (
 
 const catalogTTL = 5 * time.Minute
 const catalogTimeout = 5 * time.Second
+const catalogInitialRetry = 1 * time.Second
+const catalogMaxRetry = catalogTTL
+
+func retryGap(failures int) time.Duration {
+	if failures <= 1 {
+		return catalogInitialRetry
+	}
+	if failures > 9 {
+		return catalogMaxRetry
+	}
+	gap := catalogInitialRetry << (failures - 1)
+	if gap > catalogMaxRetry {
+		return catalogMaxRetry
+	}
+	return gap
+}
 
 // Model contains account-specific catalog facts used for request validation and listing.
 // Listed controls visibility only: hidden models may still be requested explicitly.
@@ -141,6 +157,7 @@ type catalogEntry struct {
 	models      []Model
 	loaded      bool
 	failure     *Failure
+	failures    int
 	nextRefresh time.Time
 	refresh     *catalogRefresh
 }
@@ -197,6 +214,7 @@ func (c *Catalog) SetAccounts(accounts []account.Account) error {
 				entry.loaded = false
 			}
 			entry.failure = nil
+			entry.failures = 0
 			entry.nextRefresh = time.Time{}
 		}
 		entry.account = a
@@ -306,6 +324,8 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 	if err == nil {
 		entry.models = models
 		entry.loaded = true
+		entry.failures = 0
+		entry.nextRefresh = time.Now().Add(catalogTTL)
 		return
 	}
 	var failure *Failure
@@ -317,6 +337,12 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 	if !transient {
 		entry.models = nil
 		entry.loaded = false
+	}
+	if entry.loaded {
+		entry.nextRefresh = time.Now().Add(catalogTTL)
+	} else {
+		entry.failures++
+		entry.nextRefresh = time.Now().Add(retryGap(entry.failures))
 	}
 }
 
