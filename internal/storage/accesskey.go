@@ -7,8 +7,10 @@ import (
 	"fmt"
 
 	"github.com/deyna256/clan/internal/accesskey"
-	"github.com/deyna256/clan/internal/concurrency"
 )
+
+// A stored limit of -1 means unlimited; nonnegative values are caps.
+const unlimitedConcurrencyLimit = -1
 
 // CreateAccessKey stores a key's identity, status, verification hash and limit.
 func (s *Store) CreateAccessKey(
@@ -22,7 +24,7 @@ func (s *Store) CreateAccessKey(
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	if concurrencyLimit < concurrency.Unlimited {
+	if concurrencyLimit < unlimitedConcurrencyLimit {
 		return fmt.Errorf("%w: concurrency limit is invalid", ErrInvalid)
 	}
 
@@ -115,7 +117,7 @@ func (s *Store) UpdateAccessKeyConcurrency(
 	if err := validateAccessKeyID(id); err != nil {
 		return err
 	}
-	if concurrencyLimit < concurrency.Unlimited {
+	if concurrencyLimit < unlimitedConcurrencyLimit {
 		return fmt.Errorf("%w: concurrency limit is invalid", ErrInvalid)
 	}
 	result, err := s.db.ExecContext(
@@ -159,7 +161,7 @@ func decodeAccessKey(
 	if enabled != 0 && enabled != 1 {
 		return AccessKeyRecord{}, ErrCorrupt
 	}
-	if limit < concurrency.Unlimited {
+	if limit < unlimitedConcurrencyLimit {
 		return AccessKeyRecord{}, ErrCorrupt
 	}
 	var hash accesskey.VerificationHash

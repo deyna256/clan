@@ -264,8 +264,10 @@ func (c *Catalog) Snapshot(ctx context.Context) (CatalogSnapshot, error) {
 		}
 		result.Accounts = append(result.Accounts, catalog)
 		loaded = loaded || entry.loaded
-		for _, model := range cloneModels(entry.models) {
+		for _, model := range entry.models {
 			if model.Listed && !listed[model.ID] {
+				model.ReasoningEfforts = slices.Clone(model.ReasoningEfforts)
+				model.InputModalities = slices.Clone(model.InputModalities)
 				result.Listed = append(result.Listed, model)
 				listed[model.ID] = true
 			}

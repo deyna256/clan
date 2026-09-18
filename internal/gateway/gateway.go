@@ -40,7 +40,7 @@ func New(executor *execution.Executor, logger *slog.Logger) (http.Handler, error
 	router.Post("/v1/responses", h.responses)
 	router.Get("/v1/models", h.models)
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		h.reject(w, r, clientError{status: 404, Type: "invalid_request_error", Code: "not_found", Message: "The resource was not found."})
+		h.reject(w, r, clientError{status: http.StatusNotFound, Type: "invalid_request_error", Code: "not_found", Message: "The resource was not found."})
 	})
 	router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
@@ -48,7 +48,7 @@ func New(executor *execution.Executor, logger *slog.Logger) (http.Handler, error
 		} else {
 			w.Header().Set("Allow", http.MethodPost)
 		}
-		h.reject(w, r, clientError{status: 405, Type: "invalid_request_error", Code: "method_not_allowed", Message: "The method is not supported."})
+		h.reject(w, r, clientError{status: http.StatusMethodNotAllowed, Type: "invalid_request_error", Code: "method_not_allowed", Message: "The method is not supported."})
 	})
 	return router, nil
 }
@@ -92,7 +92,7 @@ func requestID(r *http.Request) string {
 func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" || !supportedEncoding(r.Header.Values("Content-Encoding")) {
-		h.reject(w, r, clientError{status: 415, Type: "invalid_request_error", Code: "unsupported_media_type", Message: "Use uncompressed application/json."})
+		h.reject(w, r, clientError{status: http.StatusUnsupportedMediaType, Type: "invalid_request_error", Code: "unsupported_media_type", Message: "Use uncompressed application/json."})
 		return
 	}
 	body, err := readBody(w, r)
@@ -158,12 +158,8 @@ func (h *handler) generate(w http.ResponseWriter, r *http.Request, input codex.R
 	}
 	delivery := newDelivery(w, ctx)
 	defer delivery.close()
-	var terminal struct {
-		Status string `json:"status"`
-	}
 	if err != nil {
-		_ = json.Unmarshal(result.Response, &terminal)
-		if terminal.Status != "failed" || ctx.Err() != nil || result.CleanupError() != nil {
+		if result.Status != "failed" || ctx.Err() != nil || result.CleanupError() != nil {
 			if !writeError(delivery, r, classify(err), result.ResponseStarted) {
 				result.DeliveryFailed()
 			}

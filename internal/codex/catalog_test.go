@@ -613,3 +613,66 @@ func TestCatalogCloseWaitsForCanceledRefreshCleanup(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogSnapshotListedAndAccountModelsAreIndependent(t *testing.T) {
+	c, err := codex.NewCatalog(func(context.Context, account.Account) ([]codex.Model, error) {
+		return []codex.Model{{
+			ID:               "m",
+			Listed:           true,
+			ReasoningEfforts: []string{"low"},
+			InputModalities:  []string{"text"},
+		}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+
+	if err := c.SetAccounts([]account.Account{testAccount(t, "one")}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := c.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Accounts) != 1 ||
+		len(snapshot.Accounts[0].Models) != 1 ||
+		len(snapshot.Listed) != 1 {
+		t.Fatalf("unexpected snapshot: %+v", snapshot)
+	}
+
+	accountModel := &snapshot.Accounts[0].Models[0]
+	listedModel := &snapshot.Listed[0]
+
+	accountModel.ReasoningEfforts[0] = "changed-account"
+	accountModel.InputModalities[0] = "changed-account"
+
+	if listedModel.ReasoningEfforts[0] != "low" ||
+		listedModel.InputModalities[0] != "text" {
+		t.Error("mutating account models changed the listed union")
+	}
+
+	listedModel.ReasoningEfforts[0] = "changed-listed"
+	listedModel.InputModalities[0] = "changed-listed"
+
+	if accountModel.ReasoningEfforts[0] != "changed-account" ||
+		accountModel.InputModalities[0] != "changed-account" {
+		t.Error("mutating the listed union changed account models")
+	}
+
+	fresh, err := c.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, model := range []codex.Model{
+		fresh.Accounts[0].Models[0],
+		fresh.Listed[0],
+	} {
+		if model.ReasoningEfforts[0] != "low" ||
+			model.InputModalities[0] != "text" {
+			t.Errorf("snapshot mutation changed cached models: %+v", model)
+		}
+	}
+}

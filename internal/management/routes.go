@@ -45,7 +45,7 @@ type resourceInput struct {
 	ID string `path:"id" minLength:"1" pattern:"\\S"`
 }
 
-type listInput struct {
+type ListInput struct {
 	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100"`
 	Offset int64  `query:"offset" default:"0" minimum:"0"`
 	Q      string `query:"q"`
@@ -58,7 +58,7 @@ type page[T any] struct {
 	Offset int64 `json:"offset"`
 }
 
-func paginate[T any](items []T, input listInput) page[T] {
+func paginate[T any](items []T, input ListInput) page[T] {
 	start := int(min(input.Offset, int64(len(items))))
 	end := start + min(input.Limit, len(items)-start)
 	return page[T]{Items: items[start:end], Total: len(items), Limit: input.Limit, Offset: input.Offset}
@@ -78,7 +78,7 @@ type modelsOutput struct {
 	Body page[modelView]
 }
 
-func (s *service) listModels(ctx context.Context, input *listInput) (*modelsOutput, error) {
+func (s *service) listModels(ctx context.Context, input *ListInput) (*modelsOutput, error) {
 	models, err := s.executor.AvailableModels(ctx)
 	if err != nil {
 		return nil, s.failure(ctx, err, false)

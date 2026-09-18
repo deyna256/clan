@@ -29,6 +29,40 @@ func httpResponse(status int, contentType, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(body))}
 }
 
+func TestClientPreservesLegacyTransportDial(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"models":[]}`)
+	}))
+	defer server.Close()
+
+	var dialCalls atomic.Int32
+	transport := &http.Transport{
+		//lint:ignore SA1019 Exercise the deprecated dialer to protect existing callers.
+		Dial: func(network, addr string) (net.Conn, error) {
+			dialCalls.Add(1)
+			return net.DialTimeout(network, addr, 3*time.Second)
+		},
+	}
+
+	client := testClient(t, &http.Client{Transport: transport}, server.URL)
+	defer client.CloseIdleConnections()
+
+	models, err := client.FetchModels(t.Context(), testAccount(t, "one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Fatalf("models = %+v, want an empty catalog", models)
+	}
+	if got := dialCalls.Load(); got != 1 {
+		t.Fatalf("legacy Dial calls = %d, want 1", got)
+	}
+	if transport.DialContext != nil {
+		t.Error("NewClient mutated the supplied transport")
+	}
+}
+
 func TestClientClosesItsClonedConnectionPool(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		clientConn, serverConn := net.Pipe()
