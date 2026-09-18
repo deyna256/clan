@@ -38,7 +38,7 @@ func TestClientPreservesLegacyTransportDial(t *testing.T) {
 
 	var dialCalls atomic.Int32
 	transport := &http.Transport{
-		//lint:ignore SA1019 Exercise the deprecated dialer to protect existing callers.
+		//nolint:staticcheck // Exercise deprecated Dial to protect existing callers.
 		Dial: func(network, addr string) (net.Conn, error) {
 			dialCalls.Add(1)
 			return net.DialTimeout(network, addr, 3*time.Second)

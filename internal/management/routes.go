@@ -45,6 +45,8 @@ type resourceInput struct {
 	ID string `path:"id" minLength:"1" pattern:"\\S"`
 }
 
+// ListInput defines pagination and filtering parameters; it must be exported
+// so Huma includes its fields when embedded in other request types.
 type ListInput struct {
 	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100"`
 	Offset int64  `query:"offset" default:"0" minimum:"0"`

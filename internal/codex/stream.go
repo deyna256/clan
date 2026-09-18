@@ -124,11 +124,7 @@ func (s *Stream) Next() (json.RawMessage, error) {
 		if err != nil {
 			return s.badEvent()
 		}
-		if failure == nil {
-			s.finish(nil)
-		} else {
-			s.finish(failure)
-		}
+		s.finish(failure)
 		return assembled, nil
 	case "error":
 		detail := raw
@@ -228,11 +224,12 @@ func (s *Stream) closeBody() {
 	})
 }
 
-func (s *Stream) finish(err error) {
+func (s *Stream) finish(failure *Failure) {
 	s.ended = true
-	var failure *Failure
-	if errors.As(err, &failure) {
+	var err error
+	if failure != nil {
 		failure.RetryAfter = s.retryAfter
+		err = failure
 	}
 	s.err = err
 	s.closeBody()

@@ -98,7 +98,7 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 		cloned := standard.Clone()
 		// DialContext takes precedence over Dial. Keep the legacy check so
 		// callers with a custom Dial are not silently switched to our dialer.
-		//lint:ignore SA1019 Preserving caller-supplied legacy dialers requires checking Dial.
+		//nolint:staticcheck // Preserve caller-supplied legacy dialers when checking deprecated Dial.
 		if cloned.DialContext == nil && cloned.Dial == nil {
 			cloned.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 		}

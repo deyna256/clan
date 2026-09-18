@@ -61,7 +61,8 @@ func newApplication(
 	client *http.Client,
 	issuer, codexURL string,
 ) (_ *application, err error) {
-	// Direct callers may supply a config without going through loadConfig.
+	// Keep constructor validation for tests that build config directly.
+	// Production Run passes an already validated loadConfig result.
 	if err := c.validate(); err != nil {
 		return nil, err
 	}

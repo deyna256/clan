@@ -266,9 +266,7 @@ func (c *Catalog) Snapshot(ctx context.Context) (CatalogSnapshot, error) {
 		loaded = loaded || entry.loaded
 		for _, model := range entry.models {
 			if model.Listed && !listed[model.ID] {
-				model.ReasoningEfforts = slices.Clone(model.ReasoningEfforts)
-				model.InputModalities = slices.Clone(model.InputModalities)
-				result.Listed = append(result.Listed, model)
+				result.Listed = append(result.Listed, cloneModel(model))
 				listed[model.ID] = true
 			}
 		}
@@ -322,11 +320,16 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 	}
 }
 
+func cloneModel(model Model) Model {
+	model.ReasoningEfforts = slices.Clone(model.ReasoningEfforts)
+	model.InputModalities = slices.Clone(model.InputModalities)
+	return model
+}
+
 func cloneModels(models []Model) []Model {
 	cloned := slices.Clone(models)
 	for i := range cloned {
-		cloned[i].ReasoningEfforts = slices.Clone(cloned[i].ReasoningEfforts)
-		cloned[i].InputModalities = slices.Clone(cloned[i].InputModalities)
+		cloned[i] = cloneModel(cloned[i])
 	}
 	return cloned
 }

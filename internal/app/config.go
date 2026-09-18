@@ -44,7 +44,8 @@ func (c config) validate() error {
 	if management.ValidateConfig(management.Config{AdminToken: c.adminToken}) != nil {
 		return errors.New("app: CLAN_ADMIN_TOKEN must contain a separate valid admin token")
 	}
-	// Direct config constructors also need the key-length invariant.
+	// Keep the key-length invariant for configs constructed directly in tests;
+	// production loadConfig already checks the decoded key length.
 	if len(c.encryptionKey) != 32 {
 		return errors.New("app: CLAN_ENCRYPTION_KEY must decode to 32 bytes")
 	}

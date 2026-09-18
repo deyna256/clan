@@ -3,12 +3,12 @@ package management
 import (
 	"context"
 	"crypto/rand"
-	"net/http"
-	"strings"
 
 	"github.com/deyna256/clan/internal/accesskey"
 )
 
+// KeyView describes a client key; it must be exported so Huma includes
+// its fields when embedded in an API response type.
 type KeyView struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
@@ -47,9 +47,6 @@ type keysOutput struct {
 }
 
 func (s *service) createKey(ctx context.Context, input *createKeyInput) (*createKeyOutput, error) {
-	if strings.TrimSpace(input.Body.Name) == "" {
-		return nil, problem(http.StatusUnprocessableEntity, "invalid-request", "A nonblank name is required.")
-	}
 	key, err := accesskey.New(accesskey.Identity{ID: accesskey.ID(rand.Text()), Name: input.Body.Name}, true)
 	if err != nil {
 		return nil, s.failure(ctx, err, true)
