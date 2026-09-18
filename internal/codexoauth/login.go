@@ -55,6 +55,14 @@ type pendingLogin struct {
 	done          chan struct{}
 }
 
+// clearSensitive discards information that must not survive a terminal login.
+// Call it while holding the manager lock.
+func (p *pendingLogin) clearSensitive() {
+	p.authorization = Authorization{}
+	p.previous = nil
+	p.identity = account.Identity{}
+}
+
 // StartLogin starts a new account connection with a securely generated local ID.
 // Only one login may be pending; completion replaces the previous safe status.
 func (m *Manager) StartLogin(ctx context.Context, name string) (LoginInstructions, error) {
@@ -123,9 +131,7 @@ func (m *Manager) expireLoginLocked() {
 	p := m.login
 	if p != nil && p.status.State == LoginWaiting && !time.Now().Before(p.status.ExpiresAt) {
 		p.status.State = LoginExpired
-		p.previous = nil
-		p.identity = account.Identity{}
-		p.authorization = Authorization{}
+		p.clearSensitive()
 		p.cancel()
 	}
 }
@@ -165,9 +171,7 @@ func (m *Manager) CancelLogin(ctx context.Context, loginID string) error {
 	m.expireLoginLocked()
 	if p.status.State == LoginWaiting || p.status.State == LoginExchanging {
 		p.status.State = LoginCanceled
-		p.previous = nil
-		p.identity = account.Identity{}
-		p.authorization = Authorization{}
+		p.clearSensitive()
 		p.cancel()
 	}
 	return nil
@@ -234,8 +238,7 @@ func (m *Manager) finishLogin(p *pendingLogin, code, verifier string, denied boo
 	defer p.cancel()
 	defer func() {
 		m.mu.Lock()
-		p.previous = nil
-		p.identity = account.Identity{}
+		p.clearSensitive()
 		m.mu.Unlock()
 	}()
 	ctx, cancel := context.WithTimeout(p.ctx, 30*time.Second)

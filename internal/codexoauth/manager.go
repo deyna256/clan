@@ -148,9 +148,7 @@ func (m *Manager) stop() {
 			defer m.mu.Unlock()
 			clear(m.refreshes)
 			if m.login != nil {
-				m.login.authorization = Authorization{}
-				m.login.previous = nil
-				m.login.identity = account.Identity{}
+				m.login.clearSensitive()
 				if m.login.status.State == LoginWaiting || m.login.status.State == LoginExchanging {
 					m.login.status.State = LoginCanceled
 				}

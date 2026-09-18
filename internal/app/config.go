@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"encoding/base64"
 	"errors"
 	"net"
@@ -19,20 +20,15 @@ type config struct {
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
-	value := func(name, fallback string) string {
-		if found := getenv(name); found != "" {
-			return found
-		}
-		return fallback
-	}
 	c := config{
-		listenAddr:   value("CLAN_LISTEN_ADDR", "127.0.0.1:8080"),
-		dbPath:       value("CLAN_DB_PATH", "./clan.db"),
+		listenAddr:   cmp.Or(getenv("CLAN_LISTEN_ADDR"), "127.0.0.1:8080"),
+		dbPath:       cmp.Or(getenv("CLAN_DB_PATH"), "./clan.db"),
 		adminToken:   getenv("CLAN_ADMIN_TOKEN"),
-		callbackAddr: value("CLAN_OAUTH_CALLBACK_ADDR", "127.0.0.1:1455"),
+		callbackAddr: cmp.Or(getenv("CLAN_OAUTH_CALLBACK_ADDR"), "127.0.0.1:1455"),
 	}
 	encoded := getenv("CLAN_ENCRYPTION_KEY")
 	key, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	// Report malformed encoding and invalid lengths with the same safe env error.
 	if err != nil || len(key) != 32 || strings.ContainsAny(encoded, "\r\n") {
 		return config{}, errors.New("app: CLAN_ENCRYPTION_KEY must be standard base64 encoding of 32 bytes")
 	}
@@ -48,6 +44,8 @@ func (c config) validate() error {
 	if management.ValidateConfig(management.Config{AdminToken: c.adminToken}) != nil {
 		return errors.New("app: CLAN_ADMIN_TOKEN must contain a separate valid admin token")
 	}
+	// Keep the key-length invariant for configs constructed directly in tests;
+	// production loadConfig already checks the decoded key length.
 	if len(c.encryptionKey) != 32 {
 		return errors.New("app: CLAN_ENCRYPTION_KEY must decode to 32 bytes")
 	}
@@ -59,8 +57,8 @@ func (c config) validate() error {
 		{name: "CLAN_OAUTH_CALLBACK_ADDR", value: c.callbackAddr},
 	} {
 		_, port, err := net.SplitHostPort(address.value)
-		number, parseErr := strconv.Atoi(port)
-		if err != nil || parseErr != nil || number < 0 || number > 65535 {
+		_, parseErr := strconv.ParseUint(port, 10, 16)
+		if err != nil || parseErr != nil {
 			return errors.New("app: " + address.name + " must be a TCP host:port address")
 		}
 	}

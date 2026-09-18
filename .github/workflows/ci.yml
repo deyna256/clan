@@ -39,18 +39,7 @@ jobs:
         run: just format --check
 
       - name: Check dependencies
-        run: just deps
-
-      - name: Install Hadolint 2.15.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail --location --retry 3 --silent --show-error \
-            https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64 \
-            --output "$RUNNER_TEMP/hadolint"
-          echo "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507  $RUNNER_TEMP/hadolint" | sha256sum --check -
-          chmod +x "$RUNNER_TEMP/hadolint"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+        run: just deps --check
 
       - name: Run static analysis
         run: just lint
