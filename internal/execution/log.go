@@ -2,7 +2,6 @@ package execution
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -15,13 +14,8 @@ import (
 
 func (e *Executor) logResult(ctx context.Context, id string, key accesskey.ID, model string, duration time.Duration, result codex.Result, err error, responseStarted bool) {
 	outcome := errorCode(err)
-	if err == nil {
-		var terminal struct {
-			Status string `json:"status"`
-		}
-		if json.Unmarshal(result.Response, &terminal) == nil && terminal.Status != "" {
-			outcome = terminal.Status
-		}
+	if err == nil && result.Status != "" {
+		outcome = result.Status
 	}
 	attrs := []slog.Attr{slog.String("request_id", id), slog.String("key_id", string(key)),
 		slog.String("model", model), slog.Int64("duration_ms", duration.Milliseconds()), slog.String("result", outcome),

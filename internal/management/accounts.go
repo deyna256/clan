@@ -2,7 +2,6 @@ package management
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/deyna256/clan/internal/account"
@@ -18,10 +17,8 @@ type accountView struct {
 }
 
 type accountsInput struct {
-	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100"`
-	Offset int64  `query:"offset" default:"0" minimum:"0"`
-	Q      string `query:"q"`
-	State  string `query:"state" enum:"connected,refreshing,temporarily_unavailable,needs_sign_in,disabled"`
+	ListInput
+	State string `query:"state" enum:"connected,refreshing,temporarily_unavailable,needs_sign_in,disabled"`
 }
 
 type accountsOutput struct {
@@ -47,7 +44,7 @@ func (s *service) listAccounts(ctx context.Context, input *accountsInput) (*acco
 		}
 		items = append(items, accountResponse(status))
 	}
-	return &accountsOutput{Body: paginate(items, listInput{Limit: input.Limit, Offset: input.Offset})}, nil
+	return &accountsOutput{Body: paginate(items, input.ListInput)}, nil
 }
 
 func (s *service) getAccount(ctx context.Context, input *resourceInput) (*accountOutput, error) {
@@ -116,9 +113,6 @@ type cancelLoginInput struct {
 }
 
 func (s *service) startLogin(ctx context.Context, input *startLoginInput) (*loginOutput, error) {
-	if strings.TrimSpace(input.Body.Name) == "" {
-		return nil, problem(422, "invalid-request", "A nonblank name is required.")
-	}
 	instructions, err := s.oauth.StartLogin(ctx, input.Body.Name)
 	if err != nil {
 		return nil, s.failure(ctx, err, true)

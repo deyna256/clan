@@ -37,6 +37,8 @@ func TestParseRetryAfter(t *testing.T) {
 		{name: "CRLF is not optional whitespace", value: "\r\n2"},
 		{name: "Unicode space", value: "\u00a02"},
 		{name: "overflow with invalid suffix", value: "999999999999999999999999999999999999x"},
+		{name: "overflow with invalid middle", value: "999999999999999999999999999999999999x9999"},
+		{name: "overflow with plus sign", value: "+18446744073709551616"},
 		{name: "invalid date", value: "Sun, 99 Nov 1994 08:49:37 GMT"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

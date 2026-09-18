@@ -61,6 +61,8 @@ func newApplication(
 	client *http.Client,
 	issuer, codexURL string,
 ) (_ *application, err error) {
+	// Keep constructor validation for tests that build config directly.
+	// Production Run passes an already validated loadConfig result.
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
@@ -119,8 +121,6 @@ func newApplication(
 	router := chi.NewRouter()
 	router.Handle("/api/*", admin)
 	router.Handle("/api", admin)
-	router.Handle("/v1/*", clients)
-	router.Handle("/v1", clients)
 	router.NotFound(clients.ServeHTTP)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("app: startup canceled: %w", ctx.Err())
