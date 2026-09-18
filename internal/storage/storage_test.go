@@ -214,7 +214,11 @@ func TestCredentialReplacementFailurePreservesRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clan.db")
 	store := openStore(t, path, newCipher(t))
 	original := newAccount(t, "account", "Original")
-	if err := store.CreateAccount(context.Background(), original, false); err != nil {
+	if err := store.CreateAccount(context.Background(), original, true); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := store.GetAccount(context.Background(), "account")
+	if err != nil {
 		t.Fatal(err)
 	}
 	db := openRaw(t, path)
@@ -229,16 +233,16 @@ func TestCredentialReplacementFailurePreservesRecord(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReplaceAccountCredentials(context.Background(), "account", account.OAuthCredentials{
+	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), previous, account.OAuthCredentials{
 		ChatGPTAccountID: "provider-failed",
 		AccessToken:      "access-failed",
-	}); err == nil {
+	}); err == nil || errors.Is(err, storage.ErrConflict) {
 		t.Fatal("triggered credential replacement succeeded")
 	}
 	if got, err := store.GetAccount(context.Background(), "account"); err != nil {
 		t.Fatal(err)
 	} else {
-		assertAccountRecord(t, got, original, false)
+		assertAccountRecord(t, got, original, true)
 	}
 }
 
@@ -247,12 +251,16 @@ func TestCredentialReplacementCancellationPreservesRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clan.db")
 	store := openStore(t, path, newCipher(t))
 	original := newAccount(t, "account", "Original")
-	if err := store.CreateAccount(context.Background(), original, false); err != nil {
+	if err := store.CreateAccount(context.Background(), original, true); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := store.GetAccount(context.Background(), "account")
+	if err != nil {
 		t.Fatal(err)
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := store.ReplaceAccountCredentials(cancelled, "account", account.OAuthCredentials{
+	err = store.ReplaceAccountCredentialsIfUnchanged(cancelled, previous, account.OAuthCredentials{
 		ChatGPTAccountID: "provider-cancelled",
 		AccessToken:      "access-cancelled",
 	})
@@ -262,16 +270,20 @@ func TestCredentialReplacementCancellationPreservesRecord(t *testing.T) {
 	if got, err := store.GetAccount(context.Background(), "account"); err != nil {
 		t.Fatal(err)
 	} else {
-		assertAccountRecord(t, got, original, false)
+		assertAccountRecord(t, got, original, true)
 	}
 }
 
-func TestCredentialReplacementPreservesAccountStateAndDeletedRows(t *testing.T) {
+func TestConditionalCredentialReplacementPreservesEnabledStateAndRejectsDeletedRows(t *testing.T) {
 	requireStorage(t)
 	path := filepath.Join(t.TempDir(), "clan.db")
 	store := openStore(t, path, newCipher(t))
 	original := newAccount(t, "account", "Original")
-	if err := store.CreateAccount(context.Background(), original, false); err != nil {
+	if err := store.CreateAccount(context.Background(), original, true); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := store.GetAccount(context.Background(), "account")
+	if err != nil {
 		t.Fatal(err)
 	}
 	updated := account.OAuthCredentials{
@@ -280,7 +292,7 @@ func TestCredentialReplacementPreservesAccountStateAndDeletedRows(t *testing.T) 
 		RefreshToken:     "refresh-updated",
 		ExpiresAt:        time.Date(2031, 2, 3, 4, 5, 6, 0, time.UTC),
 	}
-	if err := store.ReplaceAccountCredentials(context.Background(), "account", updated); err != nil {
+	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), previous, updated); err != nil {
 		t.Fatal(err)
 	}
 	record, err := store.GetAccount(context.Background(), "account")
@@ -288,13 +300,13 @@ func TestCredentialReplacementPreservesAccountStateAndDeletedRows(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := newAccountWithCredentials(t, "account", "Original", updated)
-	assertAccountRecord(t, record, want, false)
+	assertAccountRecord(t, record, want, true)
 
 	if err := store.DeleteAccount(context.Background(), "account"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReplaceAccountCredentials(context.Background(), "account", updated); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("replacement after delete error = %v, want ErrNotFound", err)
+	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), previous, updated); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("replacement after delete error = %v, want ErrConflict", err)
 	}
 	if err := store.DeleteAccount(context.Background(), "account"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("second delete error = %v, want ErrNotFound", err)
@@ -306,7 +318,11 @@ func TestCredentialReplacementDeadlineWhileDatabaseIsWriteLocked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clan.db")
 	store := openStore(t, path, newCipher(t))
 	original := newAccount(t, "account", "Original")
-	if err := store.CreateAccount(context.Background(), original, false); err != nil {
+	if err := store.CreateAccount(context.Background(), original, true); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := store.GetAccount(context.Background(), "account")
+	if err != nil {
 		t.Fatal(err)
 	}
 	db := openRaw(t, path)
@@ -331,7 +347,7 @@ func TestCredentialReplacementDeadlineWhileDatabaseIsWriteLocked(t *testing.T) {
 	defer cancel()
 
 	started := time.Now()
-	err = store.ReplaceAccountCredentials(ctx, "account", credentials)
+	err = store.ReplaceAccountCredentialsIfUnchanged(ctx, previous, credentials)
 
 	t.Logf("write with 100ms deadline returned after %s", time.Since(started))
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -348,7 +364,7 @@ func TestCredentialReplacementDeadlineWhileDatabaseIsWriteLocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertAccountRecord(t, got, original, false)
+	assertAccountRecord(t, got, original, true)
 }
 
 func TestDisableAndRevokeAreRepeatableAndIndependentOfOtherSettings(t *testing.T) {

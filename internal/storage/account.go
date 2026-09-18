@@ -91,36 +91,6 @@ func (s *Store) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
 	return records, nil
 }
 
-// ReplaceAccountCredentials atomically replaces credentials without changing
-// the account's name or enabled state.
-func (s *Store) ReplaceAccountCredentials(
-	ctx context.Context,
-	id account.ID,
-	credentials account.OAuthCredentials,
-) error {
-	if err := validateAccountID(id); err != nil {
-		return err
-	}
-	if err := account.ValidateCredentials(credentials); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-	encrypted, err := s.encryptCredentials(id, credentials)
-	if err != nil {
-		return err
-	}
-
-	result, err := s.db.ExecContext(
-		ctx,
-		`UPDATE accounts SET credentials = ? WHERE id = ?`,
-		encrypted,
-		string(id),
-	)
-	if err != nil {
-		return fmt.Errorf("storage: replacing account credentials: %w", err)
-	}
-	return requireAffected(result)
-}
-
 // ReplaceAccountCredentialsIfUnchanged updates an enabled account only while
 // its stored credentials still match a previous GetAccount or ListAccounts result.
 // Deletion, disabling (even if re-enabled) or another credential write returns ErrConflict.

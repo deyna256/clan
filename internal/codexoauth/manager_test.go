@@ -386,7 +386,11 @@ func TestManagerLateRefreshCannotUndoReplacement(t *testing.T) {
 	}()
 	<-entered
 
-	if err := f.store.ReplaceAccountCredentials(t.Context(), "one", account.OAuthCredentials{ChatGPTAccountID: "provider", AccessToken: "newer", RefreshToken: "newer-refresh", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+	previous, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.ReplaceAccountCredentialsIfUnchanged(t.Context(), previous, account.OAuthCredentials{ChatGPTAccountID: "provider", AccessToken: "newer", RefreshToken: "newer-refresh", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	release()
