@@ -31,10 +31,29 @@ format mode="":
             ;;
     esac
 
-# Synchronize module dependencies and verify their cached contents.
-deps:
-    go mod tidy
-    go mod verify
+# Synchronize module dependencies, or check them without changing files.
+[positional-arguments]
+deps mode="":
+    #!/usr/bin/env sh
+    set -eu
+
+    case "$1" in
+        "")
+            go mod tidy
+            go mod verify
+            ;;
+        --check)
+            if ! go mod tidy -diff; then
+                printf '%s\n' 'Run just deps to fix these files.' >&2
+                exit 1
+            fi
+            go mod verify
+            ;;
+        *)
+            printf '%s\n' 'Usage: just deps [--check]' >&2
+            exit 2
+            ;;
+    esac
 
 # Build the project Docker image from the current source.
 build:
