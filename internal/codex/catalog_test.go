@@ -230,6 +230,19 @@ func TestCatalogRefreshFailureInvalidatesOnlyPermanentFailures(t *testing.T) {
 				} else if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
 					t.Errorf("permanent refresh retained old models: %+v", snapshot)
 				}
+
+				// Once an account has loaded, retries follow the standard 5-minute interval
+				// rather than rapid initial backoff, even if a subsequent refresh permanently failed.
+				time.Sleep(1 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 2 {
+					t.Errorf("calls = %d after 1 minute, want 2 (no rapid retry after prior load)", calls.Load())
+				}
+				time.Sleep(4 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 3 {
+					t.Errorf("calls = %d after 5 minutes, want 3 (retried on regular schedule)", calls.Load())
+				}
 			})
 		})
 	}
@@ -560,6 +573,13 @@ func TestCatalogDisabledAccountWhileWaitingDoesNotDelayShutdown(t *testing.T) {
 
 		if err := c.SetAccounts(nil); err != nil {
 			t.Fatal(err)
+		}
+
+		time.Sleep(2 * time.Second)
+		_, _ = c.Snapshot(t.Context())
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 1 {
+			t.Errorf("calls = %d, want no further calls after account is removed", calls.Load())
 		}
 
 		start := time.Now()

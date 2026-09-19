@@ -25,6 +25,8 @@ func retryGap(failures int) time.Duration {
 	if failures <= 1 {
 		return catalogInitialRetry
 	}
+	// Guard against shift overflow: 1s << (failures-1) turns negative at 40
+	// failures and zero at 63, which would slip past the cap check below.
 	if failures > 9 {
 		return catalogMaxRetry
 	}
@@ -156,6 +158,7 @@ type catalogEntry struct {
 	account     account.Account
 	models      []Model
 	loaded      bool
+	everLoaded  bool
 	failure     *Failure
 	failures    int
 	nextRefresh time.Time
@@ -213,6 +216,7 @@ func (c *Catalog) SetAccounts(accounts []account.Account) error {
 				entry.models = nil
 				entry.loaded = false
 			}
+			entry.everLoaded = false
 			entry.failure = nil
 			entry.failures = 0
 			entry.nextRefresh = time.Time{}
@@ -324,6 +328,7 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 	if err == nil {
 		entry.models = models
 		entry.loaded = true
+		entry.everLoaded = true
 		entry.failures = 0
 		entry.nextRefresh = time.Now().Add(catalogTTL)
 		return
@@ -338,7 +343,7 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 		entry.models = nil
 		entry.loaded = false
 	}
-	if entry.loaded {
+	if entry.everLoaded {
 		entry.nextRefresh = time.Now().Add(catalogTTL)
 	} else {
 		entry.failures++
