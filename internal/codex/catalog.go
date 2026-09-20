@@ -25,8 +25,8 @@ func retryGap(failures int) time.Duration {
 	if failures <= 1 {
 		return catalogInitialRetry
 	}
-	// Guard against shift overflow: 1s << (failures-1) turns negative at 40
-	// failures and zero at 63, which would slip past the cap check below.
+	// Guard against shift overflow: from 35 failures 1s << (failures-1) yields
+	// negative gaps and from 56 exactly zero, both slipping past the cap below.
 	if failures > 9 {
 		return catalogMaxRetry
 	}
