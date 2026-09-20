@@ -116,7 +116,7 @@ func TestStreamHasNoDefaultTotalTimeout(t *testing.T) {
 		result, err := consumeClientStream(t.Context(), client, testAccount(t, "one"), request(t, `{"model":"m","input":"hi"}`))
 
 		if err != nil || time.Since(started) != 12*time.Minute || len(result.Response) == 0 {
-			t.Fatalf("Stream = %+v, %v after %v, want complete response after12m", result, err, time.Since(started))
+			t.Fatalf("Stream = %+v, %v after %v, want complete response after 12m", result, err, time.Since(started))
 		}
 	})
 }

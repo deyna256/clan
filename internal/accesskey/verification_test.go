@@ -57,12 +57,9 @@ func TestHashDoesNotMatchDifferentKeyAndRecords(t *testing.T) {
 			candidate, valid := accesskey.Hash(tt.raw)
 
 			if !valid || candidate == tt.hash {
-				t.Error("Hash() matched a different key or verification record")
+				t.Errorf("Hash() = (%x, %t), want a canonical key that differs from the record", candidate, valid)
 			}
 		})
-	}
-	if _, ok := accesskey.Hash(otherRaw); !ok {
-		t.Error("different-key test must present a canonical key")
 	}
 }
 

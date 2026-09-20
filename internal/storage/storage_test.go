@@ -305,7 +305,7 @@ func TestConditionalCredentialReplacementPreservesEnabledStateAndRejectsDeletedR
 	if err := store.DeleteAccount(context.Background(), "account"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), previous, updated); !errors.Is(err, storage.ErrConflict) {
+	if err := store.ReplaceAccountCredentialsIfUnchanged(context.Background(), record, updated); !errors.Is(err, storage.ErrConflict) {
 		t.Fatalf("replacement after delete error = %v, want ErrConflict", err)
 	}
 	if err := store.DeleteAccount(context.Background(), "account"); !errors.Is(err, storage.ErrNotFound) {
