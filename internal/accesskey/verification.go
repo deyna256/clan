@@ -3,7 +3,6 @@ package accesskey
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"strings"
 )
@@ -38,12 +37,4 @@ func Hash(raw string) (VerificationHash, bool) {
 		return VerificationHash{}, false
 	}
 	return sha256.Sum256([]byte(raw)), true
-}
-
-// Verify reports whether the canonical raw key matches this hash.
-// It compares all digest bytes in constant time and rejects malformed input.
-// It does not check identity or enabled status.
-func (hash VerificationHash) Verify(raw string) bool {
-	candidate, ok := Hash(raw)
-	return ok && subtle.ConstantTimeCompare(hash[:], candidate[:]) == 1
 }
