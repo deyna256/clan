@@ -703,6 +703,60 @@ func TestCatalogCredentialRotationRejectsOldCompletionAndKeepsLastGood(t *testin
 	})
 }
 
+func TestCatalogTokenRenewalKeepsFiveMinuteRetry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			calls.Add(1)
+			if r.Header.Get("Authorization") == "Bearer renewed" {
+				return httpResponse(503, "application/json", "temporary"), nil
+			}
+			return httpResponse(200, "application/json", modelJSON), nil
+		})}, "https://example.test")
+		a := testAccount(t, "one")
+		c := catalog(t, client, a)
+		if _, err := c.Snapshot(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if calls.Load() != 1 {
+			t.Fatalf("calls = %d, want 1", calls.Load())
+		}
+
+		credentials := a.Credentials()
+		credentials.AccessToken = "renewed"
+		renewed, err := account.New(a.Identity(), credentials)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.SetAccounts([]account.Account{renewed}); err != nil {
+			t.Fatal(err)
+		}
+
+		snapshot, err := c.Snapshot(t.Context())
+		if err != nil {
+			t.Fatalf("snapshot after renewal = %v", err)
+		}
+		if len(snapshot.Listed) != 1 || snapshot.Listed[0].ID != "m" {
+			t.Fatalf("lost loaded catalog: %+v", snapshot)
+		}
+		if calls.Load() != 2 {
+			t.Fatalf("calls after renewal refresh = %d, want 2", calls.Load())
+		}
+
+		time.Sleep(1 * time.Second)
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 2 {
+			t.Errorf("renewal shortened retry gap: calls = %d, want 2", calls.Load())
+		}
+
+		time.Sleep(5 * time.Minute)
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 3 {
+			t.Errorf("five-minute retry after renewal: calls = %d, want 3", calls.Load())
+		}
+	})
+}
+
 func TestCatalogChangedChatGPTAccountClearsLastGoodOnDiscoveryFailure(t *testing.T) {
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Header.Get("ChatGPT-Account-Id") == "chatgpt-one" {
