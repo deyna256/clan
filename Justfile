@@ -9,7 +9,7 @@ test-unit:
 # Run Go and Dockerfile static analysis without modifying files.
 lint:
     go vet ./...
-    docker run --rm -v "$PWD:/repo:ro" -w /repo \
+    docker run --rm -v "$PWD/Dockerfile:/repo/Dockerfile:ro" -w /repo \
       hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d \
       hadolint Dockerfile
 

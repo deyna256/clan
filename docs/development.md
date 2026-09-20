@@ -238,11 +238,11 @@ the default full run. Coverage alone does not show test quality.
 
 ## Tooling and dependencies
 
-`just lint` runs `go vet ./...`.
-Add checks when their purpose is clear. Use `just format` to format with `gofmt`
-and `just format --check` to check without changing files. Suppress a
-finding only where needed, naming the linter and explaining the exception.
-Ignoring an error needs a reason.
+`just lint` runs `go vet ./...` and checks the Dockerfile with a Hadolint image
+pinned by tag and digest. Add checks when their purpose is clear. Use
+`just format` to format with `gofmt` and `just format --check` to check without
+changing files. Suppress a finding only where needed, naming the linter and
+explaining the exception. Ignoring an error needs a reason.
 
 Pin tool versions and use the same versions locally and in CI, compatible
 with the project's Go version. Review upgrades separately: analyzer updates may
