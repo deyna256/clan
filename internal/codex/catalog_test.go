@@ -747,6 +747,73 @@ func TestCatalogChangedChatGPTAccountClearsLastGoodOnDiscoveryFailure(t *testing
 	}
 }
 
+func TestCatalogRenewalRetainsFiveMinuteRetryIntervalOnFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		loaded bool
+	}{
+		{name: "transient_500", status: 500, loaded: true},
+		{name: "permanent_403", status: 403, loaded: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					if calls.Add(1) == 1 {
+						return httpResponse(200, "application/json", modelJSON), nil
+					}
+					return httpResponse(tt.status, "application/json", "failure"), nil
+				})
+				client := testClient(t, &http.Client{Transport: transport}, "https://example.test")
+				a := testAccount(t, "one")
+				c := catalog(t, client, a)
+
+				first, err := c.Snapshot(t.Context())
+				if err != nil || len(first.Listed) != 1 {
+					t.Fatalf("initial catalog = %+v, %v; want populated catalog", first, err)
+				}
+				if calls.Load() != 1 {
+					t.Fatalf("initial calls = %d, want 1", calls.Load())
+				}
+
+				credentials := a.Credentials()
+				credentials.AccessToken = "renewed-token"
+				renewed, err := account.New(a.Identity(), credentials)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := c.SetAccounts([]account.Account{renewed}); err != nil {
+					t.Fatal(err)
+				}
+
+				snapshot, err := c.Snapshot(t.Context())
+				if tt.loaded && (err != nil || len(snapshot.Listed) != 1) {
+					t.Errorf("transient refresh = %+v, %v; want retained models", snapshot, err)
+				}
+				if !tt.loaded && (!errors.Is(err, codex.ErrCatalogUnavailable) || len(snapshot.Listed) != 0) {
+					t.Errorf("permanent refresh = %+v, %v; want ErrCatalogUnavailable and empty models", snapshot, err)
+				}
+				if calls.Load() != 2 {
+					t.Fatalf("calls after renewal = %d, want 2 (immediate refresh attempt)", calls.Load())
+				}
+
+				time.Sleep(1 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 2 {
+					t.Errorf("calls after 1 minute = %d, want 2 (renewal must not shorten retry gap)", calls.Load())
+				}
+
+				time.Sleep(4 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 3 {
+					t.Errorf("calls after 5 minutes = %d, want 3 (retried on 5-minute schedule)", calls.Load())
+				}
+			})
+		})
+	}
+}
+
 func TestCatalogSeparatesVisibleUnionFromAccountCapabilities(t *testing.T) {
 	client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Header.Get("ChatGPT-Account-Id") == "chatgpt-one" {
