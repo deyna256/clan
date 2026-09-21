@@ -215,11 +215,11 @@ func (c *Catalog) SetAccounts(accounts []account.Account) error {
 			if entry.account.Credentials().ChatGPTAccountID != a.Credentials().ChatGPTAccountID {
 				entry.models = nil
 				entry.loaded = false
+				entry.everLoaded = false
+				entry.failure = nil
+				entry.failures = 0
+				entry.nextRefresh = time.Time{}
 			}
-			entry.everLoaded = false
-			entry.failure = nil
-			entry.failures = 0
-			entry.nextRefresh = time.Time{}
 		}
 		entry.account = a
 	}

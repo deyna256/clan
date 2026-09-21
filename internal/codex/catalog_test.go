@@ -532,6 +532,7 @@ func TestCatalogReconnectClearsWaitAndFailureCount(t *testing.T) {
 
 		creds := a.Credentials()
 		creds.AccessToken = "secret-reconnected"
+		creds.ChatGPTAccountID = "chatgpt-reconnected"
 		reconnected, err := account.New(a.Identity(), creds)
 		if err != nil {
 			t.Fatal(err)
@@ -697,8 +698,49 @@ func TestCatalogCredentialRotationRejectsOldCompletionAndKeepsLastGood(t *testin
 		if err != nil || afterErr != nil || len(current.Listed) != 1 || len(after.Listed) != 1 || after.Listed[0].ID != "m" {
 			t.Fatalf("rotation lost/stomped last good: %+v, %v %v", after, err, afterErr)
 		}
-		if calls.Load() != 3 {
+		if calls.Load() != 2 {
 			t.Errorf("rotation request count: %d", calls.Load())
+		}
+	})
+}
+
+func TestCatalogCredentialRotationKeepsFiveMinuteRefreshInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return httpResponse(200, "application/json", modelJSON), nil
+			}
+			return httpResponse(503, "application/json", "temporary"), nil
+		})}, "https://example.test")
+		a := testAccount(t, "one")
+		c := catalog(t, client, a)
+		if _, err := c.Snapshot(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+
+		credentials := a.Credentials()
+		credentials.AccessToken = "rotated"
+		rotated, err := account.New(a.Identity(), credentials)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.SetAccounts([]account.Account{rotated}); err != nil {
+			t.Fatal(err)
+		}
+
+		cached, err := c.Snapshot(t.Context())
+		if err != nil || len(cached.Listed) != 1 || calls.Load() != 1 {
+			t.Fatalf("rotation refreshed too early: models=%v err=%v calls=%d", cached.Listed, err, calls.Load())
+		}
+
+		time.Sleep(5 * time.Minute)
+		stale, err := c.Snapshot(t.Context())
+		if err != nil || len(stale.Listed) != 1 || calls.Load() != 2 {
+			t.Fatalf("failed refresh did not retain catalog: models=%v err=%v calls=%d", stale.Listed, err, calls.Load())
+		}
+		if _, err := c.Snapshot(t.Context()); err != nil || calls.Load() != 2 {
+			t.Fatalf("failed refresh shortened retry interval: err=%v calls=%d", err, calls.Load())
 		}
 	})
 }
