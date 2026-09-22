@@ -9,7 +9,6 @@ require (
 	github.com/tmaxmax/go-sse v0.11.0
 	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.58.0
-	sigs.k8s.io/json v0.0.0-20260909141634-11ed52e25bc5
 )
 
 require (
