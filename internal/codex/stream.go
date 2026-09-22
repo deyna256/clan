@@ -177,7 +177,7 @@ func (s *Stream) readEvent() (sse.Event, error, bool) {
 func (s *Stream) Result() Result {
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
-	return Result{Response: slices.Clone(s.result.Response), Usage: s.result.Usage}
+	return Result{Response: slices.Clone(s.result.Response), Status: s.result.Status, Usage: s.result.Usage}
 }
 
 // Err returns the known terminal failure, including when Next returned its final event.
@@ -224,11 +224,12 @@ func (s *Stream) closeBody() {
 	})
 }
 
-func (s *Stream) finish(err error) {
+func (s *Stream) finish(failure *Failure) {
 	s.ended = true
-	var failure *Failure
-	if errors.As(err, &failure) {
+	var err error
+	if failure != nil {
 		failure.RetryAfter = s.retryAfter
+		err = failure
 	}
 	s.err = err
 	s.closeBody()
@@ -242,7 +243,7 @@ func (s *Stream) badEvent() (json.RawMessage, error) {
 	return nil, s.err
 }
 
-func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.RawMessage, error, error) {
+func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.RawMessage, *Failure, error) {
 	response, err := object(fields["response"], "response", "")
 	if err != nil {
 		return nil, nil, err
@@ -283,7 +284,7 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 		}
 		response["output"], _ = marshalJSON(output)
 	}
-	var failure error
+	var failure *Failure
 	if status == "failed" {
 		classified := responseFailure(response["error"], s.status)
 		response["error"] = safeErrorJSON(classified)
@@ -293,6 +294,7 @@ func (s *Stream) terminal(fields map[string]json.RawMessage, kind string) (json.
 	if err != nil {
 		return nil, nil, err
 	}
+	s.result.Status = status
 	fields["response"] = s.result.Response
 	raw, err := marshalJSON(fields)
 	return raw, failure, err

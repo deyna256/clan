@@ -18,6 +18,24 @@ import (
 
 const catalogTTL = 5 * time.Minute
 const catalogTimeout = 5 * time.Second
+const catalogInitialRetry = 1 * time.Second
+const catalogMaxRetry = catalogTTL
+
+func retryGap(failures int) time.Duration {
+	if failures <= 1 {
+		return catalogInitialRetry
+	}
+	// Guard against shift overflow: from 35 failures 1s << (failures-1) yields
+	// negative gaps and from 56 exactly zero, both slipping past the cap below.
+	if failures > 9 {
+		return catalogMaxRetry
+	}
+	gap := catalogInitialRetry << (failures - 1)
+	if gap > catalogMaxRetry {
+		return catalogMaxRetry
+	}
+	return gap
+}
 
 // Model contains account-specific catalog facts used for request validation and listing.
 // Listed controls visibility only: hidden models may still be requested explicitly.
@@ -140,7 +158,9 @@ type catalogEntry struct {
 	account     account.Account
 	models      []Model
 	loaded      bool
+	everLoaded  bool
 	failure     *Failure
+	failures    int
 	nextRefresh time.Time
 	refresh     *catalogRefresh
 }
@@ -195,8 +215,10 @@ func (c *Catalog) SetAccounts(accounts []account.Account) error {
 			if entry.account.Credentials().ChatGPTAccountID != a.Credentials().ChatGPTAccountID {
 				entry.models = nil
 				entry.loaded = false
+				entry.everLoaded = false
 			}
 			entry.failure = nil
+			entry.failures = 0
 			entry.nextRefresh = time.Time{}
 		}
 		entry.account = a
@@ -264,9 +286,9 @@ func (c *Catalog) Snapshot(ctx context.Context) (CatalogSnapshot, error) {
 		}
 		result.Accounts = append(result.Accounts, catalog)
 		loaded = loaded || entry.loaded
-		for _, model := range cloneModels(entry.models) {
+		for _, model := range entry.models {
 			if model.Listed && !listed[model.ID] {
-				result.Listed = append(result.Listed, model)
+				result.Listed = append(result.Listed, cloneModel(model))
 				listed[model.ID] = true
 			}
 		}
@@ -306,6 +328,9 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 	if err == nil {
 		entry.models = models
 		entry.loaded = true
+		entry.everLoaded = true
+		entry.failures = 0
+		entry.nextRefresh = time.Now().Add(catalogTTL)
 		return
 	}
 	var failure *Failure
@@ -318,13 +343,24 @@ func (c *Catalog) refresh(ctx context.Context, entry *catalogEntry, a account.Ac
 		entry.models = nil
 		entry.loaded = false
 	}
+	if entry.everLoaded {
+		entry.nextRefresh = time.Now().Add(catalogTTL)
+	} else {
+		entry.failures++
+		entry.nextRefresh = time.Now().Add(retryGap(entry.failures))
+	}
+}
+
+func cloneModel(model Model) Model {
+	model.ReasoningEfforts = slices.Clone(model.ReasoningEfforts)
+	model.InputModalities = slices.Clone(model.InputModalities)
+	return model
 }
 
 func cloneModels(models []Model) []Model {
 	cloned := slices.Clone(models)
 	for i := range cloned {
-		cloned[i].ReasoningEfforts = slices.Clone(cloned[i].ReasoningEfforts)
-		cloned[i].InputModalities = slices.Clone(cloned[i].InputModalities)
+		cloned[i] = cloneModel(cloned[i])
 	}
 	return cloned
 }

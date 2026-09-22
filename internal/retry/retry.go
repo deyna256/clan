@@ -35,26 +35,22 @@ func ParseRetryAfter(value string, receivedAt time.Time) (Cooldown, error) {
 		return Cooldown{}, errors.New("retry: receipt time is required")
 	}
 	value = strings.Trim(value, " \t")
-	digits := value != ""
-	for _, char := range value {
-		if char < '0' || char > '9' {
-			digits = false
-			break
-		}
-	}
-	var until time.Time
-	if digits {
+	if value != "" && value[0] >= '0' && value[0] <= '9' {
 		seconds, err := strconv.ParseUint(value, 10, 64)
-		if err != nil || seconds > uint64(math.MaxInt64/int64(time.Second)) {
+		if err == nil {
+			if seconds > uint64(math.MaxInt64/int64(time.Second)) {
+				return Cooldown{Kind: RetryBlocked}, nil
+			}
+			return Cooldown{Kind: RetryAt, Until: receivedAt.Add(time.Duration(seconds) * time.Second)}, nil
+		}
+		// ParseUint can overflow before reaching an invalid suffix.
+		if errors.Is(err, strconv.ErrRange) && strings.Trim(value, "0123456789") == "" {
 			return Cooldown{Kind: RetryBlocked}, nil
 		}
-		until = receivedAt.Add(time.Duration(seconds) * time.Second)
-	} else {
-		var err error
-		until, err = http.ParseTime(value)
-		if err != nil {
-			return Cooldown{}, nil
-		}
+	}
+	until, err := http.ParseTime(value)
+	if err != nil {
+		return Cooldown{}, nil
 	}
 	return Cooldown{Kind: RetryAt, Until: until}, nil
 }

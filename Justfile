@@ -6,9 +6,12 @@ test:
 test-unit:
     go test -short -race -shuffle=on -count=1 ./...
 
-# Run static analysis without modifying source files.
+# Run Go and Dockerfile static analysis without modifying files.
 lint:
     go vet ./...
+    docker run --rm -v "$PWD/Dockerfile:/repo/Dockerfile:ro" -w /repo \
+      hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d \
+      hadolint Dockerfile
 
 # Format Go files, or check them without changes with --check.
 [positional-arguments]
@@ -31,10 +34,29 @@ format mode="":
             ;;
     esac
 
-# Synchronize module dependencies and verify their cached contents.
-deps:
-    go mod tidy
-    go mod verify
+# Synchronize module dependencies, or check them without changing files.
+[positional-arguments]
+deps mode="":
+    #!/usr/bin/env sh
+    set -eu
+
+    case "$1" in
+        "")
+            go mod tidy
+            go mod verify
+            ;;
+        --check)
+            if ! go mod tidy -diff; then
+                printf '%s\n' 'Run just deps to fix these files.' >&2
+                exit 1
+            fi
+            go mod verify
+            ;;
+        *)
+            printf '%s\n' 'Usage: just deps [--check]' >&2
+            exit 2
+            ;;
+    esac
 
 # Build the project Docker image from the current source.
 build:

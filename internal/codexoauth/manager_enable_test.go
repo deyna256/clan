@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deyna256/clan/internal/codexoauth"
+	"github.com/deyna256/clan/internal/storage"
 )
 
 func TestManagerDisableEnablePreservesRequiredSignIn(t *testing.T) {
@@ -53,7 +54,7 @@ func TestManagerDisableEnablePreservesRequiredSignIn(t *testing.T) {
 	}
 }
 
-func TestManagerDisabledCredentialReplacementClearsRequiredSignIn(t *testing.T) {
+func TestManagerReenabledCredentialReplacementClearsRequiredSignIn(t *testing.T) {
 	f := managerFixture(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return tokenResponseJSON(400, `{"error":"invalid_grant"}`), nil
 	}), nil)
@@ -69,10 +70,21 @@ func TestManagerDisabledCredentialReplacementClearsRequiredSignIn(t *testing.T) 
 	credentials.RefreshToken = "replacement-refresh"
 	credentials.ExpiresAt = time.Now().Add(time.Hour)
 
-	if err := f.store.ReplaceAccountCredentials(t.Context(), "one", credentials); err != nil {
+	previous, err := f.store.GetAccount(t.Context(), "one")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := f.store.ReplaceAccountCredentialsIfUnchanged(t.Context(), previous, credentials); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("disabled replacement = %v, want ErrConflict", err)
+	}
 	if err := f.manager.Enable(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	previous, err = f.store.GetAccount(t.Context(), "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.ReplaceAccountCredentialsIfUnchanged(t.Context(), previous, credentials); err != nil {
 		t.Fatal(err)
 	}
 	status, err := f.manager.Status(t.Context(), "one")

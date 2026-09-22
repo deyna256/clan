@@ -71,3 +71,64 @@ func TestLoadConfigRejectsInvalidValuesWithoutDisclosingThem(t *testing.T) {
 		})
 	}
 }
+
+func TestNewApplicationRejectsInvalidDirectConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		modify func(*config)
+		want   string
+	}{
+		{
+			name: "admin token",
+			modify: func(c *config) {
+				c.adminToken = "clan_secret-marker"
+			},
+			want: "CLAN_ADMIN_TOKEN",
+		},
+		{
+			name: "encryption key length",
+			modify: func(c *config) {
+				c.encryptionKey = c.encryptionKey[:31]
+			},
+			want: "CLAN_ENCRYPTION_KEY",
+		},
+		{
+			name: "blank database path",
+			modify: func(c *config) {
+				c.dbPath = " "
+			},
+			want: "CLAN_DB_PATH",
+		},
+		{
+			name: "invalid listen port",
+			modify: func(c *config) {
+				c.listenAddr = "localhost:65536"
+			},
+			want: "CLAN_LISTEN_ADDR",
+		},
+		{
+			name: "invalid callback port",
+			modify: func(c *config) {
+				c.callbackAddr = "localhost:-1"
+			},
+			want: "CLAN_OAUTH_CALLBACK_ADDR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := testConfig(t)
+			tt.modify(&c)
+
+			// A bad config must fail before dependency setup.
+			_, err := newApplication(t.Context(), c, nil, nil, "", "")
+
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("direct config validation = %v, want %s", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "secret-marker") {
+				t.Fatalf("validation disclosed the supplied secret: %v", err)
+			}
+		})
+	}
+}

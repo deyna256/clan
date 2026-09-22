@@ -78,28 +78,28 @@ func (s *service) failure(ctx context.Context, err error, mutation bool) error {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		if mutation {
-			return problem(503, "completion-unconfirmed", "Operation completion is unconfirmed; the resource may already have changed.")
+			return problem(http.StatusServiceUnavailable, "completion-unconfirmed", "Operation completion is unconfirmed; the resource may already have changed.")
 		}
-		return problem(503, "unavailable", "The operation could not finish in time.")
+		return problem(http.StatusServiceUnavailable, "unavailable", "The operation could not finish in time.")
 	case errors.Is(err, storage.ErrNotFound):
-		return problem(404, "not-found", "The resource was not found.")
+		return problem(http.StatusNotFound, "not-found", "The resource was not found.")
 	case errors.Is(err, codexoauth.ErrLoginPending):
-		return problem(409, "login-pending", "A login is already pending.")
+		return problem(http.StatusConflict, "login-pending", "A login is already pending.")
 	case errors.Is(err, codexoauth.ErrLoginMismatch):
-		return problem(409, "login-mismatch", "The login ID does not match the latest attempt.")
+		return problem(http.StatusConflict, "login-mismatch", "The login ID does not match the latest attempt.")
 	case errors.Is(err, codexoauth.ErrDisabled):
-		return problem(409, "account-disabled", "The account is disabled.")
+		return problem(http.StatusConflict, "account-disabled", "The account is disabled.")
 	case errors.Is(err, codexoauth.ErrNeedsSignIn):
-		return problem(409, "needs-sign-in", "The account needs to sign in again.")
+		return problem(http.StatusConflict, "needs-sign-in", "The account needs to sign in again.")
 	case errors.Is(err, storage.ErrConflict):
-		return problem(409, "state-conflict", "The resource changed or already exists.")
+		return problem(http.StatusConflict, "state-conflict", "The resource changed or already exists.")
 	case errors.Is(err, storage.ErrInvalid), errors.Is(err, codexoauth.ErrInvalidLogin):
-		return problem(422, "invalid-request", "The request does not match the required fields or allowed values.")
+		return problem(http.StatusUnprocessableEntity, "invalid-request", "The request does not match the required fields or allowed values.")
 	case errors.Is(err, codex.ErrCatalogUnavailable), errors.Is(err, execution.ErrClosed), errors.Is(err, execution.ErrUnavailable),
 		errors.Is(err, codexoauth.ErrClosed), errors.Is(err, codexoauth.ErrUnavailable):
-		return problem(503, "unavailable", "The service is temporarily unavailable.")
+		return problem(http.StatusServiceUnavailable, "unavailable", "The service is temporarily unavailable.")
 	default:
 		s.logger.LogAttrs(ctx, slog.LevelError, "management operation failed", slog.String("result", "internal-error"))
-		return problem(500, "internal-error", "The operation failed.")
+		return problem(http.StatusInternalServerError, "internal-error", "The operation failed.")
 	}
 }

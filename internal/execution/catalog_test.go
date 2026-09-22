@@ -100,7 +100,7 @@ func TestCatalogRefreshesOAuthBeforeDiscoveryAndGeneration(t *testing.T) {
 	credentials := record.Account.Credentials()
 	credentials.RefreshToken = "old-refresh"
 	credentials.ExpiresAt = time.Now().Add(4 * time.Minute)
-	if err := f.store.ReplaceAccountCredentials(t.Context(), "one", credentials); err != nil {
+	if err := f.store.ReplaceAccountCredentialsIfUnchanged(t.Context(), record, credentials); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,7 +236,7 @@ func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 		}
 		credentials := record.Account.Credentials()
 		credentials.ChatGPTAccountID = "replacement"
-		if err := f.store.ReplaceAccountCredentials(t.Context(), "one", credentials); err != nil {
+		if err := f.store.ReplaceAccountCredentialsIfUnchanged(t.Context(), record, credentials); err != nil {
 			t.Fatal(err)
 		}
 

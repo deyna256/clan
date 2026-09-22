@@ -53,6 +53,7 @@ func (e *Failure) Unwrap() error { return e.cause }
 // Usage remains available when the attempt fails; unknown counts are not zero counts.
 type Result struct {
 	Response json.RawMessage
+	Status   string // Empty until a valid terminal response is received.
 	Usage    usage.Snapshot
 }
 
@@ -95,6 +96,9 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 	}
 	if standard, ok := transport.(*http.Transport); ok {
 		cloned := standard.Clone()
+		// DialContext takes precedence over Dial. Keep the legacy check so
+		// callers with a custom Dial are not silently switched to our dialer.
+		//nolint:staticcheck // Preserve caller-supplied legacy dialers when checking deprecated Dial.
 		if cloned.DialContext == nil && cloned.Dial == nil {
 			cloned.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 		}
@@ -111,25 +115,6 @@ func NewClient(client *http.Client, baseURL, clientVersion string) (*Client, err
 // CloseIdleConnections releases pooled connections without interrupting active requests.
 // The application calls it after execution and catalog shutdown.
 func (c *Client) CloseIdleConnections() { c.http.CloseIdleConnections() }
-
-// Generate consumes the same stream as Stream and returns its terminal result.
-// The caller must first validate enabled-account model membership and ValidateModel.
-func (c *Client) Generate(ctx context.Context, a account.Account, request Request) (Result, error) {
-	stream, err := c.Stream(ctx, a, request)
-	if err != nil {
-		return Result{}, err
-	}
-	defer stream.Close()
-	for {
-		_, err = stream.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				err = nil
-			}
-			return stream.Result(), err
-		}
-	}
-}
 
 // Stream opens one upstream attempt. The caller owns Close, including on early return.
 // The caller must first validate enabled-account model membership and ValidateModel.

@@ -64,6 +64,8 @@ func newApplication(
 	client *http.Client,
 	issuer, codexURL string,
 ) (_ *application, err error) {
+	// Keep constructor validation for tests that build config directly.
+	// Production Run passes an already validated loadConfig result.
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
@@ -122,8 +124,6 @@ func newApplication(
 	router := chi.NewRouter()
 	router.Handle("/api/*", admin)
 	router.Handle("/api", admin)
-	router.Handle("/v1/*", clients)
-	router.Handle("/v1", clients)
 	router.NotFound(clients.ServeHTTP)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("app: startup canceled: %w", ctx.Err())
@@ -171,7 +171,7 @@ func (a *application) run(ctx context.Context, logger *slog.Logger) error {
 	case err := <-served:
 		servingStopped = true
 		if !errors.Is(err, http.ErrServerClosed) {
-			serveErr = errors.New("app: HTTP serving failed")
+			serveErr = fmt.Errorf("app: HTTP serving: %w", err)
 		}
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -184,7 +184,7 @@ func (a *application) run(ctx context.Context, logger *slog.Logger) error {
 			select {
 			case err := <-served:
 				if !errors.Is(err, http.ErrServerClosed) {
-					serveErr = errors.New("app: HTTP serving failed")
+					serveErr = fmt.Errorf("app: HTTP serving: %w", err)
 				}
 			case <-shutdown.Done():
 				return errors.New("app: shutdown deadline exceeded; cleanup is incomplete")
@@ -207,7 +207,7 @@ func (a *application) shutdown(ctx context.Context) error {
 		close(executed)
 	}()
 	if err := a.server.Shutdown(ctx); err != nil {
-		return errors.New("app: HTTP shutdown did not complete")
+		return fmt.Errorf("app: HTTP shutdown: %w", err)
 	}
 	select {
 	case <-executed:
@@ -217,7 +217,7 @@ func (a *application) shutdown(ctx context.Context) error {
 	select {
 	case err := <-oauthStopped:
 		if err != nil {
-			return errors.New("app: OAuth shutdown did not complete")
+			return fmt.Errorf("app: OAuth shutdown: %w", err)
 		}
 	case <-ctx.Done():
 		return errors.New("app: OAuth shutdown did not complete")
@@ -225,7 +225,7 @@ func (a *application) shutdown(ctx context.Context) error {
 	a.codexClient.CloseIdleConnections()
 	a.httpClient.CloseIdleConnections()
 	if err := a.store.Close(); err != nil {
-		return errors.New("app: closing the database failed")
+		return fmt.Errorf("app: closing the database: %w", err)
 	}
 	return nil
 }

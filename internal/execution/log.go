@@ -2,7 +2,6 @@ package execution
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -25,13 +24,8 @@ func (e *Executor) RecordRejection(ctx context.Context, info RequestInfo, keyID 
 
 func resultCode(result codex.Result, err error) string {
 	outcome := errorCode(err)
-	if err == nil {
-		var terminal struct {
-			Status string `json:"status"`
-		}
-		if json.Unmarshal(result.Response, &terminal) == nil && terminal.Status != "" {
-			outcome = terminal.Status
-		}
+	if err == nil && result.Status != "" {
+		outcome = result.Status
 	}
 	return outcome
 }

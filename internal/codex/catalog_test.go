@@ -230,6 +230,19 @@ func TestCatalogRefreshFailureInvalidatesOnlyPermanentFailures(t *testing.T) {
 				} else if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
 					t.Errorf("permanent refresh retained old models: %+v", snapshot)
 				}
+
+				// Once an account has loaded, retries follow the standard 5-minute interval
+				// rather than rapid initial backoff, even if a subsequent refresh permanently failed.
+				time.Sleep(1 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 2 {
+					t.Errorf("calls = %d after 1 minute, want 2 (no rapid retry after prior load)", calls.Load())
+				}
+				time.Sleep(4 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 3 {
+					t.Errorf("calls = %d after 5 minutes, want 3 (retried on regular schedule)", calls.Load())
+				}
 			})
 		})
 	}
@@ -307,7 +320,7 @@ func TestCatalogSharesRefreshWithoutSharingWaiterCancellation(t *testing.T) {
 	})
 }
 
-func TestCatalogTimeoutIsFiveSecondsAndFailedFirstLoadIsCached(t *testing.T) {
+func TestCatalogAttemptTimesOutAfterFiveSeconds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var calls atomic.Int32
 		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -326,9 +339,285 @@ func TestCatalogTimeoutIsFiveSecondsAndFailedFirstLoadIsCached(t *testing.T) {
 		if !errors.Is(snapshot.Accounts[0].Failure, context.DeadlineExceeded) {
 			t.Error("deadline cause lost")
 		}
-		_, err = c.Snapshot(t.Context())
+		if calls.Load() != 1 {
+			t.Errorf("calls = %d, want 1", calls.Load())
+		}
+	})
+}
+
+func TestCatalogFirstLoadFailureRetriesAfterOneSecondWhenHealthy(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return httpResponse(500, "application/json", "temporary failure"), nil
+			}
+			return httpResponse(200, "application/json", modelJSON), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		_, err := c.Snapshot(t.Context())
+		if !errors.Is(err, codex.ErrCatalogUnavailable) {
+			t.Fatalf("first snapshot error = %v, want ErrCatalogUnavailable", err)
+		}
+		if calls.Load() != 1 {
+			t.Fatalf("calls = %d, want 1", calls.Load())
+		}
+
+		time.Sleep(1 * time.Second)
+
+		snapshot, err := c.Snapshot(t.Context())
+		if err != nil {
+			t.Fatalf("second snapshot error = %v, want nil", err)
+		}
+		if calls.Load() != 2 {
+			t.Fatalf("calls = %d, want 2", calls.Load())
+		}
+		if len(snapshot.Listed) != 1 || snapshot.Listed[0].ID != "m" {
+			t.Errorf("snapshot listed = %+v, want model 'm'", snapshot.Listed)
+		}
+	})
+}
+
+func TestCatalogInitialFailureBackoffGrowsWhenProviderStaysDown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls.Add(1)
+			return httpResponse(500, "application/json", "down"), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		_, err := c.Snapshot(t.Context())
 		if !errors.Is(err, codex.ErrCatalogUnavailable) || calls.Load() != 1 {
-			t.Errorf("failed first discovery not cached: %v calls %d", err, calls.Load())
+			t.Fatalf("call 1: err=%v, calls=%d", err, calls.Load())
+		}
+
+		var callHistory []int
+		for step := 1; step <= 16; step++ {
+			time.Sleep(500 * time.Millisecond)
+			_, _ = c.Snapshot(t.Context())
+			callHistory = append(callHistory, int(calls.Load()))
+		}
+		wantHistory := []int{1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4}
+		if !reflect.DeepEqual(callHistory, wantHistory) {
+			t.Errorf("callHistory = %v, want %v", callHistory, wantHistory)
+		}
+	})
+}
+
+func TestCatalogRequestDuringWaitingPeriodAnswersImmediately(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			calls.Add(1)
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		start := time.Now()
+		_, err := c.Snapshot(t.Context())
+		if !errors.Is(err, codex.ErrCatalogUnavailable) || time.Since(start) != 5*time.Second {
+			t.Fatalf("first attempt took %v: %v", time.Since(start), err)
+		}
+
+		time.Sleep(200 * time.Millisecond)
+		subsequentStart := time.Now()
+		_, err = c.Snapshot(t.Context())
+		if !errors.Is(err, codex.ErrCatalogUnavailable) {
+			t.Fatalf("second call error = %v, want ErrCatalogUnavailable", err)
+		}
+		if time.Since(subsequentStart) != 0 {
+			t.Errorf("request during waiting period took %v, want 0", time.Since(subsequentStart))
+		}
+		if calls.Load() != 1 {
+			t.Errorf("request during waiting period triggered call: %d", calls.Load())
+		}
+	})
+}
+
+func TestCatalogRefreshFailureRetainsLoadedModelsAndWaitsFiveMinutes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return httpResponse(200, "application/json", modelJSON), nil
+			}
+			return httpResponse(500, "application/json", "error"), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		first, err := c.Snapshot(t.Context())
+		if err != nil || len(first.Listed) != 1 {
+			t.Fatalf("initial snapshot = %+v, %v", first, err)
+		}
+
+		time.Sleep(5 * time.Minute)
+		refreshFail, err := c.Snapshot(t.Context())
+		if err != nil || len(refreshFail.Listed) != 1 {
+			t.Fatalf("refresh failure lost old models: %+v, %v", refreshFail, err)
+		}
+		if calls.Load() != 2 {
+			t.Fatalf("calls = %d, want 2", calls.Load())
+		}
+
+		time.Sleep(4 * time.Minute)
+		cached, err := c.Snapshot(t.Context())
+		if err != nil || len(cached.Listed) != 1 || calls.Load() != 2 {
+			t.Fatalf("premature retry before 5 minutes: calls=%d, err=%v", calls.Load(), err)
+		}
+	})
+}
+
+func TestCatalogMultipleAccountsIsolatesFailingAccountRetries(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var oneCalls, twoCalls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Header.Get("ChatGPT-Account-Id") == "chatgpt-one" {
+				oneCalls.Add(1)
+				return httpResponse(200, "application/json", modelJSON), nil
+			}
+			twoCalls.Add(1)
+			return httpResponse(500, "application/json", "fail"), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"), testAccount(t, "two"))
+
+		snapshot, err := c.Snapshot(t.Context())
+		if err != nil {
+			t.Fatalf("snapshot error = %v, want nil", err)
+		}
+		if len(snapshot.Listed) != 1 || snapshot.Listed[0].ID != "m" {
+			t.Fatalf("listed = %+v, want model 'm'", snapshot.Listed)
+		}
+		if oneCalls.Load() != 1 || twoCalls.Load() != 1 {
+			t.Fatalf("calls: one=%d, two=%d", oneCalls.Load(), twoCalls.Load())
+		}
+
+		time.Sleep(1 * time.Second)
+		snapshot2, err := c.Snapshot(t.Context())
+		if err != nil || len(snapshot2.Listed) != 1 {
+			t.Fatalf("snapshot2 error = %v", err)
+		}
+		if oneCalls.Load() != 1 {
+			t.Errorf("account one retried prematurely: %d", oneCalls.Load())
+		}
+		if twoCalls.Load() != 2 {
+			t.Errorf("account two did not retry on schedule: %d", twoCalls.Load())
+		}
+	})
+}
+
+func TestCatalogReconnectClearsWaitAndFailureCount(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			calls.Add(1)
+			if r.Header.Get("Authorization") == "Bearer secret-reconnected" {
+				return httpResponse(200, "application/json", modelJSON), nil
+			}
+			return httpResponse(500, "application/json", "error"), nil
+		})}, "https://example.test")
+		a := testAccount(t, "one")
+		c := catalog(t, client, a)
+
+		_, _ = c.Snapshot(t.Context())
+		time.Sleep(1 * time.Second)
+		_, _ = c.Snapshot(t.Context())
+		time.Sleep(2 * time.Second)
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 3 {
+			t.Fatalf("calls = %d, want 3", calls.Load())
+		}
+
+		creds := a.Credentials()
+		creds.AccessToken = "secret-reconnected"
+		reconnected, err := account.New(a.Identity(), creds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.SetAccounts([]account.Account{reconnected}); err != nil {
+			t.Fatal(err)
+		}
+
+		start := time.Now()
+		snapshot, err := c.Snapshot(t.Context())
+		if err != nil {
+			t.Fatalf("snapshot error after reconnect = %v", err)
+		}
+		if time.Since(start) != 0 {
+			t.Errorf("reconnect snapshot delayed by %v", time.Since(start))
+		}
+		if calls.Load() != 4 {
+			t.Errorf("calls = %d, want 4", calls.Load())
+		}
+		if len(snapshot.Listed) != 1 || snapshot.Listed[0].ID != "m" {
+			t.Errorf("listed = %+v, want model 'm'", snapshot.Listed)
+		}
+	})
+}
+
+func TestCatalogDisabledAccountWhileWaitingDoesNotDelayShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls.Add(1)
+			return httpResponse(500, "application/json", "error"), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 1 {
+			t.Fatalf("calls = %d, want 1", calls.Load())
+		}
+
+		if err := c.SetAccounts(nil); err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(2 * time.Second)
+		_, _ = c.Snapshot(t.Context())
+		_, _ = c.Snapshot(t.Context())
+		if calls.Load() != 1 {
+			t.Errorf("calls = %d, want no further calls after account is removed", calls.Load())
+		}
+
+		start := time.Now()
+		c.Close()
+		if time.Since(start) != 0 {
+			t.Errorf("Close was delayed by %v, want 0", time.Since(start))
+		}
+	})
+}
+
+func TestCatalogConcurrentRequestsShareInitialDiscovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		var calls atomic.Int32
+		client := testClient(t, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls.Add(1)
+			<-release
+			return httpResponse(200, "application/json", modelJSON), nil
+		})}, "https://example.test")
+		c := catalog(t, client, testAccount(t, "one"))
+
+		errs := make(chan error, 3)
+		for range 3 {
+			go func() {
+				_, err := c.Snapshot(t.Context())
+				errs <- err
+			}()
+		}
+		synctest.Wait()
+		close(release)
+
+		for range 3 {
+			if err := <-errs; err != nil {
+				t.Fatalf("concurrent snapshot error = %v", err)
+			}
+		}
+		if calls.Load() != 1 {
+			t.Errorf("concurrent calls = %d, want 1", calls.Load())
 		}
 	})
 }
@@ -455,6 +744,73 @@ func TestCatalogChangedChatGPTAccountClearsLastGoodOnDiscoveryFailure(t *testing
 	}
 	if len(got.Models) != 0 || len(snapshot.Listed) != 0 {
 		t.Errorf("replacement account inherited old models: %+v", snapshot)
+	}
+}
+
+func TestCatalogRenewalRetainsFiveMinuteRetryIntervalOnFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		loaded bool
+	}{
+		{name: "transient_500", status: 500, loaded: true},
+		{name: "permanent_403", status: 403, loaded: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+					if calls.Add(1) == 1 {
+						return httpResponse(200, "application/json", modelJSON), nil
+					}
+					return httpResponse(tt.status, "application/json", "failure"), nil
+				})
+				client := testClient(t, &http.Client{Transport: transport}, "https://example.test")
+				a := testAccount(t, "one")
+				c := catalog(t, client, a)
+
+				first, err := c.Snapshot(t.Context())
+				if err != nil || len(first.Listed) != 1 {
+					t.Fatalf("initial catalog = %+v, %v; want populated catalog", first, err)
+				}
+				if calls.Load() != 1 {
+					t.Fatalf("initial calls = %d, want 1", calls.Load())
+				}
+
+				credentials := a.Credentials()
+				credentials.AccessToken = "renewed-token"
+				renewed, err := account.New(a.Identity(), credentials)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := c.SetAccounts([]account.Account{renewed}); err != nil {
+					t.Fatal(err)
+				}
+
+				snapshot, err := c.Snapshot(t.Context())
+				if tt.loaded && (err != nil || len(snapshot.Listed) != 1) {
+					t.Errorf("transient refresh = %+v, %v; want retained models", snapshot, err)
+				}
+				if !tt.loaded && (!errors.Is(err, codex.ErrCatalogUnavailable) || len(snapshot.Listed) != 0) {
+					t.Errorf("permanent refresh = %+v, %v; want ErrCatalogUnavailable and empty models", snapshot, err)
+				}
+				if calls.Load() != 2 {
+					t.Fatalf("calls after renewal = %d, want 2 (immediate refresh attempt)", calls.Load())
+				}
+
+				time.Sleep(1 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 2 {
+					t.Errorf("calls after 1 minute = %d, want 2 (renewal must not shorten retry gap)", calls.Load())
+				}
+
+				time.Sleep(4 * time.Minute)
+				_, _ = c.Snapshot(t.Context())
+				if calls.Load() != 3 {
+					t.Errorf("calls after 5 minutes = %d, want 3 (retried on 5-minute schedule)", calls.Load())
+				}
+			})
+		})
 	}
 }
 
@@ -611,5 +967,68 @@ func TestCatalogCloseWaitsForCanceledRefreshCleanup(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func TestCatalogSnapshotListedAndAccountModelsAreIndependent(t *testing.T) {
+	c, err := codex.NewCatalog(func(context.Context, account.Account) ([]codex.Model, error) {
+		return []codex.Model{{
+			ID:               "m",
+			Listed:           true,
+			ReasoningEfforts: []string{"low"},
+			InputModalities:  []string{"text"},
+		}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+
+	if err := c.SetAccounts([]account.Account{testAccount(t, "one")}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := c.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Accounts) != 1 ||
+		len(snapshot.Accounts[0].Models) != 1 ||
+		len(snapshot.Listed) != 1 {
+		t.Fatalf("unexpected snapshot: %+v", snapshot)
+	}
+
+	accountModel := &snapshot.Accounts[0].Models[0]
+	listedModel := &snapshot.Listed[0]
+
+	accountModel.ReasoningEfforts[0] = "changed-account"
+	accountModel.InputModalities[0] = "changed-account"
+
+	if listedModel.ReasoningEfforts[0] != "low" ||
+		listedModel.InputModalities[0] != "text" {
+		t.Error("mutating account models changed the listed union")
+	}
+
+	listedModel.ReasoningEfforts[0] = "changed-listed"
+	listedModel.InputModalities[0] = "changed-listed"
+
+	if accountModel.ReasoningEfforts[0] != "changed-account" ||
+		accountModel.InputModalities[0] != "changed-account" {
+		t.Error("mutating the listed union changed account models")
+	}
+
+	fresh, err := c.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, model := range []codex.Model{
+		fresh.Accounts[0].Models[0],
+		fresh.Listed[0],
+	} {
+		if model.ReasoningEfforts[0] != "low" ||
+			model.InputModalities[0] != "text" {
+			t.Errorf("snapshot mutation changed cached models: %+v", model)
+		}
 	}
 }

@@ -231,14 +231,14 @@ func (e *Executor) finish(r *requestState, result codex.Result, err error) {
 }
 
 func operationError(ctx context.Context, err error) error {
-	if ctx.Err() != nil {
+	switch {
+	case ctx.Err() != nil:
 		return ctx.Err()
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return context.DeadlineExceeded
-		}
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
 		return context.Canceled
+	default:
+		return ErrUnavailable
 	}
-	return ErrUnavailable
 }
