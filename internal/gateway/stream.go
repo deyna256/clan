@@ -11,9 +11,9 @@ import (
 )
 
 func (h *handler) stream(w http.ResponseWriter, r *http.Request, input codex.Request) {
-	stream, err := h.executor.Stream(r.Context(), bearer(r), requestInfo(r), input)
+	stream, openErr := h.executor.Stream(r.Context(), bearer(r), requestInfo(r), input)
 	if stream == nil {
-		h.reject(w, r, classify(err))
+		h.reject(w, r, classify(openErr))
 		return
 	}
 	defer stream.Close()
@@ -21,35 +21,39 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request, input codex.Req
 	defer d.close()
 	started := false
 	sequence := int64(-1)
-	for {
-		var raw json.RawMessage
-		if err == nil {
-			raw, err = stream.Next()
-		}
-		var kind string
-		if err == nil {
-			raw, kind, sequence, err = prepareEvent(raw, sequence)
-			if err != nil {
+	sendError := func(err error) {
+		if !started {
+			if !writeError(d, r, classify(err), stream.ResponseStarted) {
+				stream.DeliveryFailed()
+			}
+		} else if !errors.Is(err, io.EOF) {
+			if sequence == math.MaxInt64 || !sendStreamError(d, classify(err), sequence+1) {
 				stream.DeliveryFailed()
 			}
 		}
+	}
+	if openErr != nil {
+		sendError(openErr)
+		return
+	}
+	for {
+		raw, nextErr := stream.Next()
+		if nextErr != nil {
+			sendError(nextErr)
+			return
+		}
+		event, kind, nextSequence, err := prepareEvent(raw, sequence)
+		sequence = nextSequence
 		if err != nil {
-			if !started {
-				if !writeError(d, r, classify(err), stream.ResponseStarted) {
-					stream.DeliveryFailed()
-				}
-			} else if !errors.Is(err, io.EOF) {
-				if sequence == math.MaxInt64 || !sendStreamError(d, classify(err), sequence+1) {
-					stream.DeliveryFailed()
-				}
-			}
+			stream.DeliveryFailed()
+			sendError(err)
 			return
 		}
 		var commit func()
 		if !started {
 			commit = stream.ResponseStarted
 		}
-		if !d.event(kind, raw, commit) {
+		if !d.event(kind, event, commit) {
 			stream.DeliveryFailed()
 			return
 		}

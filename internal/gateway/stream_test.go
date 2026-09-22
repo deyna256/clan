@@ -6,10 +6,32 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestStreamingConcurrencyRejectionReturnsJSON(t *testing.T) {
+	f := newFixture(t, func(http.ResponseWriter, *http.Request) { t.Error("rejected request reached upstream") })
+	if err := f.executor.SetConcurrency(t.Context(), "key", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := f.request(t, "POST", "/v1/responses", `{"model":"model","input":"hello","stream":true}`)
+	body := readBody(t, resp)
+
+	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("rejection = %d, %v, %s; want HTTP 429 JSON", resp.StatusCode, resp.Header, body)
+	}
+	var envelope struct{ Error struct{ Type, Code string } }
+	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+		t.Fatalf("rejection body = %q: %v", body, err)
+	}
+	if envelope.Error.Type != "rate_limit_error" || envelope.Error.Code != "concurrency_limit" {
+		t.Fatalf("rejection error = %+v", envelope.Error)
+	}
+}
 
 func TestStreamingFlushesBeforeUpstreamCompletes(t *testing.T) {
 	release := make(chan struct{})
@@ -92,6 +114,33 @@ func TestStreamingTerminalFailureIsNotDuplicated(t *testing.T) {
 	}
 }
 
+func TestStreamingIncompleteResponsePreservesReason(t *testing.T) {
+	f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `data: {"type":"response.incomplete","sequence_number":7,`+
+			`"response":{"id":"r","status":"incomplete","output":[],`+
+			`"incomplete_details":{"reason":"max_output_tokens"}}}`+"\n\n")
+	})
+
+	resp := f.request(t, "POST", "/v1/responses", `{"model":"model","input":"hello","stream":true}`)
+	reader := bufio.NewReader(resp.Body)
+	event := readEvent(t, reader)
+
+	if resp.StatusCode != http.StatusOK || event["type"] != "response.incomplete" || event["sequence_number"] != float64(7) {
+		t.Fatalf("incomplete event = %d, %v", resp.StatusCode, event)
+	}
+	response, ok := event["response"].(map[string]any)
+	if !ok || response["status"] != "incomplete" {
+		t.Fatalf("incomplete response = %v", event["response"])
+	}
+	details, ok := response["incomplete_details"].(map[string]any)
+	if !ok || details["reason"] != "max_output_tokens" {
+		t.Fatalf("incomplete details = %v", response["incomplete_details"])
+	}
+	if rest, err := io.ReadAll(reader); err != nil || len(rest) != 0 {
+		t.Fatalf("bytes after incomplete event = %q, %v", rest, err)
+	}
+}
+
 func TestStreamingCleanupFailureReplacesCompletion(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -146,6 +195,71 @@ func TestStreamingCleanupFailureReplacesCompletion(t *testing.T) {
 		})
 	}
 }
+
+func TestStreamingWriteFailureStopsDelivery(t *testing.T) {
+	f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "data: {\"type\":\"response.created\",\"sequence_number\":1}\n\n")
+		fmt.Fprintf(w, "data: %s\n\n", completed)
+	})
+	w := &failingEventWriter{accountingWriter: &accountingWriter{ResponseRecorder: httptest.NewRecorder()}}
+	body := strings.NewReader(`{"model":"model","input":"hello","stream":true}`)
+	r := httptest.NewRequest("POST", "/v1/responses", body).WithContext(t.Context())
+	r.Header.Set("Authorization", "Bearer "+f.key)
+	r.Header.Set("Content-Type", "application/json")
+
+	f.handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("stream response = %d, %v", w.Code, w.Header())
+	}
+	if w.writes != 1 {
+		t.Fatalf("write attempts = %d, want 1 with no further events after failure", w.writes)
+	}
+	row, err := f.store.GetRequest(t.Context(), w.Header().Get("X-Request-ID"))
+	if err != nil || row.Result != "delivery_failed" || !row.ResponseStarted {
+		t.Fatalf("write failure record = %+v, error = %v", row, err)
+	}
+}
+
+func TestStreamingFlushFailureStopsDelivery(t *testing.T) {
+	f := newFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "data: {\"type\":\"response.created\",\"sequence_number\":1}\n\n")
+		fmt.Fprintf(w, "data: %s\n\n", completed)
+	})
+	w := &failingFlushWriter{accountingWriter: &accountingWriter{ResponseRecorder: httptest.NewRecorder()}}
+	body := strings.NewReader(`{"model":"model","input":"hello","stream":true}`)
+	r := httptest.NewRequest("POST", "/v1/responses", body).WithContext(t.Context())
+	r.Header.Set("Authorization", "Bearer "+f.key)
+	r.Header.Set("Content-Type", "application/json")
+
+	f.handler.ServeHTTP(w, r)
+
+	reader := bufio.NewReader(w.Body)
+	if event := readEvent(t, reader); event["type"] != "response.created" {
+		t.Fatalf("event written before flush = %v", event)
+	}
+	if rest, err := io.ReadAll(reader); err != nil || len(rest) != 0 {
+		t.Fatalf("bytes after failed flush = %q, %v", rest, err)
+	}
+	row, err := f.store.GetRequest(t.Context(), w.Header().Get("X-Request-ID"))
+	if err != nil || row.Result != "delivery_failed" || !row.ResponseStarted {
+		t.Fatalf("flush failure record = %+v, error = %v", row, err)
+	}
+}
+
+type failingEventWriter struct {
+	*accountingWriter
+	writes int
+}
+
+func (w *failingEventWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, io.ErrClosedPipe
+}
+
+type failingFlushWriter struct{ *accountingWriter }
+
+func (*failingFlushWriter) FlushError() error { return io.ErrClosedPipe }
 
 func readEvent(t *testing.T, reader *bufio.Reader) map[string]any {
 	t.Helper()
