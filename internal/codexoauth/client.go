@@ -61,14 +61,14 @@ type Authorization struct {
 // Client performs bounded token operations without redirects or business retries.
 // Construct it with NewClient; it is safe for concurrent use.
 type Client struct {
-	http    http.Client
-	config  oauth2.Config
-	timeout time.Duration
+	transport http.RoundTripper
+	config    oauth2.Config
+	timeout   time.Duration
 }
 
-// NewClient copies client settings and enforces its timeout through operation
-// contexts, defaulting and capping it at 30 seconds. An empty issuer uses
-// DefaultIssuer. HTTP is allowed only for loopback protocol tests.
+// NewClient uses the client's transport and enforces its timeout through operation
+// contexts, defaulting and capping it at 30 seconds. Cookies and redirects are not
+// used. An empty issuer uses DefaultIssuer. HTTP is allowed only for loopback tests.
 // The caller must not mutate the shared transport or supply a retrying transport.
 func NewClient(client *http.Client, issuer string) (*Client, error) {
 	if client == nil {
@@ -90,26 +90,20 @@ func NewClient(client *http.Client, issuer string) (*Client, error) {
 		return nil, errors.New("codex oauth: invalid issuer")
 	}
 	issuer = strings.TrimRight(issuer, "/")
-	c := &Client{http: *client, config: oauth2.Config{
+	c := &Client{transport: client.Transport, config: oauth2.Config{
 		ClientID: clientID, RedirectURL: RedirectURI,
 		Scopes: []string{"openid", "profile", "email", "offline_access"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL: issuer + "/oauth/authorize", TokenURL: issuer + "/oauth/token",
-			AuthStyle: oauth2.AuthStyleInParams,
 		},
 	}}
-	transport := client.Transport
-	if transport == nil {
-		transport = http.DefaultTransport
+	if c.transport == nil {
+		c.transport = http.DefaultTransport
 	}
-	c.http.Transport = tokenTransport{base: transport}
-	c.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	c.timeout = c.http.Timeout
+	c.timeout = client.Timeout
 	if c.timeout <= 0 || c.timeout > 30*time.Second {
 		c.timeout = 30 * time.Second
 	}
-	// Operation deadlines preserve classified failures that http.Client.Timeout replaces.
-	c.http.Timeout = 0
 	return c, nil
 }
 
@@ -131,24 +125,13 @@ func (c *Client) Exchange(ctx context.Context, code, verifier string) (account.O
 	if !validField(code) || !validField(verifier) {
 		return account.OAuthCredentials{}, &Failure{Kind: FailureRejected}
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, &c.http)
-	token, err := c.config.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	form := url.Values{
+		"grant_type": {"authorization_code"}, "client_id": {c.config.ClientID},
+		"code": {code}, "code_verifier": {verifier}, "redirect_uri": {c.config.RedirectURL},
+	}
+	wire, err := c.requestToken(ctx, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
-		return account.OAuthCredentials{}, safeFailure(ctx, err)
-	}
-	idToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		return account.OAuthCredentials{}, &Failure{Kind: FailureInvalidResponse}
-	}
-	expires, err := json.Marshal(token.Extra("expires_in"))
-	if err != nil {
-		return account.OAuthCredentials{}, &Failure{Kind: FailureInvalidResponse}
-	}
-	wire := tokenResponse{
-		AccessToken: &token.AccessToken, RefreshToken: &token.RefreshToken,
-		IDToken: &idToken, TokenType: token.TokenType, ExpiresIn: expires,
+		return account.OAuthCredentials{}, err
 	}
 	return wire.credentials(account.OAuthCredentials{}, time.Now())
 }
@@ -159,30 +142,51 @@ func (c *Client) Refresh(ctx context.Context, previous account.OAuthCredentials)
 	if !validField(previous.RefreshToken) {
 		return account.OAuthCredentials{}, &Failure{Kind: FailureRejected}
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
 	body, err := json.Marshal(map[string]string{
 		"grant_type": "refresh_token", "client_id": clientID, "refresh_token": previous.RefreshToken,
 	})
 	if err != nil {
 		return account.OAuthCredentials{}, &Failure{Kind: FailureRejected}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.Endpoint.TokenURL, bytes.NewReader(body))
+	wire, err := c.requestToken(ctx, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return account.OAuthCredentials{}, safeFailure(ctx, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return account.OAuthCredentials{}, safeFailure(ctx, err)
-	}
-	defer resp.Body.Close()
-	var wire tokenResponse
-	if json.NewDecoder(resp.Body).Decode(&wire) != nil {
-		return account.OAuthCredentials{}, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
+		return account.OAuthCredentials{}, err
 	}
 	return wire.credentials(previous, time.Now())
+}
+
+func (c *Client) requestToken(ctx context.Context, contentType string, body io.Reader) (*tokenResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.Endpoint.TokenURL, body)
+	if err != nil {
+		return nil, &Failure{Kind: FailureInvalidResponse}
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.transport.RoundTrip(req)
+	if err != nil {
+		return nil, &Failure{Kind: FailureTransient, cause: contextCause(ctx, err)}
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenBody+1))
+	if resp.StatusCode != http.StatusOK {
+		failure := responseFailure(resp, data)
+		failure.cause = contextCause(ctx, err)
+		return nil, failure
+	}
+	if err != nil {
+		return nil, &Failure{Kind: FailureTransient, StatusCode: resp.StatusCode, cause: contextCause(ctx, err)}
+	}
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if len(data) > maxTokenBody || err != nil || mediaType != "application/json" {
+		return nil, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
+	}
+	var wire *tokenResponse
+	if json.Unmarshal(data, &wire) != nil || wire == nil {
+		return nil, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
+	}
+	return wire, nil
 }
 
 type tokenResponse struct {
@@ -266,51 +270,6 @@ func decodeMetadata(token string, dst any) bool {
 	return err == nil && json.Unmarshal(payload, dst) == nil
 }
 
-// Read before handing responses to oauth2: its own limit silently truncates,
-// and its parse/read errors do not preserve context sentinel identity.
-type tokenTransport struct{ base http.RoundTripper }
-
-func (t tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.base.RoundTrip(req)
-	if err != nil {
-		return nil, &Failure{Kind: FailureTransient, cause: contextCause(req.Context(), err)}
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenBody+1))
-	if resp.StatusCode != http.StatusOK {
-		failure := responseFailure(resp, body)
-		failure.cause = contextCause(req.Context(), err)
-		return nil, failure
-	}
-	if err != nil {
-		return nil, &Failure{Kind: FailureTransient, StatusCode: resp.StatusCode, cause: contextCause(req.Context(), err)}
-	}
-	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if len(body) > maxTokenBody || err != nil || mediaType != "application/json" {
-		return nil, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
-	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(body, &fields) != nil || fields == nil {
-		return nil, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
-	}
-	if raw, present := fields["expires_in"]; present {
-		if _, usable := expirySeconds(raw); !usable {
-			// oauth2 rejects malformed expiry before our access-JWT fallback can run.
-			delete(fields, "expires_in")
-			var normalized bytes.Buffer
-			encoder := json.NewEncoder(&normalized)
-			encoder.SetEscapeHTML(false)
-			if encoder.Encode(fields) != nil {
-				return nil, &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
-			}
-			body = normalized.Bytes()
-		}
-	}
-	resp.ContentLength = int64(len(body))
-	resp.Body = io.NopCloser(bytes.NewReader(body))
-	return resp, nil
-}
-
 func responseFailure(resp *http.Response, body []byte) *Failure {
 	f := &Failure{Kind: FailureInvalidResponse, StatusCode: resp.StatusCode}
 	f.RetryAfter, _ = retry.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
@@ -347,16 +306,6 @@ func responseFailure(resp *http.Response, body []byte) *Failure {
 		}
 	}
 	return f
-}
-
-func safeFailure(ctx context.Context, err error) *Failure {
-	if failure, ok := errors.AsType[*Failure](err); ok {
-		return failure
-	}
-	if cause := contextCause(ctx, err); cause != nil {
-		return &Failure{Kind: FailureTransient, cause: cause}
-	}
-	return &Failure{Kind: FailureInvalidResponse}
 }
 
 func contextCause(ctx context.Context, err error) error {
