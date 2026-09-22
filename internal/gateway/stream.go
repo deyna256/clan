@@ -11,7 +11,7 @@ import (
 )
 
 func (h *handler) stream(w http.ResponseWriter, r *http.Request, input codex.Request) {
-	stream, err := h.executor.Stream(r.Context(), bearer(r), requestID(r), input)
+	stream, err := h.executor.Stream(r.Context(), bearer(r), requestInfo(r), input)
 	if stream == nil {
 		h.reject(w, r, classify(err))
 		return

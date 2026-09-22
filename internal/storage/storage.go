@@ -1,4 +1,4 @@
-// Package storage persists CLAN accounts and client access keys in SQLite.
+// Package storage persists CLAN accounts, client access keys and request metadata in SQLite.
 package storage
 
 import (
@@ -17,10 +17,10 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 var (
-	// ErrNotFound means the requested account or access key does not exist.
+	// ErrNotFound means the requested record does not exist.
 	ErrNotFound = errors.New("storage: record not found")
 	// ErrConflict means a value is already in use or a conditional update is stale.
 	ErrConflict = errors.New("storage: record conflicts with existing data")
@@ -46,15 +46,16 @@ type AccessKeyRecord struct {
 	ConcurrencyLimit int
 }
 
-// Store owns one SQLite connection and the cipher used for account credentials.
+// Store owns the operational and report connection pools and the credential cipher.
 // Construct it with [Open] and close it when the process no longer needs it.
 type Store struct {
 	db     *sql.DB
+	readDB *sql.DB
 	cipher *credentialcipher.Cipher
 }
 
-// Open opens path, initializes schema version 1 when needed and authenticates
-// all existing account credential bundles before returning a writable store.
+// Open validates and migrates path, authenticates stored credentials and opens
+// a WAL database with separate operational and read-only report pools.
 func Open(ctx context.Context, path string, cipher *credentialcipher.Cipher) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("%w: database path is required", ErrInvalid)
@@ -75,63 +76,32 @@ func Open(ctx context.Context, path string, cipher *credentialcipher.Cipher) (*S
 	db.SetMaxIdleConns(1)
 
 	store := &Store{db: db, cipher: cipher}
-	if err := store.initialize(ctx); err != nil {
+	if err := store.migrate(ctx); err != nil {
 		return nil, closeAfterOpenError(db, err)
 	}
-	if _, err := store.ListAccounts(ctx); err != nil {
-		return nil, closeAfterOpenError(db, fmt.Errorf("storage: verifying account credentials: %w", err))
+	var mode string
+	if err := db.QueryRowContext(ctx, `PRAGMA journal_mode=WAL`).Scan(&mode); err != nil {
+		return nil, closeAfterOpenError(db, fmt.Errorf("storage: enabling WAL: %w", err))
+	}
+	if mode != "wal" {
+		return nil, closeAfterOpenError(db, errors.New("storage: WAL is required"))
+	}
+	reader, err := sql.Open("sqlite", dsn+"&mode=ro")
+	if err != nil {
+		return nil, closeAfterOpenError(db, err)
+	}
+	reader.SetMaxOpenConns(4)
+	reader.SetMaxIdleConns(4)
+	store.readDB = reader
+	if err := reader.PingContext(ctx); err != nil {
+		return nil, errors.Join(err, store.Close())
 	}
 	return store, nil
 }
 
-// Close releases the store's SQLite connection.
+// Close releases both SQLite connection pools.
 func (s *Store) Close() error {
-	return s.db.Close()
-}
-
-func (s *Store) initialize(ctx context.Context) (err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("storage: beginning schema transaction: %w", err)
-	}
-	defer func() {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			err = errors.Join(err, fmt.Errorf("storage: rolling back schema transaction: %w", rollbackErr))
-		}
-	}()
-
-	var version int
-	if err := tx.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
-		return fmt.Errorf("storage: reading schema version: %w", err)
-	}
-	switch version {
-	case 0:
-		conflict, err := schemaConflict(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if conflict {
-			return errors.New("storage: conflicting schema")
-		}
-		if err := createSchema(ctx, tx); err != nil {
-			return err
-		}
-	case schemaVersion:
-		if err := checkSchemaTables(ctx, tx); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("storage: unsupported schema version %d", version)
-	}
-	if version == 0 {
-		if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 1`); err != nil {
-			return fmt.Errorf("storage: setting schema version: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("storage: committing schema transaction: %w", err)
-	}
-	return nil
+	return errors.Join(s.readDB.Close(), s.db.Close())
 }
 
 func validateAccountID(id account.ID) error {
@@ -159,17 +129,6 @@ func requireAffected(result sql.Result) error {
 	return ErrNotFound
 }
 
-func schemaConflict(ctx context.Context, tx *sql.Tx) (bool, error) {
-	var count int
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT COUNT(*) FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'`,
-	).Scan(&count); err != nil {
-		return false, fmt.Errorf("storage: checking unversioned schema: %w", err)
-	}
-	return count != 0, nil
-}
-
 func createSchema(ctx context.Context, tx *sql.Tx) error {
 	statements := []string{
 		`CREATE TABLE accounts (
@@ -189,23 +148,6 @@ func createSchema(ctx context.Context, tx *sql.Tx) error {
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("storage: creating schema: %w", err)
-		}
-	}
-	return nil
-}
-
-func checkSchemaTables(ctx context.Context, tx *sql.Tx) error {
-	for _, table := range []string{"accounts", "access_keys"} {
-		var count int
-		if err := tx.QueryRowContext(
-			ctx,
-			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
-			table,
-		).Scan(&count); err != nil {
-			return fmt.Errorf("storage: checking schema table: %w", err)
-		}
-		if count != 1 {
-			return errors.New("storage: conflicting schema")
 		}
 	}
 	return nil

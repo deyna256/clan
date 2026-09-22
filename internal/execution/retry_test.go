@@ -38,7 +38,7 @@ func TestRetriesOnlySafeAccountFailures(t *testing.T) {
 			f.addAccount(t, "three")
 			f.addAccount(t, "z")
 
-			result, err := f.executor.Generate(t.Context(), f.key, "retry", f.request)
+			result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "retry"}, f.request)
 			defer result.Close()
 
 			var failure *codex.Failure
@@ -70,7 +70,7 @@ func TestSafeRetryClosesPreviousAttemptBeforeDispatch(t *testing.T) {
 	}))
 	f.addAccount(t, "two")
 
-	result, err := f.executor.Generate(t.Context(), f.key, "retry", f.request)
+	result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "retry"}, f.request)
 	defer result.Close()
 
 	if err != nil {
@@ -94,7 +94,7 @@ func TestTransportFailureNeverRetries(t *testing.T) {
 			}))
 			f.addAccount(t, "two")
 
-			result, err := f.executor.Generate(t.Context(), f.key, "unknown", f.request)
+			result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "unknown"}, f.request)
 			defer result.Close()
 
 			var failure *codex.Failure
@@ -125,7 +125,7 @@ func TestCooldownExpiresOnDemand(t *testing.T) {
 					return resp, nil
 				}))
 
-				limited, err := f.executor.Generate(t.Context(), f.key, "limited", f.request)
+				limited, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "limited"}, f.request)
 				defer limited.Close()
 				if err == nil {
 					t.Fatal("rate limit succeeded")
@@ -134,7 +134,7 @@ func TestCooldownExpiresOnDemand(t *testing.T) {
 					t.Fatal(err)
 				}
 				time.Sleep(tt.delay - time.Nanosecond)
-				early, err := f.executor.Generate(t.Context(), f.key, "early", f.request)
+				early, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "early"}, f.request)
 				defer early.Close()
 				if !errors.Is(err, execution.ErrNoAccounts) {
 					t.Fatalf("early retry = %v", err)
@@ -150,7 +150,7 @@ func TestCooldownExpiresOnDemand(t *testing.T) {
 					t.Fatalf("cooldown hid model: %v, %v", models, err)
 				}
 				time.Sleep(time.Nanosecond)
-				recovered, err := f.executor.Generate(t.Context(), f.key, "recovered", f.request)
+				recovered, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "recovered"}, f.request)
 				defer recovered.Close()
 				if err != nil {
 					t.Fatal(err)
@@ -175,7 +175,7 @@ func TestTerminalFailurePreservesUsageAndCoolsAccountWithoutReplay(t *testing.T)
 	f.addAccount(t, "two")
 	otherKey := f.addKey(t, "other", 1)
 
-	result, err := f.executor.Generate(t.Context(), f.key, "terminal", f.request)
+	result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "terminal"}, f.request)
 	defer result.Close()
 
 	var failure *codex.Failure
@@ -189,7 +189,7 @@ func TestTerminalFailurePreservesUsageAndCoolsAccountWithoutReplay(t *testing.T)
 		t.Fatalf("failed generation replayed: %v", accounts)
 	}
 	for range 2 {
-		next, err := f.executor.Generate(t.Context(), otherKey, "next", f.request)
+		next, err := f.executor.Generate(t.Context(), otherKey, execution.RequestInfo{ID: "next"}, f.request)
 		closeErr := next.Close()
 		if err != nil || closeErr != nil {
 			t.Fatalf("generation = %v, cleanup = %v", err, closeErr)
@@ -221,12 +221,12 @@ func TestTerminalCooldownStartsBeforeDeliveryAndIsNotExtendedByClose(t *testing.
 				if event, err := stream.Next(); err != nil || len(event) == 0 {
 					t.Fatalf("terminal event = %s, error = %v", event, err)
 				}
-				same, err := f.executor.Generate(t.Context(), f.key, "same-key", f.request)
+				same, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "same-key"}, f.request)
 				defer same.Close()
 				if !errors.Is(err, concurrency.ErrLimitReached) {
 					t.Fatalf("terminal delivery released slot: %v", err)
 				}
-				other, err := f.executor.Generate(t.Context(), otherKey, "other-key", f.request)
+				other, err := f.executor.Generate(t.Context(), otherKey, execution.RequestInfo{ID: "other-key"}, f.request)
 				defer other.Close()
 				if !errors.Is(err, execution.ErrNoAccounts) || calls != 1 {
 					t.Fatalf("limited account admitted: error = %v, upstream calls = %d", err, calls)
@@ -236,7 +236,7 @@ func TestTerminalCooldownStartsBeforeDeliveryAndIsNotExtendedByClose(t *testing.
 					t.Fatal(err)
 				}
 				time.Sleep(30 * time.Second)
-				result, err := f.executor.Generate(t.Context(), f.key, "recovered", f.request)
+				result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "recovered"}, f.request)
 				defer result.Close()
 
 				if err != nil || calls != 2 {
@@ -285,7 +285,7 @@ func TestOverlappingFailuresCannotShortenCooldown(t *testing.T) {
 			}
 		}
 		time.Sleep(time.Minute)
-		early, err := f.executor.Generate(t.Context(), f.key, "early", f.request)
+		early, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "early"}, f.request)
 		defer early.Close()
 		if !errors.Is(err, execution.ErrNoAccounts) {
 			t.Fatalf("shorter failure replaced longer cooldown: %v", err)
@@ -294,7 +294,7 @@ func TestOverlappingFailuresCannotShortenCooldown(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Minute)
-		ready, err := f.executor.Generate(t.Context(), f.key, "ready", f.request)
+		ready, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "ready"}, f.request)
 		defer ready.Close()
 		if err != nil {
 			t.Fatal(err)

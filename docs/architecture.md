@@ -1,17 +1,18 @@
 # Architecture
 
-This is the first-release design. The [README](../README.md#first-release) defines
-its supported features. See [Running CLAN](running.md) for startup configuration.
+This describes the current gateway. The [README](../README.md#first-release)
+records its first-release scope. See [Running CLAN](running.md) for startup
+configuration.
 
 ## Responsibilities
 
 | Module | Responsibility |
 |---|---|
 | HTTP API | Routes, request parsing and validation, JSON/SSE output and client errors |
-| Request execution | Key checks, concurrency slots, account selection, safe retries, cancellation and outcome logs |
+| Request execution | Key checks, concurrency slots, account selection, safe retries, cancellation and outcome recording |
 | Codex integration | OAuth protocol, upstream calls, required conversion, failure classification and usage extraction |
-| Management | Account connection and status, access-key lifecycle and settings |
-| Storage | SQLite persistence for accounts, encrypted credentials, key hashes and settings |
+| Management | Account connection and status, access-key lifecycle and settings, usage reports |
+| Storage | SQLite persistence for accounts, encrypted credentials, key hashes, settings and request metadata |
 
 These are responsibilities within one process, not required packages or an
 interface for every module. Keep interfaces small and define them where callers
@@ -43,6 +44,7 @@ The HTTP JSON management API lives under `/api` and requires a separate admin to
 | Codex accounts | Connect, inspect status, disable, enable and delete |
 | Client access keys | Create, list, revoke and update concurrency limits |
 | Models | List available models |
+| Usage | Summarize usage and inspect generation records |
 
 All client keys share the connected accounts and available models. They do not
 carry individual account or model permissions.
@@ -125,8 +127,9 @@ including work started for accounts that have since been removed or updated.
 
 ## State and diagnostics
 
-SQLite stores account records, encrypted OAuth credentials, access-key hashes and
-key settings. Active requests and round-robin positions live in memory.
+SQLite stores account records, encrypted OAuth credentials, access-key hashes,
+key settings and generation metadata. Active requests and round-robin positions
+live in memory.
 [ADR 0007](decisions/0007-use-sqlite.md) defines storage ownership.
 
 Use structured JSON logs for:
@@ -135,17 +138,37 @@ Use structured JSON logs for:
 - Failures and account switches: safe reasons and account IDs.
 - Observed token usage, with unknown counts distinct from zero.
 
-Credentials, request content and response content must stay out of logs. There
-is no database request history or management endpoint for historical consumption.
-Known usage does not block new requests; a client can consume the subscription
-through sequential requests despite its concurrency limit.
+Credentials, request content and response content must stay out of logs and
+request records. Known usage does not block new requests; a client can consume
+the subscription through sequential requests despite its concurrency limit.
+
+### Usage accounting
+
+Execution records authenticated generation requests after delivery and cleanup,
+including early rejections. Admitted requests keep their concurrency slot until
+recording returns. Failed writes are logged without changing the client response;
+unknown usage remains distinct from zero. See [ADR 0016](decisions/0016-record-request-metadata.md)
+for scope and guarantees, and the [API reference](management-api.md#usage-and-request-history)
+for reports.
+
+### Database lifecycle
+
+SQLite uses WAL with separate operational and read-only report connections, so
+reports do not occupy the connection used for authentication and writes. Both
+pools still share CPU and disk. See [ADR 0007](decisions/0007-use-sqlite.md).
+
+Startup validates the database and credentials before applying embedded
+[Goose migrations](decisions/0015-use-goose-for-migrations.md). The application
+owns hourly retention and stops it before closing storage, including on startup
+failure. Retention settings and backups are covered in [Running CLAN](running.md).
 
 ## Existing code
 
 The code contains OAuth account snapshots, named access keys and secret
 verification, credential encryption, per-key concurrency slots, model-based
 round-robin, observed usage types and Retry-After parsing.
-[SQLite storage](../internal/storage/storage.go) persists accounts and key settings.
+[SQLite storage](../internal/storage/storage.go) persists accounts, key settings
+and request metadata, and executes usage queries.
 
 The [Codex client](../internal/codex/client.go) implements Responses generation,
 SSE streaming and authenticated model discovery. Its catalog refreshes on demand.
@@ -155,9 +178,9 @@ on-demand refresh and persisted credential replacement.
 
 The [executor](../internal/execution/execution.go) joins key admission, OAuth,
 catalog validation, selection and attempts. It owns the catalog and active request
-cleanup. Management must use its mutation methods for revocation, account removal
-and concurrency edits. Join execution and OAuth work before closing idle HTTP
-connections, then close storage last.
+cleanup and recording. Management must use its mutation methods for
+revocation, account removal and concurrency edits. Join execution and OAuth work
+before closing idle HTTP connections, then close storage last.
 
 The [management handler](../internal/management/management.go) exposes these
 operations through authenticated HTTP JSON. It borrows the shared services;
@@ -167,7 +190,8 @@ into one HTTP server. Client delivery holds the request slot until completion or
 abort. Logs include whether the HTTP response started and whether delivery failed.
 
 On SIGINT or SIGTERM, stop intake and cancel generations immediately. Allow at most
-30 seconds for HTTP handlers, execution and OAuth cleanup; close SQLite last.
+30 seconds for HTTP handlers, execution, retention and OAuth cleanup, including
+request recording; close SQLite last.
 If cleanup cannot finish, exit with an error without closing storage under live
 workers. OAuth token rotation and database writes are not one transaction, so a
 forced exit may still require a new sign-in.

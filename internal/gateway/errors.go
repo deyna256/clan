@@ -99,10 +99,30 @@ func writeError(d *delivery, r *http.Request, failure clientError, started func(
 
 func (h *handler) reject(w http.ResponseWriter, r *http.Request, failure clientError) {
 	closeUnreadConnection(w, r)
-	h.logger.InfoContext(r.Context(), "client request rejected", "request_id", requestID(r), "code", failure.Code, "http_status", failure.status)
-	d := newDelivery(w, r.Context())
-	defer d.close()
-	if !writeError(d, r, failure, nil) {
-		h.logger.WarnContext(r.Context(), "client error delivery failed", "request_id", requestID(r))
+	meta := metadata(r)
+	record := r.Method == http.MethodPost && r.URL.Path == "/v1/responses" && meta != nil && meta.keyID != ""
+	if !record {
+		h.logger.InfoContext(r.Context(), "client request rejected", "request_id", requestID(r), "code", failure.Code, "http_status", failure.status)
 	}
+	d := newDelivery(w, r.Context())
+	started := false
+	delivered := writeError(d, r, failure, func() { started = true })
+	d.close()
+	if !record {
+		if !delivered {
+			h.logger.WarnContext(r.Context(), "client error delivery failed", "request_id", requestID(r))
+		}
+		return
+	}
+	outcome := failure.Code
+	if !delivered {
+		outcome = "delivery_failed"
+	}
+	if err := meta.original.Err(); err != nil {
+		outcome = "canceled"
+		if errors.Is(err, context.DeadlineExceeded) {
+			outcome = "timeout"
+		}
+	}
+	h.executor.RecordRejection(meta.original, meta.info, meta.keyID, meta.model, outcome, started)
 }

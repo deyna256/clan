@@ -13,6 +13,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/deyna256/clan/internal/storage"
+	"github.com/deyna256/clan/internal/usage"
 )
 
 func TestUploadFailuresReturnClientErrors(t *testing.T) {
@@ -81,6 +84,7 @@ func TestRevocationInterruptsWriteAndWaitsForDeliveryCleanup(t *testing.T) {
 		upstream, want int
 	}{
 		{name: "JSON completion", body: input, upstream: 200, want: 200},
+		{name: "SSE completion", body: `{"model":"model","input":"hello","stream":true}`, upstream: 200, want: 200},
 		{name: "JSON open failure", body: input, upstream: 502, want: 502},
 		{name: "SSE open failure", body: `{"model":"model","input":"hello","stream":true}`, upstream: 502, want: 502},
 	} {
@@ -144,6 +148,20 @@ func TestRevocationInterruptsWriteAndWaitsForDeliveryCleanup(t *testing.T) {
 			if !strings.Contains(logs, `"result":"canceled"`) || strings.Contains(logs, `"result":"completed"`) {
 				t.Fatalf("canceled delivery outcome = %s", logs)
 			}
+			row, err := f.store.GetRequest(t.Context(), w.Header().Get("X-Request-ID"))
+			if err != nil || row.Result != "canceled" || !row.ResponseStarted || row.KeyID != "key" || row.AccountID != "one" {
+				t.Fatalf("revocation record = %+v, error = %v", row, err)
+			}
+			var wantUsage usage.Snapshot
+			if tt.upstream == 200 {
+				wantUsage = usage.Snapshot{
+					Input: usage.Counter{Known: true, Tokens: 7}, Output: usage.Counter{Known: true, Tokens: 3},
+					Total: usage.Counter{Known: true, Tokens: 10},
+				}
+			}
+			if row.Usage != wantUsage {
+				t.Fatalf("revocation usage = %+v, want %+v", row.Usage, wantUsage)
+			}
 
 			if w.Code != tt.want {
 				t.Fatalf("response status = %d, want %d", w.Code, tt.want)
@@ -152,6 +170,57 @@ func TestRevocationInterruptsWriteAndWaitsForDeliveryCleanup(t *testing.T) {
 				t.Fatal("open failure response lacks retry suppression")
 			}
 		})
+	}
+}
+
+func TestClientDisconnectPersistsCanceledStream(t *testing.T) {
+	release := make(chan struct{})
+	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"delta\":\"hello\"}\n\n")
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	done := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.handler.ServeHTTP(w, r)
+		close(done)
+	}))
+	defer server.Close()
+	defer close(release)
+	request, err := http.NewRequestWithContext(t.Context(), "POST", server.URL+"/v1/responses", strings.NewReader(`{"model":"model","input":"hello","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+f.key)
+	request.Header.Set("Content-Type", "application/json")
+	server.Client().Timeout = 3 * time.Second
+
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if event := readEvent(t, bufio.NewReader(response.Body)); event["delta"] != "hello" {
+		t.Fatalf("first stream event = %v", event)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("disconnected request did not finish cleanup")
+	}
+
+	row, err := f.store.GetRequest(t.Context(), response.Header.Get("X-Request-ID"))
+	if err != nil || row.Result != "canceled" || !row.ResponseStarted || row.KeyID != "key" || row.AccountID != "one" {
+		t.Fatalf("disconnect record = %+v, error = %v", row, err)
+	}
+	if row.Usage != (usage.Snapshot{}) {
+		t.Fatalf("disconnect invented usage = %+v", row.Usage)
 	}
 }
 
@@ -175,6 +244,14 @@ func TestCancellationInterruptsEarlyErrorDelivery(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("early error write did not start")
 	}
+	if rows, err := f.store.ListRequests(t.Context(), storage.RequestFilter{}, nil, 100); err != nil || len(rows) != 0 {
+		t.Fatalf("recorded before delivery cleanup: %+v %v", rows, err)
+	}
+	if strings.Contains(f.logs.String(), `"msg":"request finished"`) {
+		t.Fatal("final log before delivery cleanup")
+	}
+	// Shutdown can close execution while this unadmitted HTTP handler is draining.
+	f.executor.Close()
 
 	cancel()
 	select {
@@ -190,6 +267,10 @@ func TestCancellationInterruptsEarlyErrorDelivery(t *testing.T) {
 	}
 	if w.Code != 429 {
 		t.Fatalf("early error status = %d, want concurrency limit", w.Code)
+	}
+	row, err := f.store.GetRequest(t.Context(), w.Header().Get("X-Request-ID"))
+	if err != nil || row.Result != "canceled" || !row.ResponseStarted {
+		t.Fatalf("final row=%+v err=%v", row, err)
 	}
 }
 

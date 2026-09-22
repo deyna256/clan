@@ -1,16 +1,17 @@
 # ADR 0007: Use SQLite for the first release
 
-Status: Accepted. Reviewed: 2026-09-13.
+Status: Accepted. Reviewed: 2026-09-22.
 
 ## Context
 
-The first release runs as one process or container. It needs persistent account
-and key settings, but no token budgets or database request history.
+CLAN runs as one process or container. It needs persistent account and key
+settings and request metadata for usage reports, but no token budgets.
 
 ## Decision
 
 Use SQLite as the only database. Persist account records, encrypted OAuth
-credentials, access-key hashes and key settings. Keep active requests and
+credentials, access-key hashes, key settings and
+[request metadata](0016-record-request-metadata.md). Keep active requests and
 round-robin positions in process memory.
 
 An account record contains its CLAN ID, name, enabled flag and an encrypted
@@ -40,10 +41,18 @@ SQLite avoids a separate database service. PostgreSQL would add deployment and
 test work without serving an initial requirement, so it is deferred.
 
 The [store](../../internal/storage/storage.go) uses `database/sql` with the pure-Go
-`modernc.org/sqlite` driver and one connection for small configuration operations.
-It initializes schema version 1 in a transaction using `PRAGMA user_version` and
-rejects unknown versions or conflicting unversioned databases. Opening a store
-authenticates existing credential bundles before allowing writes.
+`modernc.org/sqlite` driver. WAL mode and one operational connection serve
+authentication, configuration writes, accounting and retention. A separate
+read-only pool of up to four connections serves reports so their queries do not
+occupy the operational connection. They still share CPU and disk.
+
+[Goose migrations](0015-use-goose-for-migrations.md) upgrade the schema after
+compatibility and credential checks. WAL and the report pool open only after
+migration and validation succeed.
+
+WAL requires a local file system and changes
+[backup requirements](../running.md#backup-and-upgrades): copying only the main
+database file from a running gateway is insufficient.
 
 External write locks can delay context cancellation until the five-second SQLite
 busy timeout expires. Database location and encryption-key provisioning belong to

@@ -9,6 +9,9 @@ import (
 )
 
 func (s *service) routes(api huma.API) {
+	register(api, huma.Operation{OperationID: "summarize-usage", Method: http.MethodGet, Path: "/usage"}, s.summarizeUsage)
+	register(api, huma.Operation{OperationID: "list-requests", Method: http.MethodGet, Path: "/requests"}, s.listRequests)
+	register(api, huma.Operation{OperationID: "get-request", Method: http.MethodGet, Path: "/requests/{id}"}, s.getRequest)
 	register(api, huma.Operation{OperationID: "start-login", Method: http.MethodPost, Path: "/oauth/login"}, s.startLogin)
 	register(api, huma.Operation{OperationID: "login-status", Method: http.MethodGet, Path: "/oauth/login"}, s.loginStatus)
 	register(api, huma.Operation{

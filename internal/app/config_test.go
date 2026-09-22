@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
@@ -16,22 +17,32 @@ func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if c.usageRetention != 90*24*time.Hour {
+		t.Fatalf("retention = %s", c.usageRetention)
+	}
 	if c.listenAddr != "127.0.0.1:8080" || c.callbackAddr != "127.0.0.1:1455" || c.dbPath != "./clan.db" {
 		t.Fatalf("incorrect defaults: listen=%s callback=%s database=%s", c.listenAddr, c.callbackAddr, c.dbPath)
 	}
 	env["CLAN_LISTEN_ADDR"] = "[::1]:9000"
 	env["CLAN_OAUTH_CALLBACK_ADDR"] = ":1455"
 	env["CLAN_DB_PATH"] = "/tmp/config-test.db"
+	env["CLAN_USAGE_RETENTION"] = "48h"
 
 	c, err = loadConfig(getenv)
 
 	if err != nil || c.listenAddr != "[::1]:9000" || c.callbackAddr != ":1455" || c.dbPath != "/tmp/config-test.db" {
 		t.Fatalf("overrides were not loaded: %v", err)
 	}
+	if c.usageRetention != 48*time.Hour {
+		t.Fatalf("retention override = %s", c.usageRetention)
+	}
 }
 
 func TestLoadConfigRejectsInvalidValuesWithoutDisclosingThem(t *testing.T) {
 	for _, tt := range []struct{ name, variable, value string }{
+		{name: "invalid retention", variable: "CLAN_USAGE_RETENTION", value: "secret-marker"},
+		{name: "zero retention", variable: "CLAN_USAGE_RETENTION", value: "0"},
+		{name: "negative retention", variable: "CLAN_USAGE_RETENTION", value: "-1h"},
 		{name: "missing admin", variable: "CLAN_ADMIN_TOKEN"},
 		{name: "admin whitespace", variable: "CLAN_ADMIN_TOKEN", value: "secret-marker token"},
 		{name: "admin client key", variable: "CLAN_ADMIN_TOKEN", value: "clan_secret-marker"},

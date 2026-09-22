@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 
 	"github.com/deyna256/clan/internal/codex"
+	"github.com/deyna256/clan/internal/execution"
 )
 
 func TestLogsContainOutcomeAndUsageWithoutContentOrCredentials(t *testing.T) {
@@ -21,7 +22,7 @@ func TestLogsContainOutcomeAndUsageWithoutContentOrCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	generated, err := f.executor.Generate(t.Context(), f.key, "request-123", request)
+	generated, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "request-123"}, request)
 	if err := errors.Join(err, generated.Close()); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestFailureLogsKeepPartialUsageWithoutInventingZeros(t *testing.T) {
 		return response(200, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"usage\":{\"input_tokens\":11}}}\n\n"), nil
 	}))
 
-	result, err := f.executor.Generate(t.Context(), f.key, "partial", f.request)
+	result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "partial"}, f.request)
 	if closeErr := result.Close(); closeErr != nil {
 		t.Fatal(closeErr)
 	}
@@ -96,7 +97,7 @@ func TestUndeliveredTerminalDoesNotLogCompleted(t *testing.T) {
 				var deliveryFailed func()
 				var responseStarted func()
 				if tt.streaming {
-					stream, err := f.executor.Stream(ctx, f.key, "undelivered", f.request)
+					stream, err := f.executor.Stream(ctx, f.key, execution.RequestInfo{ID: "undelivered"}, f.request)
 					defer stream.Close()
 					if err != nil {
 						t.Fatal(err)
@@ -107,7 +108,7 @@ func TestUndeliveredTerminalDoesNotLogCompleted(t *testing.T) {
 					closeResult, deliveryFailed = stream.Close, stream.DeliveryFailed
 					responseStarted = stream.ResponseStarted
 				} else {
-					result, err := f.executor.Generate(ctx, f.key, "undelivered", f.request)
+					result, err := f.executor.Generate(ctx, f.key, execution.RequestInfo{ID: "undelivered"}, f.request)
 					defer result.Close()
 					if err != nil {
 						t.Fatal(err)
