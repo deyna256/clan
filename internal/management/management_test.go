@@ -100,6 +100,7 @@ func TestAuthenticationAndValidation(t *testing.T) {
 		{name: "missing cancel ID", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: `{}`, status: 422},
 		{name: "null cancel ID", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: `{"login_id":null}`, status: 422},
 		{name: "malformed JSON", method: "POST", path: "/api/oauth/login", token: authorization, body: `{"credential-marker`, status: 400},
+		{name: "invalid UTF-8", method: "POST", path: "/api/oauth/login/cancel", token: authorization, body: "{\"login_id\":\"credential-marker\xff\"}", status: 400},
 		{name: "oversized body", method: "POST", path: "/api/oauth/login", token: authorization, body: strings.Repeat("x", 65537), status: 413},
 		{name: "unknown query", method: "GET", path: "/api/accounts?credential-marker=credential-marker", token: authorization, status: 422},
 		{name: "repeated query", method: "GET", path: "/api/accounts?limit=1&limit=2", token: authorization, status: 422},

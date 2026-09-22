@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"log/slog"
 	"mime"
@@ -17,7 +18,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
-	strictjson "sigs.k8s.io/json"
 
 	"github.com/deyna256/clan/internal/codexoauth"
 	"github.com/deyna256/clan/internal/execution"
@@ -144,12 +144,7 @@ func validToken(token string) bool {
 }
 
 func decodeJSON(data []byte, value any) error {
-	strictErrors, err := strictjson.UnmarshalStrict(data, value,
-		strictjson.DisallowDuplicateFields, strictjson.DisallowUnknownFields)
-	if err != nil {
-		return err
-	}
-	return errors.Join(strictErrors...)
+	return jsonv2.Unmarshal(data, value, jsonv2.RejectUnknownMembers(true))
 }
 
 func authenticate(token string) func(http.Handler) http.Handler {
