@@ -28,7 +28,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 		adminToken:   getenv("CLAN_ADMIN_TOKEN"),
 		callbackAddr: cmp.Or(getenv("CLAN_OAUTH_CALLBACK_ADDR"), "127.0.0.1:1455"),
 	}
-	retention, err := time.ParseDuration(value("CLAN_USAGE_RETENTION", "2160h"))
+	retention, err := time.ParseDuration(cmp.Or(getenv("CLAN_USAGE_RETENTION"), "2160h"))
 	if err != nil || retention <= 0 {
 		return config{}, errors.New("app: CLAN_USAGE_RETENTION must be a positive Go duration")
 	}
