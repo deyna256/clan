@@ -66,12 +66,16 @@ Credentials and request content never appear in logs.
 <td valign="top">
 
 **📦 Nothing else to run**<br>
-One Go binary and one SQLite file, with no CGO, Redis or web panel. Accounts and keys
+One Go binary and a SQLite database, with no CGO, Redis or web panel. Accounts and keys
 are managed through an admin API with an OpenAPI schema.
 
 </td>
 </tr>
 </table>
+
+**Usage reports:** inspect generation outcomes and token usage by key, account,
+model or day through the [admin API](docs/management-api.md#usage-and-request-history).
+Records exclude prompts and responses and are kept for 90 days by default.
 
 ### Principles
 

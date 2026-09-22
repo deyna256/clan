@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/deyna256/clan/internal/accesskey"
 	"github.com/deyna256/clan/internal/account"
 	"github.com/deyna256/clan/internal/codex"
 	"github.com/deyna256/clan/internal/codexoauth"
@@ -42,14 +43,14 @@ func (f modelFetcher) fetchModels(ctx context.Context, previous account.Account)
 
 // Models authenticates a key and returns the shared visible catalog without taking a generation slot.
 func (e *Executor) Models(ctx context.Context, key string) ([]codex.Model, error) {
-	if err := e.CheckKey(ctx, key); err != nil {
+	if _, err := e.CheckKey(ctx, key); err != nil {
 		return nil, err
 	}
 	models, err := e.AvailableModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := e.CheckKey(ctx, key); err != nil {
+	if _, err := e.CheckKey(ctx, key); err != nil {
 		return nil, err
 	}
 	return models, nil
@@ -62,15 +63,18 @@ func (e *Executor) AvailableModels(ctx context.Context) ([]codex.Model, error) {
 	return snapshot.Listed, err
 }
 
-// CheckKey authenticates without acquiring a generation slot or fetching models.
-func (e *Executor) CheckKey(ctx context.Context, key string) error {
+// CheckKey returns the authenticated key ID without acquiring a slot or fetching models.
+func (e *Executor) CheckKey(ctx context.Context, key string) (accesskey.ID, error) {
 	e.gate.RLock()
 	defer e.gate.RUnlock()
 	if e.closed {
-		return ErrClosed
+		return "", ErrClosed
 	}
-	_, err := e.authenticate(ctx, key)
-	return err
+	record, err := e.authenticate(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	return record.Key.Identity().ID, nil
 }
 
 func (e *Executor) snapshot(ctx context.Context) (codex.CatalogSnapshot, error) {

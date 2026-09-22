@@ -32,6 +32,8 @@ type fixture struct {
 	executor *execution.Executor
 	key      string
 	logs     *lockedBuffer
+	store    *storage.Store
+	path     string
 }
 
 func newFixture(t *testing.T, generate http.HandlerFunc) fixture {
@@ -58,7 +60,8 @@ func newFixtureWithTransport(t *testing.T, generate http.HandlerFunc, wrap func(
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := storage.Open(t.Context(), filepath.Join(t.TempDir(), "gateway.db"), cipher)
+	path := filepath.Join(t.TempDir(), "gateway.db")
+	store, err := storage.Open(t.Context(), path, cipher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +106,7 @@ func newFixtureWithTransport(t *testing.T, generate http.HandlerFunc, wrap func(
 		t.Fatal(err)
 	}
 	t.Cleanup(client.CloseIdleConnections)
-	f := fixture{key: raw, logs: new(lockedBuffer)}
+	f := fixture{key: raw, logs: new(lockedBuffer), store: store, path: path}
 	logger := slog.New(slog.NewJSONHandler(f.logs, nil))
 	f.executor, err = execution.New(store, manager, client, logger)
 	if err != nil {

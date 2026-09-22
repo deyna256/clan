@@ -18,6 +18,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/deyna256/clan/internal/credentialcipher"
+	"github.com/deyna256/clan/internal/storage"
 )
 
 const terminalResponse = `{"id":"resp_e2e","object":"response","status":"completed",` +
@@ -155,6 +158,19 @@ func TestApplicationShutdownCancelsActiveGeneration(t *testing.T) {
 	if connection, err := net.DialTimeout("tcp", running.app.listener.Addr().String(), time.Second); err == nil {
 		connection.Close()
 		t.Fatal("shutdown left gateway listener open")
+	}
+	cipher, err := credentialcipher.New(c.encryptionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := storage.Open(t.Context(), c.dbPath, cipher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	row, err := reopened.GetRequest(t.Context(), stream.Header.Get("X-Request-ID"))
+	if err != nil || row.Result != "canceled" || !row.ResponseStarted {
+		t.Fatalf("shutdown record=%+v err=%v", row, err)
 	}
 }
 
@@ -415,7 +431,8 @@ func testConfig(t *testing.T) config {
 	t.Helper()
 	key := make([]byte, 32)
 	return config{
-		listenAddr: "127.0.0.1:0", callbackAddr: "127.0.0.1:0",
+		usageRetention: 90 * 24 * time.Hour,
+		listenAddr:     "127.0.0.1:0", callbackAddr: "127.0.0.1:0",
 		dbPath: filepath.Join(t.TempDir(), "clan.db"), adminToken: "admin-test-token", encryptionKey: key,
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/deyna256/clan/internal/codex"
+	"github.com/deyna256/clan/internal/execution"
 	"github.com/deyna256/clan/internal/gateway"
 )
 
@@ -236,7 +237,7 @@ func TestModelsDoNotUseGenerationSlots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := f.executor.Stream(t.Context(), f.key, "occupied", request)
+	stream, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "occupied"}, request)
 	if stream != nil {
 		defer stream.Close()
 	}

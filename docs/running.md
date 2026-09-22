@@ -11,11 +11,16 @@ Run one gateway process per database.
 | `CLAN_ADMIN_TOKEN` | Required separate bearer token | Same, from `.env` |
 | `CLAN_ENCRYPTION_KEY` | Required standard Base64 encoding of 32 random bytes | Same, from `.env` |
 | `CLAN_OAUTH_CALLBACK_ADDR` | `127.0.0.1:1455` | `0.0.0.0:1455`, published on host `127.0.0.1:1455` |
+| `CLAN_USAGE_RETENTION` | `2160h` (90 days) | Same; override in `.env` |
 
 Generate the secrets once, for example with `openssl rand -hex 32` for the admin
 token and `openssl rand -base64 32` for the encryption key. Store them privately.
 Keep the same encryption key across restarts; a different key cannot open existing
 credentials.
+
+`CLAN_USAGE_RETENTION` accepts a positive Go duration: use `720h` for 30 days,
+not `30d`. Invalid, zero or negative values prevent startup. CLAN deletes expired
+request records hourly.
 
 ## Start with Docker
 
@@ -40,7 +45,7 @@ loopback only. It restarts automatically, including after a reboot, until
 | `just clean` | Remove the container, image and `clan_data` volume after confirmation |
 
 Back up the `clan_data` volume together with `.env`. Stop CLAN with `just down`
-first, so the database copy is consistent.
+before copying the volume; see [backup and upgrades](#backup-and-upgrades).
 
 ## Start from source
 
@@ -52,9 +57,28 @@ go build -o .local/clan ./cmd/clan
 .local/clan
 ```
 
-SQLite is created on startup; its parent directory must exist. Keep the database
-and encryption key in your backups. Logs are JSON on stderr. Defaults bind only
-to loopback. For remote access, use a trusted TLS reverse proxy.
+SQLite is created on startup; its parent directory must exist and be on a local
+file system. Network file systems are unsupported. Keep the database and
+encryption key in your backups. Logs are JSON on stderr. Defaults bind only to
+loopback. For remote access, use a trusted TLS reverse proxy.
+
+## Backup and upgrades
+
+Back up before upgrading. CLAN upgrades the database automatically at startup,
+preserving accounts, keys and encrypted credentials. Keep the same encryption
+key. Unsupported schema versions and invalid migration history prevent startup.
+
+SQLite uses WAL mode, with `clan.db-wal` and `clan.db-shm` alongside `clan.db`.
+Copying only `clan.db` while CLAN runs can lose committed data. Stop CLAN before
+copying its database directory, or run SQLite's backup command on the database host:
+
+```sh
+sqlite3 clan.db ".backup backup.db"
+```
+
+Keep the backup and encryption key private. CLAN 0.1.x cannot open an upgraded
+database. To revert, stop CLAN and restore a pre-upgrade backup; this discards
+changes made since the backup. There are no down migrations.
 
 ## Connect an account
 
@@ -115,7 +139,8 @@ See [client setup](client-contract.md#opencode) and the
 ## Stop and restart
 
 Send SIGINT or SIGTERM. CLAN cancels generations, waits for cleanup and lets
-current OAuth jobs save credentials. Shutdown has a 30-second limit; failure to
+current OAuth jobs save credentials. Shutdown waits for request recording and
+stops retention before closing SQLite. It has a 30-second limit; failure to
 finish exits with an error. A forced exit during provider token rotation can
 require signing in again. Restart with the same database and encryption key.
 

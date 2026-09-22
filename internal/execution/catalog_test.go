@@ -26,26 +26,26 @@ func TestCheckKeyAuthenticatesWithoutDiscoveryOrSlotAcquisition(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.executor.CheckKey(t.Context(), f.key); err != nil {
+	if _, err := f.executor.CheckKey(t.Context(), f.key); err != nil {
 		t.Fatalf("valid key with no available slots = %v", err)
 	}
-	if _, err := f.executor.Stream(t.Context(), f.key, "zero", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+	if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "zero"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("generation with no available slots = %v, want limit", err)
 	}
-	if err := f.executor.CheckKey(t.Context(), "invalid"); !errors.Is(err, execution.ErrUnauthorized) {
+	if _, err := f.executor.CheckKey(t.Context(), "invalid"); !errors.Is(err, execution.ErrUnauthorized) {
 		t.Fatalf("invalid key = %v, want unauthorized", err)
 	}
 	if err := f.executor.RevokeKey(t.Context(), "key"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrUnauthorized) {
+	if _, err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrUnauthorized) {
 		t.Fatalf("revoked key = %v, want unauthorized", err)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("upstream calls = %d, want none", calls.Load())
 	}
 	f.executor.Close()
-	if err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrClosed) {
+	if _, err := f.executor.CheckKey(t.Context(), f.key); !errors.Is(err, execution.ErrClosed) {
 		t.Fatalf("key check after shutdown = %v, want closed", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestCatalogRefreshesOAuthBeforeDiscoveryAndGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := f.executor.Generate(t.Context(), f.key, "fresh", f.request)
+	result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "fresh"}, f.request)
 	defer result.Close()
 
 	if err != nil {
@@ -137,7 +137,7 @@ func TestSelectionUsesAccountCapabilitiesAndAllowsHiddenModel(t *testing.T) {
 	if err != nil || len(models) != 0 {
 		t.Fatalf("listed models = %v, error = %v", models, err)
 	}
-	result, err := f.executor.Generate(t.Context(), f.key, "capability", request)
+	result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "capability"}, request)
 	defer result.Close()
 
 	if err != nil {
@@ -226,7 +226,7 @@ func TestReconnectedIdentityCannotUseOldCatalog(t *testing.T) {
 		}))
 		finished := make(chan error, 1)
 		go func() {
-			result, err := f.executor.Generate(t.Context(), f.key, "overlap", f.request)
+			result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request)
 			finished <- errors.Join(err, result.Close())
 		}()
 		<-entered

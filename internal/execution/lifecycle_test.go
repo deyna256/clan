@@ -34,7 +34,7 @@ func TestConcurrentAdmissionsAndIndependentKeys(t *testing.T) {
 
 		for range cap(results) {
 			go func() {
-				s, err := f.executor.Stream(t.Context(), f.key, "request", f.request)
+				s, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "request"}, f.request)
 				results <- result{s, err}
 			}()
 		}
@@ -76,7 +76,7 @@ func TestTerminalDeliveryRetainsSlotUntilClose(t *testing.T) {
 	if _, err := s.Next(); !errors.Is(err, io.EOF) {
 		t.Fatalf("read after terminal = %v, want EOF", err)
 	}
-	if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+	if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("admission during terminal delivery = %v, want limit", err)
 	}
 	if err := s.Close(); err != nil {
@@ -101,7 +101,7 @@ func TestOrdinaryDeliveryRetainsSlotUntilClose(t *testing.T) {
 				return response(http.StatusOK, tt.wire), nil
 			}))
 
-			result, err := f.executor.Generate(t.Context(), f.key, "ordinary", f.request)
+			result, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "ordinary"}, f.request)
 			defer result.Close()
 
 			if (err != nil) != tt.failed {
@@ -113,7 +113,7 @@ func TestOrdinaryDeliveryRetainsSlotUntilClose(t *testing.T) {
 					t.Fatalf("partial failure = %v, want invalid response", err)
 				}
 			}
-			overlap, err := f.executor.Generate(t.Context(), f.key, "overlap", f.request)
+			overlap, err := f.executor.Generate(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request)
 			defer overlap.Close()
 			if !errors.Is(err, concurrency.ErrLimitReached) {
 				t.Fatalf("admission during ordinary delivery = %v, want limit", err)
@@ -145,7 +145,7 @@ func TestStreamReadFailureRetainsSlotUntilClose(t *testing.T) {
 	if _, err := s.Next(); err == nil {
 		t.Fatal("empty upstream stream returned no error")
 	}
-	if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+	if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("admission before error delivery Close = %v, want limit", err)
 	}
 	if err := s.Close(); err != nil {
@@ -159,7 +159,7 @@ func TestOpeningFailureRetainsSlotUntilClose(t *testing.T) {
 		return response(http.StatusBadGateway, `{}`), nil
 	}))
 
-	stream, err := f.executor.Stream(t.Context(), f.key, "failed-open", f.request)
+	stream, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "failed-open"}, f.request)
 	defer stream.Close()
 
 	var failure *codex.Failure
@@ -175,7 +175,7 @@ func TestOpeningFailureRetainsSlotUntilClose(t *testing.T) {
 	if result := stream.Result(); len(result.Response) != 0 || result.Usage.Input.Known {
 		t.Fatalf("failed opening result = %+v, want no response or invented usage", result)
 	}
-	overlap, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request)
+	overlap, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request)
 	defer overlap.Close()
 	if !errors.Is(err, concurrency.ErrLimitReached) || overlap != nil {
 		t.Fatalf("admission before failed delivery Close = %v, %v, want nil stream and limit", overlap, err)
@@ -185,7 +185,7 @@ func TestOpeningFailureRetainsSlotUntilClose(t *testing.T) {
 	if err := stream.Close(); err != nil {
 		t.Fatal(err)
 	}
-	next, err := f.executor.Stream(t.Context(), f.key, "next", f.request)
+	next, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "next"}, f.request)
 	defer next.Close()
 	if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusBadGateway || next == nil {
 		t.Fatalf("admission after failed delivery Close = %v, %v, want a new admitted failure", next, err)
@@ -212,7 +212,7 @@ func TestCancellationAndRevocationRetainOrdinaryResultsUntilDeliveryCloses(t *te
 				}))
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				result, err := f.executor.Generate(ctx, f.key, "held", f.request)
+				result, err := f.executor.Generate(ctx, f.key, execution.RequestInfo{ID: "held"}, f.request)
 				defer result.Close()
 				if err != nil {
 					t.Fatal(err)
@@ -238,7 +238,7 @@ func TestCancellationAndRevocationRetainOrdinaryResultsUntilDeliveryCloses(t *te
 				default:
 				}
 				if action == "cancel" {
-					if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+					if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 						t.Fatalf("admission before canceled delivery Close = %v, want limit", err)
 					}
 				}
@@ -258,7 +258,7 @@ func TestCancellationAndRevocationRetainOrdinaryResultsUntilDeliveryCloses(t *te
 				}
 				if action == "cancel" {
 					f.open(t, f.key)
-				} else if _, err := f.executor.Stream(t.Context(), f.key, "revoked", f.request); !errors.Is(err, execution.ErrUnauthorized) {
+				} else if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "revoked"}, f.request); !errors.Is(err, execution.ErrUnauthorized) {
 					t.Fatalf("admission after revocation = %v, want unauthorized", err)
 				}
 				if err := result.Close(); err != nil {
@@ -285,13 +285,13 @@ func TestSlotSpansRetryAndAttemptCleanup(t *testing.T) {
 		opened := make(chan *execution.Stream, 1)
 		failed := make(chan error, 1)
 		go func() {
-			s, err := f.executor.Stream(t.Context(), f.key, "retry", f.request)
+			s, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "retry"}, f.request)
 			opened <- s
 			failed <- err
 		}()
 		<-body.closing
 
-		if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 			t.Errorf("admission during failed-attempt cleanup = %v, want limit", err)
 		}
 		if calls.Load() != 1 {
@@ -312,7 +312,7 @@ func TestSlotSpansRetryAndAttemptCleanup(t *testing.T) {
 		if calls.Load() != 2 || body.closes.Load() != 1 {
 			t.Fatalf("attempts/closes = %d/%d, want 2/1", calls.Load(), body.closes.Load())
 		}
-		if _, err := f.executor.Stream(t.Context(), f.key, "zero", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "zero"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 			t.Fatalf("admission after limit becomes zero = %v, want limit", err)
 		}
 	})
@@ -332,7 +332,7 @@ func TestRevocationDuringInitializationWaitsForCleanup(t *testing.T) {
 		}))
 		requestDone := make(chan error, 1)
 		go func() {
-			stream, err := f.executor.Stream(t.Context(), f.key, "initializing", f.request)
+			stream, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "initializing"}, f.request)
 			requestDone <- errors.Join(err, stream.Close())
 		}()
 		<-entered
@@ -346,7 +346,7 @@ func TestRevocationDuringInitializationWaitsForCleanup(t *testing.T) {
 			t.Fatalf("revocation returned before upstream cleanup: %v", err)
 		default:
 		}
-		if _, err := f.executor.Stream(t.Context(), f.key, "late", f.request); !errors.Is(err, execution.ErrUnauthorized) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "late"}, f.request); !errors.Is(err, execution.ErrUnauthorized) {
 			t.Fatalf("admission after persisted revocation = %v", err)
 		}
 		unblock()
@@ -380,7 +380,7 @@ func TestRevocationClosesUnreadStreamBeforeReturning(t *testing.T) {
 			t.Fatalf("revocation returned during body Close: %v", err)
 		default:
 		}
-		if _, err := f.executor.Stream(t.Context(), f.key, "late", f.request); !errors.Is(err, execution.ErrUnauthorized) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "late"}, f.request); !errors.Is(err, execution.ErrUnauthorized) {
 			t.Fatalf("admission after revocation = %v", err)
 		}
 		unblock()
@@ -418,7 +418,7 @@ func TestCancellationRetainsSlotUntilConcurrentCloseFinishes(t *testing.T) {
 		}))
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		s, err := f.executor.Stream(ctx, f.key, "cancel", f.request)
+		s, err := f.executor.Stream(ctx, f.key, execution.RequestInfo{ID: "cancel"}, f.request)
 		t.Cleanup(func() { s.Close() })
 		if err != nil {
 			t.Fatal(err)
@@ -427,7 +427,7 @@ func TestCancellationRetainsSlotUntilConcurrentCloseFinishes(t *testing.T) {
 		cancel()
 		<-body.closing
 		synctest.Wait()
-		if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 			t.Errorf("admission during canceled request cleanup = %v, want limit", err)
 		}
 		closes := make(chan error, 4)
@@ -468,7 +468,7 @@ func TestAdmissionRacingRevocationCannotEscapeCancellation(t *testing.T) {
 		for range cap(results) {
 			go func() {
 				<-start
-				s, err := f.executor.Stream(t.Context(), f.key, "racing", f.request)
+				s, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "racing"}, f.request)
 				results <- result{s, err}
 			}()
 		}
@@ -500,7 +500,7 @@ func TestAdmissionRacingRevocationCannotEscapeCancellation(t *testing.T) {
 		if err := <-revoked; err != nil {
 			t.Fatal(err)
 		}
-		if _, err := f.executor.Stream(t.Context(), f.key, "later", f.request); !errors.Is(err, execution.ErrUnauthorized) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "later"}, f.request); !errors.Is(err, execution.ErrUnauthorized) {
 			t.Errorf("later admission = %v, want unauthorized", err)
 		}
 	})
@@ -539,7 +539,7 @@ func TestFailedPersistenceDoesNotCancelActiveRequest(t *testing.T) {
 			if event, err := s.Next(); err != nil || !strings.Contains(string(event), "response.created") {
 				t.Fatalf("active stream after failed write = %s, %v", event, err)
 			}
-			if _, err := f.executor.Stream(t.Context(), f.key, "overlap", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+			if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "overlap"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 				t.Fatalf("admission after failed write = %v, want existing slot limit", err)
 			}
 			if err := s.Close(); err != nil {
@@ -599,7 +599,7 @@ func TestAccountRemovalCancelsWithoutFailover(t *testing.T) {
 				if err != nil || len(models) != 0 {
 					t.Fatalf("models after removing enabled accounts = %v, %v", models, err)
 				}
-				stream, err := f.executor.Stream(t.Context(), f.key, "removed", f.request)
+				stream, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "removed"}, f.request)
 				defer stream.Close()
 				if !errors.Is(err, execution.ErrNoAccounts) {
 					t.Fatalf("generation after account removal = %v", err)
@@ -634,7 +634,7 @@ func TestConcurrencyEditsPreserveExistingRequests(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.executor.Stream(t.Context(), f.key, "still-full", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+	if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "still-full"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("admission with one remaining request = %v, want limit", err)
 	}
 	if err := f.executor.SetConcurrency(t.Context(), "key", 0); err != nil {
@@ -646,7 +646,7 @@ func TestConcurrencyEditsPreserveExistingRequests(t *testing.T) {
 	if err := second.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.executor.Stream(t.Context(), f.key, "zero", f.request); !errors.Is(err, concurrency.ErrLimitReached) {
+	if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "zero"}, f.request); !errors.Is(err, concurrency.ErrLimitReached) {
 		t.Fatalf("admission with zero limit and no active requests = %v", err)
 	}
 	if err := f.executor.SetConcurrency(t.Context(), "key", concurrency.Unlimited); err != nil {
@@ -715,7 +715,7 @@ func TestCloseWaitsForActiveCleanupAndRejectsNewWork(t *testing.T) {
 			t.Fatal("executor Close returned before stream cleanup")
 		default:
 		}
-		if _, err := f.executor.Stream(t.Context(), f.key, "closed", f.request); !errors.Is(err, execution.ErrClosed) {
+		if _, err := f.executor.Stream(t.Context(), f.key, execution.RequestInfo{ID: "closed"}, f.request); !errors.Is(err, execution.ErrClosed) {
 			t.Fatalf("admission during Close = %v", err)
 		}
 		if _, err := f.executor.Models(t.Context(), f.key); !errors.Is(err, execution.ErrClosed) {

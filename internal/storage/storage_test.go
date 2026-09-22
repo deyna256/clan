@@ -590,7 +590,7 @@ func TestOpenRejectsNewerSchemaWithoutChangingCredentials(t *testing.T) {
 	}
 	before := readAccountBlob(t, path, "account")
 	db := openRaw(t, path)
-	if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
+	if _, err := db.Exec(`PRAGMA user_version = 99`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {

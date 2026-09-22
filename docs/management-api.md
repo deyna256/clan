@@ -32,6 +32,9 @@ callback uses state and PKCE checks instead of the admin token.
 | PATCH | `/api/client-keys/{id}` | Set the concurrency limit |
 | POST | `/api/client-keys/{id}/revoke` | Revoke the key and cancel its active work |
 | GET | `/api/models` | List the shared visible model catalog |
+| GET | `/api/usage` | Summarize generation usage |
+| GET | `/api/requests` | List generation records with cursor pagination |
+| GET | `/api/requests/{id}` | Read one generation record |
 
 Creation returns 201 for a key and 200 for OAuth instructions. Reads return 200;
 other successful operations return 204. Paths use CLAN IDs, never secret keys.
@@ -104,6 +107,118 @@ shift offsets and repeat or skip entries.
 Model items contain only `id` and `name`. This management format does not change
 the OpenAI-compatible client model endpoint.
 
+Request history uses cursor pagination instead of this offset envelope; see below.
+
+## Usage and request history
+
+CLAN records `POST /v1/responses` with an initially valid key, including early
+validation and concurrency rejections. Initially invalid keys, `GET /v1/models`
+and routing or method errors are excluded. Records contain no prompts, responses,
+IP addresses or credentials. Deleting an account or key keeps its records; read
+current names from the account and key endpoints.
+
+Records appear after delivery and cleanup. A failed save logs a warning without
+changing the client response. Records are kept for 90 days by default; see
+[configuration](running.md#configuration).
+
+### Usage summary
+
+`GET /api/usage` accepts:
+
+| Parameter | Meaning |
+|---|---|
+| `from`, `to` | RFC 3339 bounds, inclusive `from`, exclusive `to`; default `to` is now and default `from` is the effective `to` minus 30 × 24 hours |
+| `group_by` | Comma-separated selection of `key`, `account`, `model`, `day`; default `key`; repeats are invalid |
+| `key_id`, `account_id`, `model` | Optional exact filters, combined with AND |
+
+`from` must be before `to`. Times are normalized to UTC. Records have millisecond
+precision; fractional bounds still apply exactly. For example,
+`[00:00:00.1235, 00:00:00.1245)` includes `.124` but excludes `.123`.
+
+For `group_by=key,model`, a response looks like:
+
+```json
+{
+  "from": "2026-09-01T00:00:00Z",
+  "to": "2026-10-01T00:00:00Z",
+  "items": [{
+    "key_id": "k1",
+    "model": "gpt-test",
+    "requests": 3,
+    "results": {"completed": 2, "canceled": 1},
+    "input_tokens": 120,
+    "output_tokens": 10,
+    "total_tokens": 130,
+    "unknown_usage": 1
+  }]
+}
+```
+
+Items contain the selected group fields (`key_id`, `account_id`, `model`, `day`)
+and metrics. Unknown account or model groups have a JSON `null` value; unselected
+fields are omitted. `day` is a UTC date (`YYYY-MM-DD`). Items sort by selected
+fields in the fixed order key, account, model, day, regardless of `group_by` order.
+No matches returns `items: []`.
+
+`requests` counts records; `results` counts each outcome code without labeling it
+success or failure. Token fields sum known values independently; fields with no
+known values are omitted, and known zero is `0`. `total_tokens` is never calculated
+from input and output. `unknown_usage` counts each request with any unknown
+counter once; its known counters still contribute to the sums.
+
+### Request list and lookup
+
+`GET /api/requests` accepts:
+
+| Parameter | Meaning |
+|---|---|
+| `from`, `to` | Optional RFC 3339 bounds, inclusive `from`, exclusive `to`; each absent bound is unbounded |
+| `key_id`, `account_id`, `model`, `result` | Optional exact filters, combined with AND |
+| `limit` | 1–100; default 50 |
+| `cursor` | `next_cursor` from the preceding page |
+
+When both bounds are present, `from` must be before `to`. Date precision follows
+the summary rules.
+
+```json
+{
+  "items": [{
+    "id": "req_example",
+    "finished_at": "2026-09-17T10:00:00.123Z",
+    "key_id": "k1",
+    "account_id": "a1",
+    "model": "gpt-test",
+    "result": "completed",
+    "duration_ms": 5120,
+    "response_started": true,
+    "input_tokens": 120,
+    "output_tokens": 10,
+    "total_tokens": 130
+  }],
+  "next_cursor": "..."
+}
+```
+
+Records sort by `finished_at DESC, id DESC`. Follow `next_cursor` until it is
+omitted. Empty pages contain `items: []`; there is no `total` or offset. Treat
+cursors as opaque and keep the same filters between pages; `limit` may change.
+Equivalent timestamps with different offsets or fractional notation are accepted.
+Malformed cursors, changed filters, unknown query parameters and invalid values
+return `422`. Retention can remove records between pages.
+
+The record ID matches `request_id` in logs. `account_id` is the account selected
+for the last attempt, even if preparation failed; it is omitted if none was
+selected. `model` is omitted if parsing failed. Unknown token counters are
+omitted; known zero is `0`. Unknown record fields are never emitted as `null`.
+
+`duration_ms` covers gateway handling, delivery and upstream cleanup, excluding
+the accounting write. `response_started` means CLAN committed the HTTP status
+and headers; it does not confirm client receipt. `result` matches the final log
+outcome, including cancellation and delivery failures.
+
+`GET /api/requests/{id}` returns one record in the same item format, or `404` if
+it does not exist or retention deleted it.
+
 ## Errors and completion
 
 Errors use RFC 9457 `application/problem+json`: `status`, `title`, safe `detail`
@@ -133,7 +248,8 @@ requests release their resources. A cleanup timeout returns 503 with type
 `/api/problems/completion-unconfirmed`; the
 stored state may already have changed. Timeout or client disconnection does not
 roll back a saved change or stop cleanup. Reading disabled/revoked state does not
-prove that cleanup has finished. There is no background job or operation registry.
+prove that cleanup has finished. There is no job ID or operation registry for
+tracking cleanup.
 
 ## Request examples
 

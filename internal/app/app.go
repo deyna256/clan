@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,15 +26,17 @@ import (
 const shutdownTimeout = 30 * time.Second
 
 type application struct {
-	server         *http.Server
-	listener       net.Listener
-	callback       net.Listener
-	cancelRequests context.CancelFunc
-	executor       *execution.Executor
-	oauth          *codexoauth.Manager
-	store          *storage.Store
-	httpClient     *http.Client
-	codexClient    *codex.Client
+	server           *http.Server
+	listener         net.Listener
+	callback         net.Listener
+	cancelRequests   context.CancelFunc
+	executor         *execution.Executor
+	oauth            *codexoauth.Manager
+	store            *storage.Store
+	httpClient       *http.Client
+	codexClient      *codex.Client
+	retentionCancel  context.CancelFunc
+	retentionWorkers sync.WaitGroup
 }
 
 // Run reads environment configuration and serves until ctx is canceled or serving
@@ -133,10 +136,12 @@ func newApplication(
 		BaseContext: func(net.Listener) context.Context { return requests },
 		ErrorLog:    slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
+	a.startRetention(c.usageRetention, logger)
 	return a, nil
 }
 
 func (a *application) closeStartup() {
+	a.stopRetention()
 	if a.executor != nil {
 		a.executor.Close()
 	}
@@ -193,6 +198,7 @@ func (a *application) run(ctx context.Context, logger *slog.Logger) error {
 
 func (a *application) shutdown(ctx context.Context) error {
 	a.cancelRequests()
+	a.stopRetention()
 	oauthStopped := make(chan error, 1)
 	go func() { oauthStopped <- a.oauth.Shutdown(ctx) }()
 	executed := make(chan struct{})

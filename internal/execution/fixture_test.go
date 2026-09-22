@@ -121,7 +121,7 @@ func (f fixture) addKey(t *testing.T, id accesskey.ID, limit int) string {
 
 func (f fixture) open(t *testing.T, key string) *execution.Stream {
 	t.Helper()
-	s, err := f.executor.Stream(t.Context(), key, "request", f.request)
+	s, err := f.executor.Stream(t.Context(), key, execution.RequestInfo{ID: "request"}, f.request)
 	t.Cleanup(func() {
 		if err := s.Close(); err != nil {
 			t.Error(err)

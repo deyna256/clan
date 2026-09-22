@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/deyna256/clan/internal/accesskey"
 	"github.com/deyna256/clan/internal/codex"
 	"github.com/deyna256/clan/internal/execution"
 )
@@ -23,6 +24,25 @@ import (
 const maxBody = 16 << 20
 
 type requestIDKey struct{}
+
+type requestMetadata struct {
+	info     execution.RequestInfo
+	keyID    accesskey.ID
+	model    string
+	original context.Context
+}
+
+func metadata(r *http.Request) *requestMetadata {
+	m, _ := r.Context().Value(requestIDKey{}).(*requestMetadata)
+	return m
+}
+
+func requestInfo(r *http.Request) execution.RequestInfo {
+	if m := metadata(r); m != nil {
+		return m.info
+	}
+	return execution.RequestInfo{}
+}
 
 type handler struct {
 	executor *execution.Executor
@@ -58,12 +78,15 @@ func (h *handler) authenticate(next http.Handler) http.Handler {
 		id := "req_" + rand.Text()
 		w.Header().Set("X-Request-ID", id)
 		w.Header().Set("Cache-Control", "no-store")
-		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
+		meta := &requestMetadata{info: execution.RequestInfo{ID: id, Started: time.Now()}, original: r.Context()}
+		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, meta))
 		key := bearer(r)
-		if err := h.executor.CheckKey(r.Context(), key); err != nil {
+		keyID, err := h.executor.CheckKey(r.Context(), key)
+		if err != nil {
 			h.reject(w, r, classify(err))
 			return
 		}
+		meta.keyID = keyID
 		if r.URL.RawQuery != "" {
 			h.reject(w, r, invalidRequest("Query parameters are not supported.", ""))
 			return
@@ -85,8 +108,7 @@ func bearer(r *http.Request) string {
 }
 
 func requestID(r *http.Request) string {
-	id, _ := r.Context().Value(requestIDKey{}).(string)
-	return id
+	return requestInfo(r).ID
 }
 
 func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +130,7 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		h.reject(w, r, classify(err))
 		return
 	}
+	metadata(r).model = input.Model()
 	if input.Streaming() {
 		h.stream(w, r, input)
 		return
@@ -150,12 +173,13 @@ func readBody(w http.ResponseWriter, r *http.Request) (body []byte, err error) {
 }
 
 func (h *handler) generate(w http.ResponseWriter, r *http.Request, input codex.Request) {
-	result, err := h.executor.Generate(r.Context(), bearer(r), requestID(r), input)
+	result, err := h.executor.Generate(r.Context(), bearer(r), requestInfo(r), input)
+	if !result.Admitted() {
+		h.reject(w, r, classify(err))
+		return
+	}
 	defer result.Close()
 	ctx := result.Context()
-	if ctx.Done() == nil {
-		ctx = r.Context()
-	}
 	delivery := newDelivery(w, ctx)
 	defer delivery.close()
 	var terminal struct {

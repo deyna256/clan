@@ -55,7 +55,8 @@ func safeErrors(_ huma.Context, _ string, body any) (any, error) {
 		location := "request"
 		switch entry.Location {
 		case "body", "body.name", "body.concurrency_limit", "body.login_id", "query.limit", "query.offset",
-			"query.q", "query.state", "query.enabled", "path.id":
+			"query.q", "query.state", "query.enabled", "path.id", "query.from", "query.to", "query.group_by",
+			"query.key_id", "query.account_id", "query.model", "query.result", "query.cursor":
 			location = entry.Location
 		default:
 			if strings.HasPrefix(entry.Location, "body.") {

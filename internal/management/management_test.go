@@ -194,6 +194,7 @@ func TestSchemaMountAndConcurrentReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]string{
+		"/usage": {"get"}, "/requests": {"get"}, "/requests/{id}": {"get"},
 		"/oauth/login": {"get", "post"}, "/oauth/login/cancel": {"post"}, "/accounts": {"get"},
 		"/accounts/{id}": {"get", "delete"}, "/accounts/{id}/reconnect": {"post"},
 		"/accounts/{id}/enable": {"post"}, "/accounts/{id}/disable": {"post"},

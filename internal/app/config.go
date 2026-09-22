@@ -6,16 +6,18 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/deyna256/clan/internal/management"
 )
 
 type config struct {
-	listenAddr    string
-	dbPath        string
-	adminToken    string
-	encryptionKey []byte
-	callbackAddr  string
+	listenAddr     string
+	dbPath         string
+	adminToken     string
+	encryptionKey  []byte
+	callbackAddr   string
+	usageRetention time.Duration
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -31,6 +33,11 @@ func loadConfig(getenv func(string) string) (config, error) {
 		adminToken:   getenv("CLAN_ADMIN_TOKEN"),
 		callbackAddr: value("CLAN_OAUTH_CALLBACK_ADDR", "127.0.0.1:1455"),
 	}
+	retention, err := time.ParseDuration(value("CLAN_USAGE_RETENTION", "2160h"))
+	if err != nil || retention <= 0 {
+		return config{}, errors.New("app: CLAN_USAGE_RETENTION must be a positive Go duration")
+	}
+	c.usageRetention = retention
 	encoded := getenv("CLAN_ENCRYPTION_KEY")
 	key, err := base64.StdEncoding.Strict().DecodeString(encoded)
 	if err != nil || len(key) != 32 || strings.ContainsAny(encoded, "\r\n") {
@@ -45,6 +52,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 }
 
 func (c config) validate() error {
+	if c.usageRetention <= 0 {
+		return errors.New("app: CLAN_USAGE_RETENTION must be a positive Go duration")
+	}
 	if management.ValidateConfig(management.Config{AdminToken: c.adminToken}) != nil {
 		return errors.New("app: CLAN_ADMIN_TOKEN must contain a separate valid admin token")
 	}

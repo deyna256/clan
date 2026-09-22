@@ -46,16 +46,17 @@ type Executor struct {
 }
 
 type requestState struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	done            chan struct{}
-	keyID           accesskey.ID
-	accountID       account.ID // Protected by Executor.mu.
-	id              string
-	model           string
-	started         time.Time
-	slot            concurrency.Slot
-	responseStarted atomic.Bool
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	done                 chan struct{}
+	keyID                accesskey.ID
+	accountID            account.ID // Protected by Executor.mu.
+	lastAttemptAccountID account.ID // Protected by Executor.mu.
+	id                   string
+	model                string
+	started              time.Time
+	slot                 concurrency.Slot
+	responseStarted      atomic.Bool
 }
 
 // New borrows the store, OAuth manager, client and logger; Close owns only execution and catalog work.
@@ -72,6 +73,13 @@ func New(store *storage.Store, oauth *codexoauth.Manager, client *codex.Client, 
 		active: make(map[*requestState]struct{}), cooldowns: make(map[account.ID]time.Time)}, nil
 }
 
+// RequestInfo carries the gateway request ID and start time.
+// A zero Started value uses the execution start time.
+type RequestInfo struct {
+	ID      string
+	Started time.Time
+}
+
 // Result holds the ordinary response and its key slot until Close.
 // Its zero value is safe to close; copies share the same cleanup.
 type Result struct {
@@ -79,6 +87,9 @@ type Result struct {
 	stream     *Stream
 	cleanupErr error
 }
+
+// Admitted reports whether the result owns a request that must be finalized by Close.
+func (r Result) Admitted() bool { return r.stream != nil }
 
 // CleanupError reports failure to close the upstream response before delivery.
 func (r Result) CleanupError() error { return r.cleanupErr }
@@ -115,8 +126,9 @@ func (r Result) ResponseStarted() {
 
 // Generate returns a complete Responses result, retaining observed usage on failure.
 // The caller must Close the result after delivery, even when an error is returned.
-func (e *Executor) Generate(ctx context.Context, key, requestID string, input codex.Request) (Result, error) {
-	stream, err := e.Stream(ctx, key, requestID, input)
+// If Admitted is false, the caller owns rejection delivery and recording.
+func (e *Executor) Generate(ctx context.Context, key string, info RequestInfo, input codex.Request) (Result, error) {
+	stream, err := e.Stream(ctx, key, info, input)
 	if err != nil {
 		return Result{stream: stream}, err
 	}
@@ -133,17 +145,18 @@ func (e *Executor) Generate(ctx context.Context, key, requestID string, input co
 
 // Stream returns an admitted request, including when opening its attempt fails.
 // The caller must Close every nonnil stream after delivery or abort, even on error.
-func (e *Executor) Stream(ctx context.Context, key, requestID string, input codex.Request) (*Stream, error) {
-	if strings.TrimSpace(requestID) == "" {
+// A nil stream leaves rejection delivery and recording to the caller.
+func (e *Executor) Stream(ctx context.Context, key string, info RequestInfo, input codex.Request) (*Stream, error) {
+	if strings.TrimSpace(info.ID) == "" {
 		return nil, errors.New("execution: request ID is required")
 	}
-	r, err := e.admit(ctx, key, requestID, input.Model())
+	r, err := e.admit(ctx, key, info, input.Model())
 	if err != nil {
 		return nil, err
 	}
 	if input.OmittedMaxOutputTokens() {
 		e.logger.LogAttrs(ctx, slog.LevelWarn, "max_output_tokens omitted for Codex",
-			slog.String("request_id", requestID), slog.String("key_id", string(r.keyID)), slog.String("model", r.model))
+			slog.String("request_id", info.ID), slog.String("key_id", string(r.keyID)), slog.String("model", r.model))
 	}
 	attempt, err := e.open(r, input)
 	s := &Stream{attempt: attempt, owner: e, request: r, openErr: err}
@@ -157,14 +170,10 @@ func (e *Executor) Stream(ctx context.Context, key, requestID string, input code
 	return s, nil
 }
 
-func (e *Executor) admit(ctx context.Context, rawKey, id, model string) (state *requestState, err error) {
-	started := time.Now()
-	var keyID accesskey.ID
-	defer func() {
-		if err != nil {
-			e.logResult(ctx, id, keyID, model, time.Since(started), codex.Result{}, err, false)
-		}
-	}()
+func (e *Executor) admit(ctx context.Context, rawKey string, info RequestInfo, model string) (*requestState, error) {
+	if info.Started.IsZero() {
+		info.Started = time.Now()
+	}
 	e.gate.RLock()
 	defer e.gate.RUnlock()
 	if e.closed {
@@ -174,7 +183,6 @@ func (e *Executor) admit(ctx context.Context, rawKey, id, model string) (state *
 	if err != nil {
 		return nil, err
 	}
-	keyID = key.Key.Identity().ID
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -186,7 +194,7 @@ func (e *Executor) admit(ctx context.Context, rawKey, id, model string) (state *
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r := &requestState{ctx: ctx, cancel: cancel, done: make(chan struct{}), slot: slot,
-		keyID: key.Key.Identity().ID, id: id, model: model, started: started}
+		keyID: key.Key.Identity().ID, id: info.ID, model: model, started: info.Started}
 	e.active[r] = struct{}{}
 	return r, nil
 }
@@ -208,7 +216,13 @@ func (e *Executor) authenticate(ctx context.Context, rawKey string) (storage.Acc
 
 func (e *Executor) finish(r *requestState, result codex.Result, err error) {
 	r.cancel()
-	e.logResult(r.ctx, r.id, r.keyID, r.model, time.Since(r.started), result, err, r.responseStarted.Load())
+	e.mu.Lock()
+	accountID := r.lastAttemptAccountID
+	e.mu.Unlock()
+	finished := time.Now()
+	e.recordResult(r.ctx, storage.RequestRecord{ID: r.id, FinishedAt: finished, KeyID: r.keyID,
+		AccountID: accountID, Model: r.model, Duration: finished.Sub(r.started),
+		Result: resultCode(result, err), ResponseStarted: r.responseStarted.Load(), Usage: result.Usage})
 	e.mu.Lock()
 	r.slot.Release()
 	delete(e.active, r)

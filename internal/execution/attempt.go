@@ -38,6 +38,9 @@ func (e *Executor) open(r *requestState, input codex.Request) (*codex.Stream, er
 			}
 			return nil, ErrNoAccounts
 		}
+		e.mu.Lock()
+		r.lastAttemptAccountID = selected.id
+		e.mu.Unlock()
 		tried[selected.id] = true
 		if previous != "" {
 			e.logger.LogAttrs(r.ctx, slog.LevelInfo, "trying next account", slog.String("request_id", r.id),
