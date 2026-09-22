@@ -545,6 +545,100 @@ func TestClientTimeoutPreservesDeadline(t *testing.T) {
 	}
 }
 
+func TestRefreshRejectsInvalidTokenContentType(t *testing.T) {
+	for _, tt := range []struct{ name, contentType string }{
+		{name: "empty"},
+		{name: "wrong type", contentType: "text/plain"},
+		{name: "malformed", contentType: "application/json;invalid"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := tokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tt.contentType)
+				io.WriteString(w, `{"access_token":"access","expires_in":120}`)
+			})
+			previous := account.OAuthCredentials{ChatGPTAccountID: "workspace", RefreshToken: "refresh"}
+
+			got, err := client.Refresh(t.Context(), previous)
+
+			failure := assertFailure(t, err, codexoauth.FailureInvalidResponse)
+			if failure.StatusCode != http.StatusOK {
+				t.Errorf("status = %d, want 200", failure.StatusCode)
+			}
+			if got != (account.OAuthCredentials{}) {
+				t.Error("invalid content type exposed candidate credentials")
+			}
+		})
+	}
+}
+
+func TestRefreshMalformedRedirectPreservesFailure(t *testing.T) {
+	client := tokenServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "http://[::1")
+		w.Header().Set("Retry-After", "Tue, 01 Jan 2030 00:00:00 GMT")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})
+	wantCooldown := retry.Cooldown{Kind: retry.RetryAt, Until: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}
+
+	_, err := client.Refresh(t.Context(), account.OAuthCredentials{RefreshToken: "refresh"})
+
+	failure := assertFailure(t, err, codexoauth.FailureInvalidResponse)
+	if failure.StatusCode != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want 307", failure.StatusCode)
+	}
+	if failure.RetryAfter != wantCooldown {
+		t.Errorf("cooldown = %+v, want %+v", failure.RetryAfter, wantCooldown)
+	}
+}
+
+func TestRefreshClosesTokenResponseBody(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   io.Reader
+		kind   codexoauth.FailureKind
+	}{
+		{name: "success", status: 200, body: strings.NewReader(`{"access_token":"access","expires_in":120}`)},
+		{name: "rejected", status: 401, body: strings.NewReader(`{}`), kind: codexoauth.FailureRejected},
+		{name: "read error", status: 200, body: errorReader{err: io.ErrUnexpectedEOF}, kind: codexoauth.FailureTransient},
+		{name: "invalid JSON", status: 200, body: strings.NewReader(`{`), kind: codexoauth.FailureInvalidResponse},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := &trackedTokenBody{Reader: tt.body}
+			transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: tt.status, Header: http.Header{"Content-Type": {"application/json"}}, Body: body,
+				}, nil
+			})
+			client, err := codexoauth.NewClient(&http.Client{Transport: transport}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			previous := account.OAuthCredentials{ChatGPTAccountID: "workspace", RefreshToken: "refresh"}
+
+			_, err = client.Refresh(t.Context(), previous)
+
+			if tt.kind != "" {
+				assertFailure(t, err, tt.kind)
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if body.closes != 1 {
+				t.Fatalf("body closed %d times, want 1", body.closes)
+			}
+		})
+	}
+}
+
+type trackedTokenBody struct {
+	io.Reader
+	closes int
+}
+
+func (b *trackedTokenBody) Close() error {
+	b.closes++
+	return nil
+}
+
 func unusableLifetimes() []struct{ name, value string } {
 	return []struct{ name, value string }{
 		{name: "null", value: `null`},
