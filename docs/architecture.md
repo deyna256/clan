@@ -4,6 +4,9 @@ This describes the current gateway. The [README](../README.md#first-release)
 records its first-release scope. See [Running CLAN](running.md) for startup
 configuration.
 
+For planned support for more providers, see the [roadmap](roadmap.md) and
+[provider design](provider-design.md). Those proposals are not implemented yet.
+
 ## Responsibilities
 
 | Module | Responsibility |

@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/github/license/deyna256/clan)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/deyna256/clan)](https://github.com/deyna256/clan/releases)
 
-[Quick start](#quick-start) · [First release](#first-release) · [How it works](#request-flow) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
+[Quick start](#quick-start) · [First release](#first-release) · [Roadmap](docs/roadmap.md) · [How it works](#request-flow) · [Docs](#documentation) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -232,6 +232,8 @@ differences; there is no separate universal message or event model.
 | Connect OpenCode or the Python SDK and check compatibility | [Client contract](docs/client-contract.md) |
 | Manage accounts, client keys and model lists | [Management API](docs/management-api.md) |
 | Understand modules, management and open questions | [Architecture](docs/architecture.md) |
+| Review the product direction, planned stages and completion checks | [Roadmap](docs/roadmap.md) |
+| Review planned provider interfaces and request flows | [Provider design](docs/provider-design.md) |
 | Write and review Go code and tests | [Development guide](docs/development.md) |
 | Open an issue or PR, or update documentation | [Contributing](CONTRIBUTING.md) |
 | Check community rules | [Code of Conduct](CODE_OF_CONDUCT.md) |
